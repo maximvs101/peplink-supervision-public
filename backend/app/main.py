@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from . import __version__
 from .api import routes, ws
 from .api.security import HoteDeConfianceMiddleware
 from .config import get_settings
@@ -84,7 +85,7 @@ app = FastAPI(
         "Récupère les métriques radio des modems Peplink et expose la qualité de "
         "liaison en temps réel."
     ),
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
