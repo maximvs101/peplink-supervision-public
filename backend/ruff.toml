@@ -1,0 +1,15 @@
+# Le balayage qui a nettoyé le dépôt le 19 septembre : dix imports inutiles,
+# une classe jamais levée, un compteur jamais lu. Règles retenues pour ce
+# qu'elles trouvent de VRAI ici ; écartées celles qui contredisent le code :
+#   E501  les lignes longues sont des commentaires qui mesurent
+#   B008  `Query(...)` en défaut d'argument est l'idiome FastAPI
+#   PERF203  un try/except par tour de boucle est ce qui rend le collecteur
+#            résilient lien par lien
+#   E741  `l` pour une ligne est lisible dans ce dépôt
+#   RUF001-003  les guillemets français et les tirets cadratins sont voulus
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["F", "E", "W", "B", "UP", "SIM", "PERF", "C4", "RUF"]
+ignore = ["E501", "B008", "PERF203", "E741", "RUF001", "RUF002", "RUF003", "SIM117", "E402", "E702", "E731", "RUF012", "SIM115", "B905", "UP017", "UP037", "UP041", "SIM105", "C408", "PERF401"]

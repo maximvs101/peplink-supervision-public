@@ -1,0 +1,648 @@
+{
+ "capture": "max_hd2_8.5.4.json",
+ "router": {
+  "id": "hd2",
+  "name": "HD2",
+  "mode": "router",
+  "site_lat": 48.8566,
+  "site_lon": 2.3522,
+  "wans": [
+   {
+    "router_id": "hd2",
+    "router_name": "HD2",
+    "ts": "2026-09-19T11:01:32Z",
+    "site_lat": 48.8566,
+    "site_lon": 2.3522,
+    "wan": {
+     "kind": "ethernet",
+     "wan_id": "1",
+     "wan_name": "WAN filaire",
+     "connected": true,
+     "operator": null,
+     "plmn": null,
+     "rat": "Ethernet",
+     "band": null,
+     "earfcn": null,
+     "pci": null,
+     "cell_id": null,
+     "tac": null,
+     "enb_id": null,
+     "sector_id": null,
+     "rsrp": null,
+     "rsrq": null,
+     "sinr": null,
+     "rssi": null,
+     "signal_bars": null,
+     "bands": [],
+     "sim_slots": [],
+     "wifi": null,
+     "tx_kbps": 1.0,
+     "rx_kbps": 1.0,
+     "roaming_status": null,
+     "modem_vendor": null,
+     "modem_model": null,
+     "modem_firmware": null,
+     "mtu": null,
+     "carrier_aggregation": null,
+     "network_mode": null,
+     "allowance": null,
+     "period_rx_mb": 689.0,
+     "period_tx_mb": 42.0,
+     "path_latency_ms": null,
+     "path_latency_recent_ms": 0.0,
+     "path_latency_at": "2026-09-19T11:01:27Z",
+     "modem_temperature_c": null,
+     "modem_temperature_at": null,
+     "ip": "10.0.0.2",
+     "tunnel": {
+      "state": "PEER_DOWN",
+      "peer_state": "START",
+      "rtt_ms": null,
+      "loss_percent": null,
+      "out_of_order_percent": null,
+      "loss_percent_up": null,
+      "loss_percent_down": null,
+      "out_of_order_percent_up": null,
+      "out_of_order_percent_down": null,
+      "packets_up": null,
+      "packets_down": null,
+      "tx_kbps": null,
+      "rx_kbps": null,
+      "repair_sent": null,
+      "repair_used": null,
+      "cutoff_ms": null,
+      "beyond_cutoff": false,
+      "cause_scope": "pair",
+      "in_bond": false
+     },
+     "priority": 2,
+     "uptime_s": 8275,
+     "status_message": "Connected",
+     "disabled": false,
+     "operator_name": null
+    },
+    "cell_changes": 0,
+    "disconnects": 0
+   },
+   {
+    "router_id": "hd2",
+    "router_name": "HD2",
+    "ts": "2026-09-19T11:01:32Z",
+    "site_lat": 48.8566,
+    "site_lon": 2.3522,
+    "wan": {
+     "kind": "cellular",
+     "wan_id": "4",
+     "wan_name": "Forfait Bouygues - 20 Go",
+     "connected": true,
+     "operator": "Bouygues",
+     "plmn": "208-20",
+     "rat": "LTE",
+     "band": "B3",
+     "earfcn": "1850",
+     "pci": null,
+     "cell_id": "130392066",
+     "tac": "30102",
+     "enb_id": "509344",
+     "sector_id": "2",
+     "rsrp": -76.0,
+     "rsrq": -14.0,
+     "sinr": 12.8,
+     "rssi": -44.0,
+     "signal_bars": 5,
+     "bands": [
+      {
+       "rat": "LTE",
+       "band": "B3",
+       "label": "LTE Band 3 (1800 MHz)",
+       "channel": "1850",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -76.0,
+       "rsrq": -14.0,
+       "sinr": 12.8,
+       "rssi": -44.0
+      }
+     ],
+     "sim_slots": [
+      {
+       "slot": "1",
+       "card_detected": true,
+       "apn": "internet",
+       "active": true,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      }
+     ],
+     "wifi": null,
+     "tx_kbps": 0.0,
+     "rx_kbps": 0.0,
+     "roaming_status": "home",
+     "modem_vendor": "Quectel",
+     "modem_model": "EC25-E",
+     "modem_firmware": "EC25EFAR02A08M4G",
+     "mtu": 1428,
+     "carrier_aggregation": false,
+     "network_mode": null,
+     "allowance": {
+      "enabled": true,
+      "monthly_allowance_mb": 20480.0,
+      "reset_day": 1,
+      "actions": [
+       "email"
+      ]
+     },
+     "period_rx_mb": 115.0,
+     "period_tx_mb": 2.0,
+     "path_latency_ms": null,
+     "path_latency_recent_ms": 32.0,
+     "path_latency_at": "2026-09-19T11:01:27Z",
+     "modem_temperature_c": null,
+     "modem_temperature_at": null,
+     "ip": "10.0.0.8",
+     "tunnel": {
+      "state": "PEER_DOWN",
+      "peer_state": "START",
+      "rtt_ms": null,
+      "loss_percent": null,
+      "out_of_order_percent": null,
+      "loss_percent_up": null,
+      "loss_percent_down": null,
+      "out_of_order_percent_up": null,
+      "out_of_order_percent_down": null,
+      "packets_up": null,
+      "packets_down": null,
+      "tx_kbps": null,
+      "rx_kbps": null,
+      "repair_sent": null,
+      "repair_used": null,
+      "cutoff_ms": null,
+      "beyond_cutoff": false,
+      "cause_scope": "pair",
+      "in_bond": false
+     },
+     "priority": 2,
+     "uptime_s": 7931,
+     "status_message": "Connected to Bouygues",
+     "disabled": false,
+     "operator_name": "Bouygues"
+    },
+    "cell_changes": 0,
+    "disconnects": 0
+   },
+   {
+    "router_id": "hd2",
+    "router_name": "HD2",
+    "ts": "2026-09-19T11:01:32Z",
+    "site_lat": 48.8566,
+    "site_lon": 2.3522,
+    "wan": {
+     "kind": "cellular",
+     "wan_id": "5",
+     "wan_name": "Forfait Orange 0000000000000- 20 Go",
+     "connected": true,
+     "operator": "Orange",
+     "plmn": "208-01",
+     "rat": "LTE",
+     "band": "B3",
+     "earfcn": "1300",
+     "pci": null,
+     "cell_id": "25735433",
+     "tac": "52641",
+     "enb_id": "100529",
+     "sector_id": "9",
+     "rsrp": -91.0,
+     "rsrq": -11.0,
+     "sinr": 1.2,
+     "rssi": -59.0,
+     "signal_bars": 5,
+     "bands": [
+      {
+       "rat": "LTE",
+       "band": "B3",
+       "label": "LTE Band 3 (1800 MHz)",
+       "channel": "1300",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -91.0,
+       "rsrq": -11.0,
+       "sinr": 1.2,
+       "rssi": -59.0
+      }
+     ],
+     "sim_slots": [
+      {
+       "slot": "1",
+       "card_detected": true,
+       "apn": "internet",
+       "active": true,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      }
+     ],
+     "wifi": null,
+     "tx_kbps": 0.0,
+     "rx_kbps": 0.0,
+     "roaming_status": "home",
+     "modem_vendor": "Quectel",
+     "modem_model": "EC25-E",
+     "modem_firmware": "EC25EFAR02A08M4G",
+     "mtu": 1428,
+     "carrier_aggregation": false,
+     "network_mode": null,
+     "allowance": {
+      "enabled": true,
+      "monthly_allowance_mb": 20480.0,
+      "reset_day": 11,
+      "actions": [
+       "email",
+       "disconnect"
+      ]
+     },
+     "period_rx_mb": 427.0,
+     "period_tx_mb": 5.0,
+     "path_latency_ms": null,
+     "path_latency_recent_ms": 28.0,
+     "path_latency_at": "2026-09-19T11:01:27Z",
+     "modem_temperature_c": null,
+     "modem_temperature_at": null,
+     "ip": "10.0.0.14",
+     "tunnel": {
+      "state": "PEER_DOWN",
+      "peer_state": "START",
+      "rtt_ms": null,
+      "loss_percent": null,
+      "out_of_order_percent": null,
+      "loss_percent_up": null,
+      "loss_percent_down": null,
+      "out_of_order_percent_up": null,
+      "out_of_order_percent_down": null,
+      "packets_up": null,
+      "packets_down": null,
+      "tx_kbps": null,
+      "rx_kbps": null,
+      "repair_sent": null,
+      "repair_used": null,
+      "cutoff_ms": null,
+      "beyond_cutoff": false,
+      "cause_scope": "pair",
+      "in_bond": false
+     },
+     "priority": 2,
+     "uptime_s": 7931,
+     "status_message": "Connected to Orange",
+     "disabled": false,
+     "operator_name": "Orange"
+    },
+    "cell_changes": 0,
+    "disconnects": 0
+   }
+  ],
+  "device": {
+   "model": "Pepwave MAX HD2",
+   "product_code": "MAX-HD2-LTE-E",
+   "serial": "0000-0000-0001",
+   "firmware": "8.5.4 build 5808",
+   "hardware_revision": "5",
+   "name": "EQUIPEMENT-DEMO",
+   "uptime_s": 8747,
+   "cpu_load_percent": 19.8,
+   "power_watts": null,
+   "power_sources": [],
+   "mac_lan": "a8:c0:ea:00:00:01",
+   "temperature_c": null,
+   "power_load_percent": null,
+   "care_plan": "EssentialCare",
+   "care_plan_active": false,
+   "pepvpn_version": "9.2.4",
+   "timezone": "Europe/Paris",
+   "clock_offset_s": 0.0,
+   "config_activating": false,
+   "remote_assistance": false
+  },
+  "capabilities": {
+   "gps": true,
+   "pepvpn": true,
+   "sfc_licensed": false,
+   "sfc_suspended": false,
+   "sfc_throughput_limit_mbps": null,
+   "sfc_expires_at": null,
+   "sfc_quota_remaining_mb": null,
+   "sfc_quota_limit_mb": null,
+   "pepvpn_max_active_profiles": 3,
+   "wan_types": {
+    "1": "ethernet",
+    "2": "ethernet",
+    "3": "wifi",
+    "4": "cellular",
+    "5": "cellular",
+    "7": "wifi"
+   },
+   "lan_repurposed": [],
+   "lan_networks": [
+    {
+     "vlan_id": "0",
+     "name": "RESEAU-DEMO_EXT1"
+    },
+    {
+     "vlan_id": "1",
+     "name": "WIFI Range"
+    }
+   ],
+   "usb_modem_slots": 1,
+   "sim_slots": 2,
+   "per_wan_throughput": true,
+   "provisional": false,
+   "source": "declared"
+  },
+  "status": "connecté",
+  "error": null,
+  "age_seconds": 0.5,
+  "period_seconds": null,
+  "cycle_seconds": null,
+  "bond_routes": [],
+  "bond_profiles": [
+   {
+    "id": "4",
+    "name": "PROFIL-C",
+    "status": "START",
+    "peers_connected": 0,
+    "cloud": false
+   }
+  ],
+  "lan_clients": null,
+  "tunnel_uptime_s": null,
+  "tunnel_attendu": false,
+  "never_connected": [],
+  "alerts": [],
+  "latency_threshold_ms": 1000.0
+ },
+ "sessions": [
+  {
+   "id": 1,
+   "router_id": "hd2",
+   "started_at": "2026-09-19T08:35:40Z",
+   "first_seen": "2026-09-19T11:01:27Z",
+   "last_seen": "2026-09-19T11:01:32Z",
+   "samples": 6,
+   "label": null
+  }
+ ],
+ "timeline": {
+  "router_id": "hd2",
+  "started_at": "2026-09-19T11:01:27Z",
+  "ended_at": "2026-09-19T11:01:37Z",
+  "capped": false,
+  "slice_count": 10,
+  "slice_seconds": 1.0,
+  "lanes": [
+   {
+    "wan_id": "1",
+    "slices": [
+     {
+      "t": 0,
+      "samples": 1,
+      "up": 1,
+      "carrying": 0,
+      "tunnel_known": 1,
+      "sinr_worst": null,
+      "rsrp_worst": null,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     },
+     {
+      "t": 5,
+      "samples": 1,
+      "up": 1,
+      "carrying": 0,
+      "tunnel_known": 1,
+      "sinr_worst": null,
+      "rsrp_worst": null,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     }
+    ]
+   },
+   {
+    "wan_id": "4",
+    "slices": [
+     {
+      "t": 0,
+      "samples": 1,
+      "up": 1,
+      "carrying": 0,
+      "tunnel_known": 1,
+      "sinr_worst": 12.8,
+      "rsrp_worst": -76.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     },
+     {
+      "t": 5,
+      "samples": 1,
+      "up": 1,
+      "carrying": 0,
+      "tunnel_known": 1,
+      "sinr_worst": 12.8,
+      "rsrp_worst": -76.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     }
+    ]
+   },
+   {
+    "wan_id": "5",
+    "slices": [
+     {
+      "t": 0,
+      "samples": 1,
+      "up": 1,
+      "carrying": 0,
+      "tunnel_known": 1,
+      "sinr_worst": 1.2,
+      "rsrp_worst": -91.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     },
+     {
+      "t": 5,
+      "samples": 1,
+      "up": 1,
+      "carrying": 0,
+      "tunnel_known": 1,
+      "sinr_worst": 1.2,
+      "rsrp_worst": -91.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     }
+    ]
+   }
+  ]
+ },
+ "events": {
+  "router_id": "hd2",
+  "started_at": "2026-09-19T11:01:27Z",
+  "ended_at": "2026-09-19T11:01:37Z",
+  "capped": false,
+  "episodes": [],
+  "churn": [
+   {
+    "wan_id": "1",
+    "link_kind": "ethernet",
+    "has_cells": false,
+    "cell_changes": 0,
+    "station_changes": 0,
+    "outages": 0
+   },
+   {
+    "wan_id": "4",
+    "link_kind": "cellular",
+    "has_cells": true,
+    "cell_changes": 0,
+    "station_changes": 0,
+    "outages": 0
+   },
+   {
+    "wan_id": "5",
+    "link_kind": "cellular",
+    "has_cells": true,
+    "cell_changes": 0,
+    "station_changes": 0,
+    "outages": 0
+   }
+  ],
+  "omitted": 0,
+  "latency_threshold_ms": 1000.0
+ },
+ "summary": {
+  "session": {
+   "id": 1,
+   "router_id": "hd2",
+   "started_at": "2026-09-19T08:35:40Z",
+   "first_seen": "2026-09-19T11:01:27Z",
+   "last_seen": "2026-09-19T11:01:32Z",
+   "samples": 6,
+   "label": null
+  },
+  "links": [
+   {
+    "wan_id": "1",
+    "kind": "ethernet",
+    "operator": null,
+    "operators": [],
+    "maneuvers": 0,
+    "samples": 2,
+    "mb_up": 0.0,
+    "mb_down": 0.0,
+    "rtt_samples": 0,
+    "rtt_p50_ms": null,
+    "rtt_p90_ms": null,
+    "rtt_max_ms": null,
+    "path_latency_samples": 360,
+    "path_latency_p50_ms": 0.0,
+    "path_latency_p90_ms": 1.0,
+    "path_latency_max_ms": 6.0,
+    "rsrp_median": null,
+    "rsrp_filled_samples": 0,
+    "outages": 0,
+    "cells": 0,
+    "cell_changes": 0,
+    "cell_changes_per_hour": null
+   },
+   {
+    "wan_id": "4",
+    "kind": "cellular",
+    "operator": "Bouygues",
+    "operators": [
+     "Bouygues"
+    ],
+    "maneuvers": 0,
+    "samples": 2,
+    "mb_up": 0.0,
+    "mb_down": 0.0,
+    "rtt_samples": 0,
+    "rtt_p50_ms": null,
+    "rtt_p90_ms": null,
+    "rtt_max_ms": null,
+    "path_latency_samples": 360,
+    "path_latency_p50_ms": 25.0,
+    "path_latency_p90_ms": 31.0,
+    "path_latency_max_ms": 46.0,
+    "rsrp_median": -76.0,
+    "rsrp_filled_samples": 358,
+    "outages": 0,
+    "cells": 1,
+    "cell_changes": 0,
+    "cell_changes_per_hour": null
+   },
+   {
+    "wan_id": "5",
+    "kind": "cellular",
+    "operator": "Orange",
+    "operators": [
+     "Orange"
+    ],
+    "maneuvers": 0,
+    "samples": 2,
+    "mb_up": 0.0,
+    "mb_down": 0.0,
+    "rtt_samples": 0,
+    "rtt_p50_ms": null,
+    "rtt_p90_ms": null,
+    "rtt_max_ms": null,
+    "path_latency_samples": 360,
+    "path_latency_p50_ms": 26.0,
+    "path_latency_p90_ms": 28.0,
+    "path_latency_max_ms": 42.0,
+    "rsrp_median": -91.0,
+    "rsrp_filled_samples": 358,
+    "outages": 0,
+    "cells": 1,
+    "cell_changes": 0,
+    "cell_changes_per_hour": null
+   }
+  ],
+  "mb_up": 0.0,
+  "mb_down": 0.0,
+  "partial": false,
+  "window_start": null,
+  "window_end": null,
+  "lat": 48.8566,
+  "lon": 2.3522,
+  "radius_m": 0.0,
+  "cells": [],
+  "availability": {
+   "threshold_ms": 150.0,
+   "total_cycles": 2,
+   "observed_cycles": 2,
+   "at_least_one_pct": null,
+   "at_least_two_pct": null,
+   "cycles_in_bond": 0
+  },
+  "diversity": {
+   "cycles": 2,
+   "same_site_pct": 0.0,
+   "same_cell_pct": 0.0,
+   "same_earfcn_pct": 0.0,
+   "site_cycles": 2,
+   "cell_cycles": 2,
+   "earfcn_cycles": 2,
+   "operators": 2
+  },
+  "sites": 2
+ }
+}

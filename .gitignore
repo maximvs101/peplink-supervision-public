@@ -1,0 +1,37 @@
+# Python
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Données locales (mesures, exports ANFR volumineux)
+backend/data/
+backend/*.db
+backend/anfr_*.geojson
+backend/anfr_*.csv
+
+# Configuration locale (contient les secrets des routeurs)
+backend/.env
+backend/routers.yaml
+
+# Captures terrain (IMEI / ICCID / GPS / jetons)
+capture-peplink/
+backend/tools/capture-peplink/
+
+# Node / front
+frontend/node_modules/
+frontend/*.tsbuildinfo
+# `frontend/dist/` est ignoré ici (artefact de build), mais DOIT être copié lors d'un
+# déploiement sur PC de terrain : c'est l'interface servie par le backend.
+frontend/dist/
+
+# Divers
+.DS_Store
+Thumbs.db
+
+# journaux de développement
+*.log
+
+# Exécutable unique (tools/construire_executable.py) : produit par système, jamais versionné
+backend/dist/
+backend/build/

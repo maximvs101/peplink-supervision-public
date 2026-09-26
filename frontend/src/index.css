@@ -1,0 +1,1140 @@
+/*
+ * Supervision radio — système de design.
+ *
+ * L'outil est un INSTRUMENT DE TERRAIN, pas un tableau de bord d'exploitation :
+ * il tourne sur le portable d'un technicien, dans un véhicule à l'arrêt, et sert
+ * pendant une intervention. Trois conséquences qui expliquent tout ce fichier.
+ *
+ *  1. Rien n'est arrondi, rien ne flotte. Les panneaux sont des cadres posés
+ *     bord à bord, séparés par un filet d'un pixel. Le rayon de 10 px et les
+ *     cartes détachées de la version précédente donnaient à l'écran l'allure de
+ *     n'importe quelle console web ; ici la forme dit « appareil de mesure ».
+ *
+ *  2. La couleur ne sert QU'À UNE CHOSE : la qualité radio, en cinq notes. La
+ *     version précédente comptait 27 valeurs chromatiques distinctes dont 19
+ *     reprises telles quelles d'un framework CSS, avec deux rouges pour un même
+ *     fait à un clic d'écart et le même violet pour le RSRP et pour le débit
+ *     montant. Tout le reste est en niveaux de gris et en graisse. Ce qui
+ *     appartient au bond ne reçoit pas une teinte mais de la LUMIÈRE.
+ *
+ *  3. Les chiffres sont en chasse fixe, tabulaires, toujours. Comparer quatre
+ *     SINR est le geste le plus fréquent de cet écran ; il exige des colonnes
+ *     qui s'alignent, pas des tuiles à parcourir en zigzag.
+ *
+ * Sombre uniquement, et assumé : un demi-thème clair mal tenu serait pire qu'un
+ * parti pris. Le fond est un graphite CHAUD et non un bleu-ardoise, pour que les
+ * verts et les ambres de la qualité s'y posent sans virer.
+ */
+
+/* Polices EMPAQUETÉES, jamais servies par un tiers : cet outil sert à
+   superviser la liaison, il doit rester lisible quand elle est coupée. Vite les
+   inline dans `dist`, donc elles partent avec l'interface. Sous-ensemble latin
+   et trois graisses par famille — le reste serait du poids mort. */
+@import '@fontsource/barlow-semi-condensed/latin-400.css';
+@import '@fontsource/barlow-semi-condensed/latin-500.css';
+@import '@fontsource/barlow-semi-condensed/latin-600.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+
+:root {
+  /* --- surfaces, du plus profond au plus haut --- */
+  --ground: #121316;   /* la page */
+  --sunk: #15171b;     /* un creux : piste de bande, fond de jauge */
+  --panel: #191b1f;    /* un panneau */
+  --panel-2: #20232a;  /* en-tête de panneau, ligne survolée */
+  --rule: #2c3037;     /* filet */
+  --rule-soft: #23262c;/* filet interne, entre lignes d'un même bloc */
+
+  /* --- encre. Contrastes mesurés sur --panel (#191b1f) --- */
+  --ink: #ecebe7;      /* 15,6:1 */
+  --ink-2: #a8a8a3;    /* 6,6:1  — texte secondaire */
+  --ink-3: #8b8b84;    /* 4,9:1  — micro-libellés. Au-dessus du seuil AA :
+                          une donnée absente ne doit jamais être le texte le
+                          moins lisible de l'écran, c'est le défaut que la
+                          version précédente avait corrigé à 3,58:1. */
+
+  /* --- LA famille chromatique : la qualité radio, et rien d'autre.
+         Désaturée par rapport aux nuances de framework, calibrée sur ce fond. --- */
+  --q-excellent: #4ec98a;  /* 8,3:1 */
+  --q-bon: #9ec54a;        /* 8,7:1 */
+  --q-moyen: #e0a33c;      /* 7,8:1 */
+  --q-faible: #e5705f;     /* 5,5:1 */
+  --q-inconnu: #a8a8a3;    /* 6,6:1 — l'absence de mesure est SOBRE, pas grise
+                              au point d'être illisible, et surtout pas rouge. */
+
+  /* --- le bond : de la lumière, pas une teinte --- */
+  --bond: #e8f0ff;
+  /* --- le survol du bouton principal, qui s'éclaircit en sombre --- */
+  --ink-hover: #ffffff;
+
+  /* --- échelle typographique : huit pas, un rôle par pas ---
+         La version précédente avait quatorze tailles dont neuf logées dans
+         9 px : un titre de section ne se distinguait de son texte que par sa
+         graisse, et le verdict — la réponse à la question du produit — était le
+         quatrième plus grand élément de l'écran. */
+  --t-micro: 10.5px;   /* libellé capitales traqué */
+  --t-small: 12px;     /* mention, note de bas de bloc */
+  --t-sub: 13.5px;     /* texte secondaire, contrôles */
+  --t-body: 15px;      /* texte courant */
+  --t-lead: 17px;      /* titre de panneau, nom de lien mis en avant */
+  --t-fig: 21px;       /* chiffre dans une liste */
+  --t-fig-lg: 27px;    /* chiffre de tête */
+  --t-verdict: 34px;   /* le verdict, et lui seul */
+
+  /* --- espacement : une seule échelle --- */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+
+  --sans: 'Barlow Semi Condensed', 'Roboto Condensed', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+/* --- Le thème CLAIR, pour le plein jour (R-0.1) ---------------------------
+   Il suit le réglage du système, sauf choix contraire sur ce poste (bascule
+   Auto · Clair · Sombre du bandeau, qui pose `data-theme`). Les mêmes jetons,
+   recalibrés pour un fond clair : le vert de qualité sombre y ferait 2:1.
+   Contrastes mesurés, et tenus par `lib/theme.test.ts` — texte ≥ 4,5:1 sur
+   chaque fond, bond ≥ 3:1. Les deux chemins portent les mêmes valeurs. */
+:root[data-theme="light"] {
+  --ground: #eef0f3;
+  --sunk: #e6e9ee;
+  --panel: #ffffff;
+  --panel-2: #f3f5f8;
+  --rule: #cdd3db;
+  --rule-soft: #e3e7ec;
+  --ink: #15181d;
+  --ink-2: #454b54;
+  --ink-3: #5b616b;
+  --ink-hover: #000000;
+  --q-excellent: #0f7343;
+  --q-bon: #4a7412;
+  --q-moyen: #8c5200;
+  --q-faible: #b8322a;
+  --q-inconnu: #5b616b;
+  --bond: #1d3f73;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ground: #eef0f3;
+    --sunk: #e6e9ee;
+    --panel: #ffffff;
+    --panel-2: #f3f5f8;
+    --rule: #cdd3db;
+    --rule-soft: #e3e7ec;
+    --ink: #15181d;
+    --ink-2: #454b54;
+    --ink-3: #5b616b;
+    --ink-hover: #000000;
+    --q-excellent: #0f7343;
+    --q-bon: #4a7412;
+    --q-moyen: #8c5200;
+    --q-faible: #b8322a;
+    --q-inconnu: #5b616b;
+    --bond: #1d3f73;
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Toute valeur MESURÉE porte cette classe. Chasse fixe et chiffres tabulaires :
+   sans eux, une colonne de SINR ne s'aligne pas et la comparaison — le geste
+   central de cet écran — redevient un parcours en zigzag. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'zero' 1;
+}
+
+/* Le micro-libellé. Une seule valeur de traque, là où la version précédente en
+   avait cinq pour le même rôle. */
+.lbl {
+  font-size: var(--t-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.spacer { flex: 1; }
+
+/* Visible des seuls lecteurs d'écran. `display: none` les en priverait aussi ;
+   il faut un élément qui occupe une place réelle mais nulle. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* La zone défilante de la table reçoit le focus : sans marque visible, on ne
+   saurait pas qu'on y est arrivé au clavier. */
+.ltable-scroll:focus-visible {
+  outline: 2px solid var(--bond);
+  outline-offset: -2px;
+}
+
+/* ==========================================================================
+   BANDEAU DE TÊTE — le verdict occupe la place qui lui revient
+   ========================================================================== */
+
+.mast {
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--s5);
+  align-items: center;
+  padding: var(--s3) var(--s5);
+  background: var(--panel);
+  border-bottom: 1px solid var(--rule);
+}
+
+.mast-id {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-right: var(--s5);
+  border-right: 1px solid var(--rule);
+  min-width: 0;
+}
+
+.mast-id b {
+  font-size: var(--t-body);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mast-id span {
+  font-size: var(--t-small);
+  color: var(--ink-3);
+}
+
+/* La couleur du verdict entre par cette variable locale, posée en ligne. */
+/* Le détail passe à la ligne plutôt que de perdre sa fin.
+   Mesuré, WAN débranché sur une fenêtre de 1024 px : « 4 liens sur 5 connectés
+   — 1 déconnecté (No Cable Detected) » demandait 331 px et n'en recevait que
+   214, le verdict en grands caractères occupant la moitié de la colonne. La
+   cause — la seule part qui dise OÙ CHERCHER — était la première coupée,
+   puisqu'elle est à la fin. En passant à la ligne, le détail reçoit la colonne
+   entière et tient en entier. La hauteur n'y est cédée que lorsqu'il y a
+   quelque chose à lire : un « Liaison OK » tient sur une ligne. */
+.mast-verdict {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--s3);
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.mast-verdict h1 {
+  margin: 0;
+  font-size: var(--t-verdict);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1;
+  color: var(--v, var(--ink));
+  white-space: nowrap;
+}
+
+.mast-verdict .detail {
+  font-size: var(--t-sub);
+  color: var(--ink-2);
+  /* Il prend ce qui reste sur sa ligne, et la ligne entière s'il y descend. */
+  flex: 1 1 auto;
+  min-width: 0;
+  /* L'ellipse reste, en dernier recours : une cause de deux cents caractères ne
+     tiendrait pas davantage sur une ligne pleine, et `title` la rend alors. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mast-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  align-self: center;
+  background: var(--v, var(--ink-3));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--v, var(--ink-3)) 18%, transparent);
+}
+
+.mast-stamps {
+  display: flex;
+  gap: var(--s5);
+  align-items: flex-start;
+}
+
+.stamp { text-align: right; white-space: nowrap; }
+
+.stamp .v {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-lead);
+  font-weight: 500;
+  display: block;
+  line-height: 1.2;
+}
+
+.stamp.is-stale .v { color: var(--q-faible); }
+
+.mast-tools { display: flex; align-items: center; gap: var(--s2); }
+
+/* Un bandeau de tête sans verdict : les écrans qui ne regardent pas un
+   équipement n'en ont pas à porter. */
+.mast.is-plain { grid-template-columns: auto minmax(0, 1fr) auto; }
+
+/* Deux rangées quand la ligne ne tient plus. Le verdict est en `nowrap` et la
+   colonne du milieu en `minmax(0, 1fr)` : mesuré dans une fenêtre de 961 px,
+   le sélecteur d'équipement et les cachets ne laissaient que 115 px à un
+   « Liaison dégradée » qui en demande 225 — le titre passait SOUS le
+   chronomètre, les deux illisibles. L'identité et les commandes montent sur
+   la première rangée ; le verdict reçoit toute la seconde, cachets à droite. */
+@media (max-width: 1100px) {
+  .mast:not(.is-plain) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "id tools" "verdict stamps";
+    row-gap: var(--s2);
+  }
+  .mast:not(.is-plain) > .mast-id { grid-area: id; border-right: 0; }
+  .mast:not(.is-plain) > .mast-tools { grid-area: tools; }
+  .mast:not(.is-plain) > .mast-verdict { grid-area: verdict; }
+  .mast:not(.is-plain) > .mast-stamps { grid-area: stamps; }
+}
+@media (max-width: 620px) {
+  .mast-verdict h1 { white-space: normal; }
+  /* Sur un téléphone, pas de survol pour lire la fin : le détail passe à la
+     ligne au lieu d'être coupé. C'est sa fin qui dit POURQUOI — mesuré à
+     375 px, « …jamais raccordé depuis… » perdait la cause (revue, Écran). */
+  .mast-verdict .detail { white-space: normal; overflow: visible; text-overflow: clip; }
+}
+
+/* ==========================================================================
+   CADRE DE PAGE
+   ========================================================================== */
+
+.page {
+  max-width: 1580px;
+  margin: 0 auto;
+  padding: var(--s4) var(--s5) var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+/* Colonne étroite pour les écrans de lecture — détail d'un lien, découverte.
+   Le tableau de bord, lui, prend toute la largeur : la version précédente
+   laissait 52 % d'un écran de portable inutilisés. */
+.page.is-narrow { max-width: 1100px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: var(--t-sub);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.panel-head .note {
+  font-size: var(--t-sub);
+  color: var(--ink-3);
+}
+
+.panel-body { padding: var(--s4); }
+
+/* Une note en pied de panneau : elle explique un fait, elle n'alarme pas. */
+.panel-note {
+  margin: 0;
+  padding: var(--s2) var(--s4);
+  border-top: 1px solid var(--rule);
+  font-size: var(--t-small);
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+/* Le pied de notes d'un panneau. Empilées, onze notes d'une demi-phrase
+   coûtaient 385 px sur 1 515 — un quart de la page pour six cents caractères.
+   Elles s'écoulent maintenant, séparées par un filet vertical.
+
+   Le filet est à GAUCHE et non à droite : la note qui ouvre une ligne enroulée
+   porte alors le sien au bord même du panneau, où il se confond avec la bordure
+   du panneau. Un filet à droite laisserait au contraire un trait orphelin au
+   bout de chaque ligne incomplète. */
+.panel-notes {
+  display: flex;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--rule);
+}
+/* Hors panneau, le pied de notes doit porter son propre cadre : le filet de
+   gauche ne se confond avec rien sur le fond nu de la page, et le filet du haut
+   flottait au-dessus de rien. */
+.page > .panel-notes {
+  border: 1px solid var(--rule);
+  background: var(--panel);
+}
+.panel-notes > .panel-note {
+  border-top: 0;
+  border-left: 1px solid var(--rule);
+  min-width: 0;
+}
+.panel-notes > .panel-note:first-child { border-left: 0; }
+
+/* Un bloc principal et son complément : le journal est long et étroit, la fiche
+   technique courte et large. Les empiler coûtait deux cents pixels pour rien. */
+.grid-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+  gap: var(--s4);
+  align-items: start;
+}
+@media (max-width: 1180px) {
+  .grid-side { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ==========================================================================
+   LE PLAN DU BOND — la convergence, dessinée
+   ========================================================================== */
+
+/* Le dessin à gauche, sa LECTURE à droite, et les totaux sur toute la largeur
+   en dessous. Les totaux occupaient la colonne de droite, en pile verticale :
+   cinq chiffres empilés sur 280 px pendant que le tracé, qui est le sujet de la
+   page, se contentait de ce qui restait — et le texte du nœud s'entassait dans
+   le quart droit du SVG, à onze pixels de viewBox. */
+.plan {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: stretch;
+}
+.plan > .panel-head,
+.plan > .plan-totals,
+.plan > .panel-notes { grid-column: 1 / -1; }
+
+/* La lecture : au repos elle décrit le bond, au survol d'un rail ce lien-là. */
+.plan-lecture {
+  border-left: 1px solid var(--rule);
+  padding: var(--s3) var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.plan-lecture-titre { font-size: var(--t-lead); font-weight: 600; line-height: 1.2; }
+.plan-lecture-sous {
+  font-size: var(--t-small);
+  color: var(--ink-3);
+  margin-bottom: var(--s2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-lecture-ligne {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-size: var(--t-sub);
+  padding: 1px 0;
+}
+.plan-lecture-cle { color: var(--ink-3); white-space: nowrap; }
+/* La police et l'alignement des chiffres viennent de `.num`, porté par
+   l'élément — recopiés ici, ils omettaient `font-feature-settings: 'zero' 1` et
+   la lecture affichait donc des zéros différents de toutes les autres colonnes
+   de l'écran. */
+.plan-lecture-val {
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-lecture-aide .au-toucher { display: none; }
+@media (hover: none) {
+  .plan-lecture-aide .au-survol { display: none; }
+  .plan-lecture-aide .au-toucher { display: inline; }
+}
+/* Le reste du micro-libellé vient de `.lbl`, porté par l'élément : cette règle
+   y ajoutait une SIXIÈME valeur de traque (0.06em) dans un système qui les
+   avait justement ramenées à une seule. */
+.plan-lecture-aide {
+  margin-top: auto;
+  padding-top: var(--s2);
+}
+
+/* Le plan se replie PLUS TARD que les autres grilles : à 300 px de lecture, il
+   reste 660 px de tracé sur un volet de 974 — largement de quoi lire la
+   convergence. Aligné sur le point de bascule général, la lecture passait
+   sous le dessin et prenait une bande entière pour cinq paires clé-valeur. */
+@media (max-width: 820px) {
+  .plan { grid-template-columns: minmax(0, 1fr); }
+  .plan-lecture { border-left: 0; border-top: 1px solid var(--rule); }
+}
+
+/* Un rail est une COMMANDE : il mène à la fiche de son lien. */
+.plan-rail { cursor: pointer; transition: opacity 0.12s; }
+/* Le pointage, dit une fois ici plutôt qu'en 2N objets de style réalloués à
+   chaque rendu : seule la piste transparente reçoit le pointeur, le trait
+   visible le laisse passer. */
+.plan-cible { pointer-events: stroke; }
+.plan-rail > .plan-trace, .plan-tie > path:last-of-type { pointer-events: none; }
+.plan-rail:focus { outline: none; }
+.plan-rail:focus-visible { outline: 2px solid var(--bond); outline-offset: 2px; }
+.plan-rail:focus-visible .plan-label { fill: var(--bond); font-weight: 600; }
+
+/* L'accent de survol ne touche PAS l'épaisseur : celle-ci porte le débit, et
+   l'épaissir sous le curseur faisait dire au rail un débit qu'il n'a pas — un
+   lien écarté, tracé à 1,5, passait devant un lien qui porte réellement. */
+.plan-trace { transition: stroke-opacity 0.12s; }
+.plan-rail .plan-trace.is-actif { stroke-opacity: 1; filter: brightness(1.35); }
+
+/* La ligature des rails qui partagent une cellule. Discrète : c'est un fait de
+   structure, pas une alarme — sur ce déploiement il est vrai en permanence. */
+/* `--rule` la rendait invisible sur le fond du panneau : une annotation qu'on
+   ne voit pas ne dit rien. `--ink-3` se remarque sans crier — c'est un fait de
+   structure, vrai en permanence sur ce déploiement, pas une alarme. */
+.plan-tie path { stroke: var(--ink-3); }
+
+.plan-canvas { padding: var(--s2) 0 var(--s2) var(--s4); min-width: 0; }
+.plan-canvas svg { display: block; width: 100%; height: auto; }
+/* Les attributs de présentation SVG n'acceptent pas `var()` : le texte du plan
+   est donc peint par des règles CSS, pour que les tokens restent la seule
+   source de vérité. La version précédente contournait ses propres tokens à
+   cinq endroits, dont tout le graphe. */
+.plan-label { fill: var(--ink-2); font-family: var(--mono); font-size: 12px; }
+.plan-node { fill: var(--bond); }
+
+/* Les totaux, en BANDE horizontale sur toute la largeur. Empilés dans une
+   colonne de 280 px, ils volaient au tracé la moitié de sa place. */
+.plan-totals {
+  border-top: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.plan-totals .tot { border-bottom: 0; border-right: 1px solid var(--rule-soft); }
+.plan-totals .tot:last-child { border-right: 0; }
+
+.tot { padding: var(--s2) var(--s4); border-bottom: 1px solid var(--rule-soft); }
+.tot:last-child { border-bottom: 0; }
+.tot.is-lead { background: var(--panel-2); }
+
+.tot .v {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-fig);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  display: block;
+  line-height: 1.15;
+}
+
+.tot .v small { font-size: var(--t-sub); color: var(--ink-3); font-weight: 400; }
+/* Le chiffre et son unité ne se séparent pas : « 1 cellule · 1 site » passait à
+   la ligne entre « 1 » et « site », laissant un chiffre orphelin en bout de
+   ligne. */
+/* Le chiffre reste soudé à son unité, mais la ligne peut revenir ENTRE les
+   groupes : c'est `white-space: nowrap` sur tout le `.v` qui débordait la piste
+   de grille, faute de pouvoir s'y replier. */
+.tot .v .soude { white-space: nowrap; }
+.tot { min-width: 0; }
+.tot .lbl { display: block; margin-top: 2px; }
+
+/* ==========================================================================
+   LA BANDE DE TEMPS — une colonne de la table des liens
+   ==========================================================================
+   Elle occupait un panneau à elle seule, « Stationnement en cours », qui
+   répétait exactement les lignes de la table — une par lien, dans le même ordre,
+   avec la même identité à gauche. Deux panneaux pour un seul objet, et la
+   hauteur de l'un d'eux perdue à scroller. */
+
+
+/* Le rail de qualité : trois pixels, à gauche de toute identité de lien.
+   C'est le seul porteur de couleur d'une ligne. */
+.rail { width: 3px; align-self: stretch; min-height: 22px; flex: none; background: var(--q, var(--ink-3)); }
+
+/* La colonne qui la porte prend la largeur disponible ; les colonnes de mesure
+   gardent la leur, puisqu'elles ne portent que des nombres. */
+.ltable th.is-band, .ltable td.is-band { width: 34%; min-width: 220px; }
+.ltable td.is-band { padding-top: 8px; padding-bottom: 8px; }
+
+.track {
+  position: relative;
+  display: block;
+  height: 22px;
+  background: var(--sunk);
+  overflow: hidden;
+}
+.track i { position: absolute; top: 0; bottom: 0; display: block; }
+/* Le ruban du bas dit si le lien PORTAIT ; la teinte de fond dit sa qualité.
+   Les deux ne se confondent pas : un lien peut être debout et écarté du bond. */
+.track b { position: absolute; bottom: 0; height: 3px; display: block; }
+.track .now { position: absolute; top: 0; bottom: 0; right: 0; width: 1px; background: var(--bond); opacity: 0.7; }
+
+.ticks {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+}
+
+/* Le pied reprend le remplissage HORIZONTAL du corps, sans quoi sa colonne de
+   bande est 22 px plus large et décalée de 11 px — et toute la lecture
+   verticale s'effondre : c'est précisément l'alignement des creux d'un lien à
+   l'autre qu'on vient chercher ici. L'axe du temps en souffrait déjà. */
+.ltable tfoot td {
+  border-bottom: 0;
+  padding-top: 2px;
+  padding-left: var(--s3);
+  padding-right: var(--s3);
+}
+.ltable tfoot tr:hover td { background: transparent; }
+
+/* La bande de LA LIAISON entière, sous le plan du bond. */
+/* ==========================================================================
+   LA TABLE DES LIENS — comparer, pas feuilleter
+   ========================================================================== */
+
+.ltable-scroll { overflow-x: auto; }
+
+.ltable { width: 100%; border-collapse: collapse; }
+
+.ltable thead th {
+  font-size: var(--t-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+  text-align: right;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  background: var(--panel);
+}
+
+.ltable thead th.l, .ltable td.l { text-align: left; }
+
+.ltable tbody td {
+  padding: 6px var(--s3);
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: right;
+  white-space: nowrap;
+  font-size: var(--t-sub);
+}
+
+.ltable tbody tr:last-child td { border-bottom: 0; }
+.ltable tbody tr:hover td { background: var(--panel-2); }
+.ltable tbody tr.is-down td { color: var(--ink-3); }
+
+.ltable a { color: inherit; text-decoration: none; display: block; }
+
+.who { display: flex; align-items: center; gap: var(--s2); }
+.who b { font-weight: 600; font-size: var(--t-body); display: block; }
+/* Une précision sous une cellule : le remède d'un état, ce qui a identifié un
+   équipement. En retrait, jamais en gras — c'est du second plan qui reste
+   lisible. */
+.sub-note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--t-small);
+  color: var(--ink-3);
+  line-height: 1.4;
+  white-space: normal;
+  max-width: 46ch;
+}
+
+/* La ligne qui déplie un formulaire d'appairage : elle appartient à la ligne
+   du dessus, et le fond le dit. */
+.ltable tr.is-form td { background: var(--sunk); padding: var(--s3) var(--s4); }
+.ltable tr.is-form:hover td { background: var(--sunk); }
+
+.who .sub {
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  display: block;
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Une mesure : le nombre, et sous lui sa position dans la plage utile.
+   La réglette n'est PAS décorative. Une valeur nue ne dit rien de sa marge —
+   « −67 dBm » ne se juge pas sans échelle — et c'est elle, et non le chiffre,
+   qui porte la couleur : un glyphe assez grand pour être LU ne l'est pas assez
+   pour que sa teinte soit DISCRIMINÉE de façon fiable, et la recommandation
+   d'ergonomie est explicite — teinter la forme adjacente, jamais le texte. */
+.meas { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.meas .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-sub);
+  font-weight: 500;
+}
+.meas .g { width: 46px; height: 2px; background: var(--rule); position: relative; }
+.meas .g i { position: absolute; inset: 0 auto 0 0; display: block; background: var(--q, var(--ink-3)); }
+
+/* La donnée absente : un cadratin, jamais un zéro. La règle la plus chère de ce
+   projet — un zéro à la place d'une absence y a déjà menti cinq fois. */
+.absent { color: var(--ink-3); font-family: var(--mono); }
+.absent small { font-size: var(--t-micro); }
+
+/* ==========================================================================
+   MARQUEURS — un fait ne se présente pas comme une commande
+   ========================================================================== */
+
+/* Un FAIT constaté sur le matériel. Neutre par défaut : un marqueur allumé en
+   permanence est du papier peint, et on finit par ne plus lire les autres. */
+.tag {
+  display: inline-block;
+  font-size: var(--t-small);
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.tag.is-mono { font-family: var(--mono); font-size: var(--t-micro); }
+.tag.is-strong { color: var(--ink); border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+.tag.is-off { color: var(--q-faible); border-color: color-mix(in srgb, var(--q-faible) 40%, transparent); }
+.tag.is-watch { color: var(--q-moyen); border-color: color-mix(in srgb, var(--q-moyen) 40%, transparent); }
+
+/* Rétrocompatibilité : d'anciens écrans emploient encore `.badge`. */
+.badge { display: inline-block; font-size: var(--t-small); padding: 1px 6px;
+  border: 1px solid var(--rule); color: var(--ink-2); border-radius: 2px; white-space: nowrap; }
+.badge.accent { color: var(--ink); border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+.badge.off { color: var(--q-faible); border-color: color-mix(in srgb, var(--q-faible) 40%, transparent); }
+.badge.warn { color: var(--q-moyen); border-color: color-mix(in srgb, var(--q-moyen) 40%, transparent); }
+.badge.tech, .badge.wifi, .badge.band { font-family: var(--mono); font-size: var(--t-micro); }
+
+/* ==========================================================================
+   CONTRÔLES
+   ========================================================================== */
+
+button, select, input {
+  font-family: inherit;
+  font-size: var(--t-sub);
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+input { cursor: text; background: var(--sunk); }
+button:hover:not(:disabled), select:hover { border-color: color-mix(in srgb, var(--ink) 26%, transparent); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* L'action principale d'un formulaire se distingue : la version précédente
+   présentait « Mettre en supervision » et « Annuler » à l'identique. */
+button.is-primary { background: var(--ink); color: var(--ground); border-color: var(--ink); font-weight: 600; }
+button.is-primary:hover:not(:disabled) { background: var(--ink-hover); }
+button.is-quiet { background: transparent; }
+
+.segmented { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.segmented button, .segmented select { border-radius: 2px; }
+/* La seule classe d'état de ce contrôle. HistoryChart et ThemeToggle posaient
+   « active », qu'aucune règle ne stylisait : la grandeur, la fenêtre et le
+   thème choisis ne se voyaient pas (C-19). La session choisie non plus. */
+.segmented button.is-active,
+.segmented select.is-active { background: var(--ink); color: var(--ground); border-color: var(--ink); font-weight: 600; }
+
+a { color: var(--ink); }
+.link-back {
+  align-self: flex-start;
+  font-size: var(--t-sub);
+  color: var(--ink-2);
+  text-decoration: none;
+  padding: 2px 0;
+}
+.link-back:hover { color: var(--ink); }
+
+:focus-visible { outline: 2px solid var(--bond); outline-offset: 2px; border-radius: 2px; }
+
+/* ==========================================================================
+   MESSAGES — trois niveaux, et pas un de plus
+   ========================================================================== */
+
+.notice {
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  background: var(--panel);
+  padding: var(--s3) var(--s4);
+  font-size: var(--t-sub);
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.notice strong { color: var(--ink); font-weight: 600; }
+.notice.is-warn { border-left-color: var(--q-moyen); }
+.notice.is-error { border-left-color: var(--q-faible); }
+/* Noms hérités des écrans non encore repris. */
+.notice.warn { border-left-color: var(--q-moyen); }
+.notice.error { border-left-color: var(--q-faible); }
+
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 0 4px;
+}
+
+.disclaimer {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-small);
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   ÉCRAN DE DÉTAIL D'UN LIEN
+   ========================================================================== */
+
+.card { background: var(--panel); border: 1px solid var(--rule); }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.card-title { font-size: var(--t-lead); font-weight: 600; }
+.card-subtitle {
+  font-size: var(--t-small);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-body { padding: var(--s4); }
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 1px;
+  background: var(--rule-soft);
+  border: 1px solid var(--rule-soft);
+}
+
+.tile { background: var(--panel); padding: var(--s3) var(--s3) var(--s3) var(--s3); border-left: 3px solid var(--q, var(--ink-3)); }
+.tile-label { display: block; }
+.tile-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-fig-lg);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  display: block;
+  line-height: 1.15;
+  margin-top: 2px;
+}
+.tile-value .unit { font-size: var(--t-sub); color: var(--ink-3); font-weight: 400; }
+.tile-grade { font-size: var(--t-small); color: var(--q, var(--ink-3)); }
+
+.details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 1px;
+  background: var(--rule-soft);
+  border: 1px solid var(--rule-soft);
+  margin-top: var(--s4);
+}
+.detail { background: var(--panel); padding: var(--s2) var(--s3); }
+/* `.detail-key` recopiait `.lbl` au caractère près et `.detail-val` recopiait
+   `.num` en omettant `font-feature-settings` : les zéros de la fiche technique
+   ne ressemblaient donc pas à ceux des colonnes de mesures. Les deux composent
+   désormais l'utilitaire au lieu de le redire. */
+.detail-key { display: block; }
+.detail-val { font-size: var(--t-sub); display: block; margin-top: 1px; }
+
+.section-label { display: block; font-size: var(--t-micro); letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 500; margin: var(--s4) 0 var(--s2); }
+
+.offline-banner {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--q-faible);
+  padding: var(--s3) var(--s4);
+  font-size: var(--t-sub);
+  color: var(--ink-2);
+}
+
+/* Porteuses agrégées */
+.band-scroll { overflow-x: auto; }
+.band-table { width: 100%; border-collapse: collapse; font-family: var(--mono);
+  font-variant-numeric: tabular-nums; font-size: var(--t-small); }
+.band-table th { font-family: var(--sans); font-size: var(--t-micro); letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3); font-weight: 500; text-align: right;
+  padding: var(--s2) var(--s3) var(--s2) 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.band-table th:first-child, .band-table td:first-child { text-align: left; }
+.band-table td { text-align: right; padding: 6px var(--s3) 6px 0;
+  border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+.band-table tr:last-child td { border-bottom: 0; }
+.ca-badge { font-family: var(--sans); font-size: var(--t-micro); letter-spacing: 0.14em;
+  text-transform: uppercase; border: 1px solid var(--rule); padding: 1px 6px;
+  border-radius: 2px; color: var(--ink-2); margin-left: var(--s2); }
+.rat-tag { font-size: var(--t-micro); font-weight: 600; letter-spacing: 0.06em;
+  border: 1px solid var(--rule); padding: 0 4px; border-radius: 2px; color: var(--ink-2); }
+.primary-tag { font-family: var(--sans); font-size: var(--t-micro); letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3); }
+
+/* ==========================================================================
+   HISTORIQUE
+   ========================================================================== */
+
+.chart-shell { height: 260px; }
+
+.session-sheet { margin-top: var(--s4); border-top: 1px solid var(--rule); padding-top: var(--s3); }
+/* Le nom d'un stationnement, modifiable en place. Il tient sur une ligne avec
+   son bouton : c'est une commodité, pas un formulaire. */
+.session-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--rule);
+}
+.session-name input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--sunk);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-sub);
+  padding: 4px var(--s2);
+}
+.session-name input:focus-visible { outline: 1px solid var(--bond); outline-offset: 0; }
+
+.session-sheet-head { display: flex; align-items: baseline; gap: var(--s2);
+  flex-wrap: wrap; margin-bottom: var(--s3); }
+.session-sheet-head strong { font-size: var(--t-lead); font-weight: 600; font-family: var(--mono);
+  font-variant-numeric: tabular-nums; }
+
+.scroll { overflow-x: auto; }
+
+.session-sheet table { width: 100%; border-collapse: collapse; font-size: var(--t-sub); }
+.session-sheet th { font-size: var(--t-micro); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 500; text-align: right; padding: var(--s2) var(--s3) var(--s2) 0;
+  border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.session-sheet th:first-child, .session-sheet td:first-child { text-align: left; }
+.session-sheet td { text-align: right; padding: 6px var(--s3) 6px 0;
+  border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+.session-sheet tr:last-child td { border-bottom: 0; }
+/* Toute cellule de nombre est en chasse fixe : la version précédente posait
+   `.num` sur ces cellules sans que la classe existe dans la feuille de style. */
+.session-sheet td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   DÉCOUVERTE ET APPAIRAGE
+   ========================================================================== */
+
+/* --- alertes ---------------------------------------------------------------
+   Une liste, pas des cartes : elles se lisent l'une après l'autre et leur
+   nombre est petit par construction. Le filet de gauche porte l'état — vif
+   tant que la condition dure, éteint quand elle est close mais encore
+   affichée. */
+.alertes { list-style: none; margin: 0; padding: 0; display: flex;
+           flex-direction: column; gap: var(--s3); }
+.alerte {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--s3);
+  border-left: 3px solid var(--q-faible);
+}
+.alerte.is-close { border-left-color: var(--rule); }
+.alerte > b { font-size: var(--t-body); font-weight: 600; }
+.alerte.is-close > b { color: var(--ink-2); font-weight: 500; }
+.alerte-quand {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-small);
+  color: var(--ink-2);
+}
+.alerte-suite { font-size: var(--t-sub); color: var(--ink-2); line-height: 1.5; max-width: 70ch; }
+.alerte-seuil { font-size: var(--t-micro); color: var(--ink-3); }
+
+/* Ce qui porte une explication au survol — ET au doigt, ET au clavier : c'est
+   un bouton, dépouillé de son habit de bouton. Le pointillé se voit sans
+   crier : l'œil qui balaie l'ignore, celui qui doute le trouve. */
+.pourquoi {
+  border: 0;
+  border-bottom: 1px dotted var(--rule);
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: help;
+}
+.pourquoi:hover, .pourquoi[aria-expanded="true"] { border-bottom-color: var(--ink-3); }
+/* Une étiquette ou une mesure qui porte une explication garde son habit. */
+.pourquoi.tag { border: 1px solid var(--rule); padding: 1px 6px; border-radius: 2px; }
+.pourquoi.tag.is-off { border-color: color-mix(in srgb, var(--q-faible) 40%, transparent); }
+.pourquoi.meas { border-bottom: 0; display: inline-flex; }
+.pourquoi.absent { border-bottom: 0; }
+.pourquoi:focus-visible { outline: 2px solid var(--ink-3); outline-offset: 2px; }
+.pourquoi-texte {
+  display: block;
+  margin-top: var(--s1);
+  font-size: var(--t-micro);
+  color: var(--ink-2);
+  line-height: 1.5;
+  max-width: 70ch;
+}
+
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ink-3); }
+
+.evidence { margin: var(--s2) 0 0; padding-left: var(--s4); font-size: var(--t-small);
+  color: var(--ink-3); line-height: 1.6; }
+.evidence li::marker { color: var(--rule); }
+
+/* Un bouton qui doit se lire comme un lien — la classe était posée dans le JSX
+   sans exister dans la feuille de style, et se rendait en bouton plein. */
+button.link { background: none; border: 0; padding: 0; color: var(--ink);
+  text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+
+.pairing { margin-top: var(--s3); }
+.pairing-fields { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s3); }
+.pairing-fields label { display: flex; flex-direction: column; gap: var(--s1); }
+.field-label { font-size: var(--t-micro); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 500; }
+.pairing input { min-width: 190px; }
+.pairing-actions { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
+
+/* ==========================================================================
+   ADAPTATION — trois ruptures réelles, là où il n'y en avait qu'une
+   ========================================================================== */
+
+/* Portable posé de travers, ou fenêtre réduite à côté d'une autre.
+   Le bandeau cesse d'être une grille : empilé en quatre lignes il occupait un
+   sixième de la hauteur utile. Le verdict prend toute la première, le reste se
+   partage la seconde — l'ordre de lecture est préservé, la hauteur divisée par
+   deux. */
+@media (max-width: 900px) {
+  .mast {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s2) var(--s4);
+    padding: var(--s2) var(--s4);
+  }
+  .mast-id { order: 2; border-right: 0; padding-right: 0; }
+  .mast-verdict { order: 1; flex: 1 1 100%; }
+  .mast-verdict h1 { font-size: 27px; }
+  .mast-stamps { order: 3; margin-left: auto; gap: var(--s4); }
+  .mast-tools { order: 4; }
+  .page { padding: var(--s3) var(--s3) var(--s5); }
+}
+
+/* Tablette ou téléphone du LAN : l'interface reste consultable. */
+@media (max-width: 620px) {
+  .mast-verdict h1 { font-size: 21px; }
+  .tot .v { font-size: var(--t-fig); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* --- Rapport de session (R-3.7) : une page à emporter ----------------------
+   À l'écran, dans le thème de l'outil ; à l'impression, sur papier blanc — le
+   PDF sort de l'impression du navigateur. On redéfinit les JETONS plutôt que
+   chaque bloc : fiche, journal et courbes suivent d'eux-mêmes. */
+.rapport {
+  max-width: 760px;
+  margin: 0 auto;
+  padding-block: 24px;
+  padding-inline: 16px;
+  background: var(--ground);
+  color: var(--ink);
+}
+.rapport-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.rapport-tete h1 { font-size: var(--t-fig); margin: 0 0 6px; }
+.rapport-tete p { margin: 2px 0; color: var(--ink-2); }
+.rapport-section { margin-top: 20px; }
+.rapport-section h2 { font-size: var(--t-lead); margin: 0 0 8px; }
+.rapport-courbe { margin: 14px 0 0; break-inside: avoid; }
+.rapport-courbe h3 { font-size: var(--t-sub); font-weight: 600; margin: 0 0 4px; }
+.rapport-pied { margin-top: 24px; }
+
+@media print {
+  :root {
+    --ground: #eef0f3;
+    --sunk: #e6e9ee;
+    --panel: #ffffff;
+    --panel-2: #f3f5f8;
+    --rule: #cdd3db;
+    --rule-soft: #e3e7ec;
+    --ink: #15181d;
+    --ink-2: #454b54;
+    --ink-3: #5b616b;
+    --ink-hover: #000000;
+    --q-excellent: #0f7343;
+    --q-bon: #4a7412;
+    --q-moyen: #8c5200;
+    --q-faible: #b8322a;
+    --q-inconnu: #5b616b;
+    --bond: #1d3f73;
+    color-scheme: light;
+  }
+  body { background: #ffffff; }
+  .no-print { display: none !important; }
+  .rapport { max-width: none; padding: 0; }
+  .rapport table { font-size: 10px; }
+  .rapport .panel, .rapport .card { box-shadow: none; }
+}

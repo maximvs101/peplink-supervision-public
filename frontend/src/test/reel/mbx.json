@@ -1,0 +1,1064 @@
+{
+ "capture": "max_hd4_mbx_8.5.4.json",
+ "router": {
+  "id": "mbx",
+  "name": "MBX",
+  "mode": "router",
+  "site_lat": 48.8566,
+  "site_lon": 2.3522,
+  "wans": [
+   {
+    "router_id": "mbx",
+    "router_name": "MBX",
+    "ts": "2026-08-30T08:20:56Z",
+    "site_lat": 48.8566,
+    "site_lon": 2.3522,
+    "wan": {
+     "kind": "cellular",
+     "wan_id": "4",
+     "wan_name": "SIM 3",
+     "connected": true,
+     "operator": "Orange",
+     "plmn": "208-01",
+     "rat": "LTE-A",
+     "band": "B3",
+     "earfcn": "1300",
+     "pci": null,
+     "cell_id": "25735433",
+     "tac": "52641",
+     "enb_id": "100529",
+     "sector_id": "9",
+     "rsrp": -88.0,
+     "rsrq": -17.0,
+     "sinr": 11.6,
+     "rssi": -48.0,
+     "signal_bars": 5,
+     "bands": [
+      {
+       "rat": "LTE",
+       "band": "B3",
+       "label": "LTE Band 3 (1800 MHz)",
+       "channel": "1300",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -88.0,
+       "rsrq": -17.0,
+       "sinr": 11.6,
+       "rssi": -48.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B7",
+       "label": "LTE Band 7 (2600 MHz)",
+       "channel": "3000",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -92.0,
+       "rsrq": -14.0,
+       "sinr": 14.0,
+       "rssi": -58.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B1",
+       "label": "LTE Band 1 (2100 MHz)",
+       "channel": "524",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -92.0,
+       "rsrq": -15.0,
+       "sinr": 11.6,
+       "rssi": -58.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B20",
+       "label": "LTE Band 20 (800 MHz)",
+       "channel": "6400",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -89.0,
+       "rsrq": -16.0,
+       "sinr": 14.2,
+       "rssi": -56.0
+      }
+     ],
+     "sim_slots": [
+      {
+       "slot": "1",
+       "card_detected": true,
+       "apn": "orange",
+       "active": true,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      },
+      {
+       "slot": "2",
+       "card_detected": true,
+       "apn": null,
+       "active": false,
+       "allowance": {
+        "enabled": true,
+        "monthly_allowance_mb": 5120.0,
+        "reset_day": 1,
+        "actions": [
+         "email",
+         "restrict"
+        ]
+       }
+      }
+     ],
+     "wifi": null,
+     "tx_kbps": 475.0,
+     "rx_kbps": 9.0,
+     "roaming_status": "home",
+     "modem_vendor": "Telit",
+     "modem_model": "LM960",
+     "modem_firmware": "32.00.116",
+     "mtu": 1428,
+     "carrier_aggregation": true,
+     "network_mode": "Auto (Generic)",
+     "allowance": {
+      "enabled": false,
+      "monthly_allowance_mb": null,
+      "reset_day": null,
+      "actions": []
+     },
+     "period_rx_mb": 2532.0,
+     "period_tx_mb": 93.0,
+     "path_latency_ms": null,
+     "path_latency_recent_ms": 34.0,
+     "path_latency_at": "2026-08-30T08:20:51Z",
+     "modem_temperature_c": null,
+     "modem_temperature_at": null,
+     "ip": "10.0.0.2",
+     "tunnel": {
+      "state": "ACTIVE",
+      "peer_state": null,
+      "rtt_ms": 20.0,
+      "loss_percent": null,
+      "out_of_order_percent": null,
+      "loss_percent_up": null,
+      "loss_percent_down": null,
+      "out_of_order_percent_up": null,
+      "out_of_order_percent_down": null,
+      "packets_up": 0,
+      "packets_down": 0,
+      "tx_kbps": 0.0,
+      "rx_kbps": 0.0,
+      "repair_sent": 0,
+      "repair_used": 0,
+      "cutoff_ms": 500.0,
+      "beyond_cutoff": false,
+      "cause_scope": null,
+      "in_bond": true
+     },
+     "priority": 1,
+     "uptime_s": 6384,
+     "status_message": "Connected to Orange",
+     "disabled": false,
+     "operator_name": "Orange"
+    },
+    "cell_changes": 0,
+    "disconnects": 0
+   },
+   {
+    "router_id": "mbx",
+    "router_name": "MBX",
+    "ts": "2026-08-30T08:20:56Z",
+    "site_lat": 48.8566,
+    "site_lon": 2.3522,
+    "wan": {
+     "kind": "cellular",
+     "wan_id": "5",
+     "wan_name": "SIM 4",
+     "connected": true,
+     "operator": "Orange",
+     "plmn": "208-01",
+     "rat": "LTE-A",
+     "band": "B7",
+     "earfcn": "3000",
+     "pci": null,
+     "cell_id": "25735426",
+     "tac": "52641",
+     "enb_id": "100529",
+     "sector_id": "2",
+     "rsrp": -93.0,
+     "rsrq": -11.0,
+     "sinr": 14.2,
+     "rssi": -61.0,
+     "signal_bars": 5,
+     "bands": [
+      {
+       "rat": "LTE",
+       "band": "B7",
+       "label": "LTE Band 7 (2600 MHz)",
+       "channel": "3000",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -93.0,
+       "rsrq": -11.0,
+       "sinr": 14.2,
+       "rssi": -61.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B3",
+       "label": "LTE Band 3 (1800 MHz)",
+       "channel": "1300",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -83.0,
+       "rsrq": null,
+       "sinr": null,
+       "rssi": -64.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B1",
+       "label": "LTE Band 1 (2100 MHz)",
+       "channel": "524",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -92.0,
+       "rsrq": -5.0,
+       "sinr": null,
+       "rssi": -68.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B20",
+       "label": "LTE Band 20 (800 MHz)",
+       "channel": "6400",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -88.0,
+       "rsrq": -11.0,
+       "sinr": null,
+       "rssi": -60.0
+      }
+     ],
+     "sim_slots": [
+      {
+       "slot": "1",
+       "card_detected": true,
+       "apn": null,
+       "active": false,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      },
+      {
+       "slot": "2",
+       "card_detected": true,
+       "apn": "orange",
+       "active": true,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      }
+     ],
+     "wifi": null,
+     "tx_kbps": 0.0,
+     "rx_kbps": 13.0,
+     "roaming_status": "home",
+     "modem_vendor": "Telit",
+     "modem_model": "LM960",
+     "modem_firmware": "32.00.116",
+     "mtu": 1428,
+     "carrier_aggregation": true,
+     "network_mode": "Auto (Generic)",
+     "allowance": {
+      "enabled": false,
+      "monthly_allowance_mb": null,
+      "reset_day": null,
+      "actions": []
+     },
+     "period_rx_mb": 173.0,
+     "period_tx_mb": 118.0,
+     "path_latency_ms": null,
+     "path_latency_recent_ms": 40.0,
+     "path_latency_at": "2026-08-30T08:20:51Z",
+     "modem_temperature_c": null,
+     "modem_temperature_at": null,
+     "ip": "10.0.0.2",
+     "tunnel": {
+      "state": "ACTIVE",
+      "peer_state": null,
+      "rtt_ms": 21.0,
+      "loss_percent": null,
+      "out_of_order_percent": null,
+      "loss_percent_up": null,
+      "loss_percent_down": null,
+      "out_of_order_percent_up": null,
+      "out_of_order_percent_down": null,
+      "packets_up": 0,
+      "packets_down": 0,
+      "tx_kbps": 0.0,
+      "rx_kbps": 0.0,
+      "repair_sent": 0,
+      "repair_used": 0,
+      "cutoff_ms": 500.0,
+      "beyond_cutoff": false,
+      "cause_scope": null,
+      "in_bond": true
+     },
+     "priority": 1,
+     "uptime_s": 6524,
+     "status_message": "Connected to Orange",
+     "disabled": false,
+     "operator_name": "Orange"
+    },
+    "cell_changes": 0,
+    "disconnects": 0
+   },
+   {
+    "router_id": "mbx",
+    "router_name": "MBX",
+    "ts": "2026-08-30T08:20:56Z",
+    "site_lat": 48.8566,
+    "site_lon": 2.3522,
+    "wan": {
+     "kind": "cellular",
+     "wan_id": "6",
+     "wan_name": "SIM 5",
+     "connected": true,
+     "operator": "Orange",
+     "plmn": "208-01",
+     "rat": "LTE-A",
+     "band": "B3",
+     "earfcn": "1300",
+     "pci": null,
+     "cell_id": "25735433",
+     "tac": "52641",
+     "enb_id": "100529",
+     "sector_id": "9",
+     "rsrp": -89.0,
+     "rsrq": -12.0,
+     "sinr": 11.0,
+     "rssi": -50.0,
+     "signal_bars": 5,
+     "bands": [
+      {
+       "rat": "LTE",
+       "band": "B3",
+       "label": "LTE Band 3 (1800 MHz)",
+       "channel": "1300",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -89.0,
+       "rsrq": -12.0,
+       "sinr": 11.0,
+       "rssi": -50.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B7",
+       "label": "LTE Band 7 (2600 MHz)",
+       "channel": "3000",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -93.0,
+       "rsrq": null,
+       "sinr": null,
+       "rssi": -77.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B1",
+       "label": "LTE Band 1 (2100 MHz)",
+       "channel": "524",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -92.0,
+       "rsrq": null,
+       "sinr": null,
+       "rssi": -72.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B20",
+       "label": "LTE Band 20 (800 MHz)",
+       "channel": "6400",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -93.0,
+       "rsrq": -14.0,
+       "sinr": null,
+       "rssi": -62.0
+      }
+     ],
+     "sim_slots": [
+      {
+       "slot": "1",
+       "card_detected": true,
+       "apn": "orange",
+       "active": true,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      },
+      {
+       "slot": "2",
+       "card_detected": true,
+       "apn": null,
+       "active": false,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      }
+     ],
+     "wifi": null,
+     "tx_kbps": 1169.0,
+     "rx_kbps": 2691.0,
+     "roaming_status": "home",
+     "modem_vendor": "Telit",
+     "modem_model": "LM960",
+     "modem_firmware": "32.00.116",
+     "mtu": 1428,
+     "carrier_aggregation": true,
+     "network_mode": "Auto (Generic)",
+     "allowance": {
+      "enabled": false,
+      "monthly_allowance_mb": null,
+      "reset_day": null,
+      "actions": []
+     },
+     "period_rx_mb": 1445.0,
+     "period_tx_mb": 52.0,
+     "path_latency_ms": null,
+     "path_latency_recent_ms": 30.0,
+     "path_latency_at": "2026-08-30T08:20:51Z",
+     "modem_temperature_c": null,
+     "modem_temperature_at": null,
+     "ip": "10.0.0.2",
+     "tunnel": {
+      "state": "ACTIVE",
+      "peer_state": null,
+      "rtt_ms": 52.0,
+      "loss_percent": null,
+      "out_of_order_percent": null,
+      "loss_percent_up": null,
+      "loss_percent_down": null,
+      "out_of_order_percent_up": null,
+      "out_of_order_percent_down": null,
+      "packets_up": 0,
+      "packets_down": 0,
+      "tx_kbps": 0.0,
+      "rx_kbps": 0.0,
+      "repair_sent": 0,
+      "repair_used": 0,
+      "cutoff_ms": 500.0,
+      "beyond_cutoff": false,
+      "cause_scope": null,
+      "in_bond": true
+     },
+     "priority": 1,
+     "uptime_s": 6724,
+     "status_message": "Connected to Orange",
+     "disabled": false,
+     "operator_name": "Orange"
+    },
+    "cell_changes": 0,
+    "disconnects": 0
+   },
+   {
+    "router_id": "mbx",
+    "router_name": "MBX",
+    "ts": "2026-08-30T08:20:56Z",
+    "site_lat": 48.8566,
+    "site_lon": 2.3522,
+    "wan": {
+     "kind": "cellular",
+     "wan_id": "7",
+     "wan_name": "SIM 6",
+     "connected": true,
+     "operator": "Orange",
+     "plmn": "208-01",
+     "rat": "LTE-A",
+     "band": "B1",
+     "earfcn": "524",
+     "pci": null,
+     "cell_id": "25735436",
+     "tac": "52641",
+     "enb_id": "100529",
+     "sector_id": "12",
+     "rsrp": -93.0,
+     "rsrq": -9.0,
+     "sinr": 12.4,
+     "rssi": -66.0,
+     "signal_bars": 5,
+     "bands": [
+      {
+       "rat": "LTE",
+       "band": "B1",
+       "label": "LTE Band 1 (2100 MHz)",
+       "channel": "524",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -93.0,
+       "rsrq": -9.0,
+       "sinr": 12.4,
+       "rssi": -66.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B7",
+       "label": "LTE Band 7 (2600 MHz)",
+       "channel": "3000",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -91.0,
+       "rsrq": -4.0,
+       "sinr": null,
+       "rssi": -67.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B3",
+       "label": "LTE Band 3 (1800 MHz)",
+       "channel": "1300",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -89.0,
+       "rsrq": -5.0,
+       "sinr": null,
+       "rssi": -64.0
+      },
+      {
+       "rat": "LTE",
+       "band": "B20",
+       "label": "LTE Band 20 (800 MHz)",
+       "channel": "6400",
+       "pci": null,
+       "channel_width": null,
+       "rsrp": -92.0,
+       "rsrq": -9.0,
+       "sinr": null,
+       "rssi": -66.0
+      }
+     ],
+     "sim_slots": [
+      {
+       "slot": "1",
+       "card_detected": true,
+       "apn": "orange",
+       "active": true,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      },
+      {
+       "slot": "2",
+       "card_detected": true,
+       "apn": null,
+       "active": false,
+       "allowance": {
+        "enabled": false,
+        "monthly_allowance_mb": null,
+        "reset_day": null,
+        "actions": []
+       }
+      }
+     ],
+     "wifi": null,
+     "tx_kbps": 482.0,
+     "rx_kbps": 20.0,
+     "roaming_status": "home",
+     "modem_vendor": "Telit",
+     "modem_model": "LM960",
+     "modem_firmware": "32.00.116",
+     "mtu": 1428,
+     "carrier_aggregation": true,
+     "network_mode": "Auto (Generic)",
+     "allowance": {
+      "enabled": false,
+      "monthly_allowance_mb": null,
+      "reset_day": null,
+      "actions": []
+     },
+     "period_rx_mb": 727.0,
+     "period_tx_mb": 37.0,
+     "path_latency_ms": null,
+     "path_latency_recent_ms": 37.0,
+     "path_latency_at": "2026-08-30T08:20:51Z",
+     "modem_temperature_c": null,
+     "modem_temperature_at": null,
+     "ip": "10.0.0.2",
+     "tunnel": {
+      "state": "ACTIVE",
+      "peer_state": null,
+      "rtt_ms": 56.0,
+      "loss_percent": null,
+      "out_of_order_percent": null,
+      "loss_percent_up": null,
+      "loss_percent_down": null,
+      "out_of_order_percent_up": null,
+      "out_of_order_percent_down": null,
+      "packets_up": 0,
+      "packets_down": 0,
+      "tx_kbps": 0.0,
+      "rx_kbps": 0.0,
+      "repair_sent": 0,
+      "repair_used": 0,
+      "cutoff_ms": 500.0,
+      "beyond_cutoff": false,
+      "cause_scope": null,
+      "in_bond": true
+     },
+     "priority": 1,
+     "uptime_s": 6384,
+     "status_message": "Connected to Orange",
+     "disabled": false,
+     "operator_name": "Orange"
+    },
+    "cell_changes": 0,
+    "disconnects": 0
+   }
+  ],
+  "device": {
+   "model": "Pepwave MAX HD4 MBX",
+   "product_code": "MAX-HD4-MBX-GLTE-G",
+   "serial": "0000-0000-0000",
+   "firmware": "8.5.4 build 6253",
+   "hardware_revision": "4",
+   "name": "EQUIPEMENT-DEMO",
+   "uptime_s": 6830,
+   "cpu_load_percent": 12.5,
+   "power_watts": 19.0,
+   "power_sources": [
+    {
+     "name": "DC Source A",
+     "connected": true
+    },
+    {
+     "name": "DC Source B",
+     "connected": false
+    },
+    {
+     "name": "DC Term. Block",
+     "connected": false
+    }
+   ],
+   "mac_lan": "a8:c0:ea:00:00:00",
+   "temperature_c": 43.438,
+   "power_load_percent": 10.73,
+   "care_plan": "EssentialCare",
+   "care_plan_active": false,
+   "pepvpn_version": "9.2.4",
+   "timezone": "Europe/Paris",
+   "clock_offset_s": 0.0,
+   "config_activating": false,
+   "remote_assistance": false
+  },
+  "capabilities": {
+   "gps": true,
+   "pepvpn": true,
+   "sfc_licensed": true,
+   "sfc_suspended": true,
+   "sfc_throughput_limit_mbps": 200.0,
+   "sfc_expires_at": "2023-01-19T00:00:00Z",
+   "sfc_quota_remaining_mb": 2621440.0,
+   "sfc_quota_limit_mb": 2621440.0,
+   "pepvpn_max_active_profiles": 3,
+   "wan_types": {
+    "1": "ethernet",
+    "2": "ethernet",
+    "4": "cellular",
+    "5": "cellular",
+    "6": "cellular",
+    "7": "cellular",
+    "10": "wifi",
+    "11": "wifi"
+   },
+   "lan_repurposed": [
+    "3"
+   ],
+   "lan_networks": [
+    {
+     "vlan_id": "0",
+     "name": "local"
+    }
+   ],
+   "usb_modem_slots": 2,
+   "sim_slots": 8,
+   "per_wan_throughput": true,
+   "provisional": false,
+   "source": "declared"
+  },
+  "status": "connecté",
+  "error": null,
+  "age_seconds": 0.5,
+  "period_seconds": null,
+  "cycle_seconds": null,
+  "bond_routes": [
+   "10.0.0.0/24"
+  ],
+  "bond_profiles": [
+   {
+    "id": "1",
+    "name": "PROFIL-A",
+    "status": "CONNECTED",
+    "peers_connected": 1,
+    "cloud": false
+   },
+   {
+    "id": "60000",
+    "name": "PROFIL-CLOUD",
+    "status": "START",
+    "peers_connected": 0,
+    "cloud": true
+   }
+  ],
+  "lan_clients": null,
+  "tunnel_uptime_s": 22435,
+  "tunnel_attendu": true,
+  "never_connected": [],
+  "alerts": [],
+  "latency_threshold_ms": 1000.0
+ },
+ "sessions": [
+  {
+   "id": 1,
+   "router_id": "mbx",
+   "started_at": "2026-08-30T06:27:01Z",
+   "first_seen": "2026-08-30T08:20:51Z",
+   "last_seen": "2026-08-30T08:20:56Z",
+   "samples": 8,
+   "label": null
+  }
+ ],
+ "timeline": {
+  "router_id": "mbx",
+  "started_at": "2026-08-30T08:20:51Z",
+  "ended_at": "2026-08-30T08:21:01Z",
+  "capped": false,
+  "slice_count": 10,
+  "slice_seconds": 1.0,
+  "lanes": [
+   {
+    "wan_id": "4",
+    "slices": [
+     {
+      "t": 0,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 11.6,
+      "rsrp_worst": -88.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     },
+     {
+      "t": 5,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 11.6,
+      "rsrp_worst": -88.0,
+      "repair": 0,
+      "packets": 0,
+      "disabled": 0
+     }
+    ]
+   },
+   {
+    "wan_id": "5",
+    "slices": [
+     {
+      "t": 0,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 14.2,
+      "rsrp_worst": -93.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     },
+     {
+      "t": 5,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 14.2,
+      "rsrp_worst": -93.0,
+      "repair": 0,
+      "packets": 0,
+      "disabled": 0
+     }
+    ]
+   },
+   {
+    "wan_id": "6",
+    "slices": [
+     {
+      "t": 0,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 11.0,
+      "rsrp_worst": -89.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     },
+     {
+      "t": 5,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 11.0,
+      "rsrp_worst": -89.0,
+      "repair": 0,
+      "packets": 0,
+      "disabled": 0
+     }
+    ]
+   },
+   {
+    "wan_id": "7",
+    "slices": [
+     {
+      "t": 0,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 12.4,
+      "rsrp_worst": -93.0,
+      "repair": null,
+      "packets": null,
+      "disabled": 0
+     },
+     {
+      "t": 5,
+      "samples": 1,
+      "up": 1,
+      "carrying": 1,
+      "tunnel_known": 1,
+      "sinr_worst": 12.4,
+      "rsrp_worst": -93.0,
+      "repair": 0,
+      "packets": 0,
+      "disabled": 0
+     }
+    ]
+   }
+  ]
+ },
+ "events": {
+  "router_id": "mbx",
+  "started_at": "2026-08-30T08:20:51Z",
+  "ended_at": "2026-08-30T08:21:01Z",
+  "capped": false,
+  "episodes": [],
+  "churn": [
+   {
+    "wan_id": "4",
+    "link_kind": "cellular",
+    "has_cells": true,
+    "cell_changes": 0,
+    "station_changes": 0,
+    "outages": 0
+   },
+   {
+    "wan_id": "5",
+    "link_kind": "cellular",
+    "has_cells": true,
+    "cell_changes": 0,
+    "station_changes": 0,
+    "outages": 0
+   },
+   {
+    "wan_id": "6",
+    "link_kind": "cellular",
+    "has_cells": true,
+    "cell_changes": 0,
+    "station_changes": 0,
+    "outages": 0
+   },
+   {
+    "wan_id": "7",
+    "link_kind": "cellular",
+    "has_cells": true,
+    "cell_changes": 0,
+    "station_changes": 0,
+    "outages": 0
+   }
+  ],
+  "omitted": 0,
+  "latency_threshold_ms": 1000.0
+ },
+ "summary": {
+  "session": {
+   "id": 1,
+   "router_id": "mbx",
+   "started_at": "2026-08-30T06:27:01Z",
+   "first_seen": "2026-08-30T08:20:51Z",
+   "last_seen": "2026-08-30T08:20:56Z",
+   "samples": 8,
+   "label": null
+  },
+  "links": [
+   {
+    "wan_id": "4",
+    "kind": "cellular",
+    "operator": "Orange",
+    "operators": [
+     "Orange"
+    ],
+    "maneuvers": 0,
+    "samples": 2,
+    "mb_up": 0.0,
+    "mb_down": 0.0,
+    "rtt_samples": 2,
+    "rtt_p50_ms": 20.0,
+    "rtt_p90_ms": 20.0,
+    "rtt_max_ms": 20.0,
+    "path_latency_samples": 1,
+    "path_latency_p50_ms": 34.0,
+    "path_latency_p90_ms": 34.0,
+    "path_latency_max_ms": 34.0,
+    "rsrp_median": -88.0,
+    "rsrp_filled_samples": 0,
+    "outages": 0,
+    "cells": 1,
+    "cell_changes": 0,
+    "cell_changes_per_hour": null
+   },
+   {
+    "wan_id": "5",
+    "kind": "cellular",
+    "operator": "Orange",
+    "operators": [
+     "Orange"
+    ],
+    "maneuvers": 0,
+    "samples": 2,
+    "mb_up": 0.0,
+    "mb_down": 0.0,
+    "rtt_samples": 2,
+    "rtt_p50_ms": 21.0,
+    "rtt_p90_ms": 21.0,
+    "rtt_max_ms": 21.0,
+    "path_latency_samples": 1,
+    "path_latency_p50_ms": 40.0,
+    "path_latency_p90_ms": 40.0,
+    "path_latency_max_ms": 40.0,
+    "rsrp_median": -93.0,
+    "rsrp_filled_samples": 0,
+    "outages": 0,
+    "cells": 1,
+    "cell_changes": 0,
+    "cell_changes_per_hour": null
+   },
+   {
+    "wan_id": "6",
+    "kind": "cellular",
+    "operator": "Orange",
+    "operators": [
+     "Orange"
+    ],
+    "maneuvers": 0,
+    "samples": 2,
+    "mb_up": 0.0,
+    "mb_down": 0.0,
+    "rtt_samples": 2,
+    "rtt_p50_ms": 52.0,
+    "rtt_p90_ms": 52.0,
+    "rtt_max_ms": 52.0,
+    "path_latency_samples": 1,
+    "path_latency_p50_ms": 30.0,
+    "path_latency_p90_ms": 30.0,
+    "path_latency_max_ms": 30.0,
+    "rsrp_median": -89.0,
+    "rsrp_filled_samples": 0,
+    "outages": 0,
+    "cells": 1,
+    "cell_changes": 0,
+    "cell_changes_per_hour": null
+   },
+   {
+    "wan_id": "7",
+    "kind": "cellular",
+    "operator": "Orange",
+    "operators": [
+     "Orange"
+    ],
+    "maneuvers": 0,
+    "samples": 2,
+    "mb_up": 0.0,
+    "mb_down": 0.0,
+    "rtt_samples": 2,
+    "rtt_p50_ms": 56.0,
+    "rtt_p90_ms": 56.0,
+    "rtt_max_ms": 56.0,
+    "path_latency_samples": 1,
+    "path_latency_p50_ms": 37.0,
+    "path_latency_p90_ms": 37.0,
+    "path_latency_max_ms": 37.0,
+    "rsrp_median": -93.0,
+    "rsrp_filled_samples": 0,
+    "outages": 0,
+    "cells": 1,
+    "cell_changes": 0,
+    "cell_changes_per_hour": null
+   }
+  ],
+  "mb_up": 0.0,
+  "mb_down": 0.0,
+  "partial": false,
+  "window_start": null,
+  "window_end": null,
+  "lat": 48.8566,
+  "lon": 2.3522,
+  "radius_m": 0.0,
+  "cells": [],
+  "availability": {
+   "threshold_ms": 150.0,
+   "total_cycles": 2,
+   "observed_cycles": 2,
+   "at_least_one_pct": 100.0,
+   "at_least_two_pct": 100.0,
+   "cycles_in_bond": 2
+  },
+  "diversity": {
+   "cycles": 2,
+   "same_site_pct": 100.0,
+   "same_cell_pct": 0.0,
+   "same_earfcn_pct": 0.0,
+   "site_cycles": 2,
+   "cell_cycles": 2,
+   "earfcn_cycles": 2,
+   "operators": 1
+  },
+  "sites": 1
+ }
+}

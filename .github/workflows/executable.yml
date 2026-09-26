@@ -1,0 +1,193 @@
+# L'exécutable unique, construit pour chaque système par GitHub.
+#
+# PyInstaller ne compile pas en croisé : un fichier par système, construit sur
+# ce système. Ici, trois machines de GitHub s'en chargent — Windows, macOS à
+# puce Apple, macOS Intel — et déposent les fichiers en téléchargement :
+#
+#   - à chaque exécution manuelle (onglet Actions › « Exécutable » › Run
+#     workflow), en « artefacts » du run, gardés quatorze jours ;
+#   - à chaque étiquette `v*` poussée (`git tag v1.0.0 && git push --tags`),
+#     en fichiers d'une Release du dépôt, pour de bon.
+#
+# Aucun fichier n'est produit tant que les suites de tests ne sont pas vertes,
+# et chaque exécutable est LANCÉ après construction : serveur, interface, base à
+# côté — la vérification qui a manqué au premier essai du 19 septembre.
+#
+# Les fichiers ne sont pas signés : un avertissement au premier lancement
+# (Gatekeeper, SmartScreen), qui se lève sans droits d'administrateur.
+#
+# Les actions sont prises par étiquette majeure (@v4, @v5, @v2) et les
+# dépendances Python en « >= » : chaque construction embarque les versions du
+# jour. Le risque est borné — les deux suites tournent dans le même job sur
+# ces versions, et chaque exécutable est lancé avant d'être livré. Reste
+# l'action de Release, sous `contents: write` : l'épingler par empreinte de
+# commit est le geste qui fermerait ce risque, à faire depuis une machine
+# qui peut vérifier l'empreinte.
+
+name: Exécutable
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+# Lecture par défaut ; seul `publier` écrit. Posé ici, `contents: write`
+# armait aussi les jobs de construction, pendant `npm ci` et `pip install`
+# — des dépendances en `>=` (C-48).
+permissions:
+  contents: read
+
+jobs:
+  construire:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nom: superviseur-windows-x64.exe
+            produit: dist/superviseur.exe
+            livraison: superviseur-windows-x64.exe
+          - os: macos-latest
+            nom: superviseur-macos-arm64
+            produit: dist/superviseur
+            livraison: superviseur-macos-arm64.tar.gz
+          # Le Mac de terrain est un Intel (i7, macOS 13) : le fichier arm64 n'y
+          # tourne pas. GitHub retire ses machines Intel par étapes ; si cette
+          # étiquette disparaît, prendre celle qu'il propose alors — ou construire
+          # sur le Mac lui-même avec tools/construire_executable.py.
+          - os: macos-15-intel
+            nom: superviseur-macos-x64
+            produit: dist/superviseur
+            livraison: superviseur-macos-x64.tar.gz
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Le jeton n'est pas gardé dans .git/config pendant les installations.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Node 24, comme la machine qui a produit package-lock.json : son npm 11
+      # tient pour cohérent un verrou que le npm 10 de Node 22 refuse
+      # (« Missing: esbuild@0.28.2 from lock file » — premier run, 19 septembre),
+      # alors que `npm ci` passe en local depuis une copie vierge.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-build.txt
+
+      - name: Interface — dépendances, types, tests, compilation
+        working-directory: frontend
+        run: |
+          node --version && npm --version
+          npm ci
+          npx tsc --noEmit -p .
+          npm test
+          npm run build
+
+      # Windows ouvre les fichiers et parle à sa console en cp1252 : les
+      # journaux du deuxième run étaient illisibles (« r�seau »). UTF-8 pour
+      # les tests et la construction — mais PAS pour l'étape qui lance
+      # l'exécutable : elle doit le voir comme le terrain le verra, sans
+      # variable d'environnement qui n'y sera pas.
+      - name: Serveur — dépendances, lint, tests
+        working-directory: backend
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python -m pip install -r requirements.txt -r requirements-build.txt
+          python -m ruff check .
+          python -m pytest -q --junitxml=rapport-pytest.xml
+
+      # Chaque échec de test devient une annotation : les journaux complets ne
+      # sont pas toujours lisibles d'où l'on relit un run, les annotations si.
+      - name: Serveur — échecs en annotations
+        if: failure()
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          rapport = Path("rapport-pytest.xml")
+          if rapport.exists():
+              for cas in ET.parse(rapport).iter("testcase"):
+                  for echec in list(cas.iter("failure")) + list(cas.iter("error")):
+                      texte = (echec.get("message") or "").replace("\n", " ")[:900]
+                      print(f"::error title={cas.get('classname')}.{cas.get('name')}::{texte}")
+          PY
+
+      - name: Construire l'exécutable
+        working-directory: backend
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/construire_executable.py
+
+      - name: Le lancer, et vérifier qu'il répond — serveur, interface, base
+        working-directory: backend
+        run: python tools/verifier_executable.py ${{ matrix.produit }}
+
+      # Sur macOS, une archive tar.gz et non le fichier nu : l'emballage des
+      # artefacts et des Releases perd les permissions Unix, et le fichier
+      # arrivait sans droit d'exécution — « le build mac ne fonctionne pas »,
+      # vérifié sur un Mac Intel le 19 septembre : `-rw-r--r--`, et il
+      # tournait dès `chmod +x`. Un tar.gz conserve le droit ; Finder le
+      # décompresse d'un double-clic. Windows n'a pas de bit d'exécution.
+      - name: Nommer, et emballer pour livrer le droit d'exécution
+        working-directory: backend
+        run: |
+          mv "${{ matrix.produit }}" "dist/${{ matrix.nom }}"
+          case "${{ matrix.livraison }}" in
+            *.tar.gz) tar -czf "dist/${{ matrix.livraison }}" -C dist "${{ matrix.nom }}" ;;
+          esac
+          ls -la dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.livraison }}
+          path: backend/dist/${{ matrix.livraison }}
+          retention-days: 14
+          if-no-files-found: error
+
+  publier:
+    # Seulement sur une étiquette : les fichiers rejoignent une Release, dont
+    # le texte est la section de CHANGELOG.md qui porte cette étiquette —
+    # écrite à la main, au moment où l'on sait ce que la version change,
+    # versionnée avec le code, et indépendante de la façon dont l'étiquette a
+    # été posée (annotée, légère, ou créée depuis le site).
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: construire
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: La section de CHANGELOG.md devient le texte de la Release
+        run: |
+          awk -v tag="${GITHUB_REF_NAME}" '
+            /^## / { dedans = index($0, "## " tag " ") == 1 || $0 == "## " tag; next }
+            dedans { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || echo "Superviseur Peplink ${GITHUB_REF_NAME}." > notes.md
+          cat notes.md
+      - uses: actions/download-artifact@v8
+        with:
+          path: fichiers
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: Superviseur ${{ github.ref_name }}
+          body_path: notes.md
+          files: fichiers/*

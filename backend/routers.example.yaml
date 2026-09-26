@@ -1,0 +1,43 @@
+# Flotte de routeurs supervisés.
+# Copier en `routers.yaml` et adapter. Sans ce fichier, une flotte de démo est utilisée.
+#
+# En mode PEPLINK_MODE=mock  : seuls id/name/site_lat/site_lon/wans (operator/mcc/mnc) servent.
+# En mode PEPLINK_MODE=router : renseigner host + une méthode d'authentification.
+
+routers:
+  - id: dome-01
+    name: "Dome Pro Duo — Véhicule 1"
+
+    # --- mode router (API locale réelle) ---
+    host: "192.168.209.1"       # IP du routeur (celle de son interface d'admin)
+    verify_ssl: false           # certificat auto-signé par défaut sur les Peplink
+
+    # Authentification, AU CHOIX :
+    #  a) compte admin (session par cookie) — mode validé sur Dome Pro Duo 8.5.4
+    username: "admin"
+    password: "REMPLACER"
+    #  b) client API (admin web : System > ... > "Grant API access to clients")
+    # client_id: "REMPLACER"
+    # client_secret: "REMPLACER"
+
+    # Position du site. Le Dome Pro Duo embarque un GPS : laissé à true, la position
+    # est lue sur le routeur (indispensable en véhicule mobile) et les coordonnées
+    # ci-dessous ne servent que de repli si le GPS n'a pas de point fixé.
+    use_gps: true
+    site_lat: 48.8566
+    site_lon: 2.3522
+
+    # --- SIM / modems ---
+    # En mode router, les WAN sont découverts automatiquement : cette liste ne sert
+    # qu'au simulateur. Les identifiants de WAN réels sont numériques ("2", "3"...).
+    wans:
+      - id: "2"
+        name: "SIM 1"
+        operator: "Orange"
+        mcc: 208
+        mnc: 1
+      - id: "3"
+        name: "SIM 2"
+        operator: "Orange"
+        mcc: 208
+        mnc: 1

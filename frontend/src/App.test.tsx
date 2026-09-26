@@ -1,0 +1,116 @@
+import { act, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('./api/client', () => ({
+  fetchRouters: vi.fn(),
+  fetchHealth: vi.fn(),
+  fetchRouter: vi.fn(),
+  fetchSessions: vi.fn(),
+  fetchTimeline: vi.fn(),
+  fetchEvents: vi.fn(),
+  fetchDevices: vi.fn(),
+  fetchDiscovery: vi.fn(),
+  fetchKnownDevices: vi.fn(),
+  forgetDevice: vi.fn(),
+  pairDevice: vi.fn(),
+  reauthDevice: vi.fn(),
+  httpStatus: () => null,
+  openLiveSocket: vi.fn(() => () => {}),
+}))
+
+import App from './App'
+import {
+  fetchDevices, fetchDiscovery, fetchHealth, fetchKnownDevices, fetchRouter, fetchRouters,
+  fetchSessions, fetchTimeline, fetchEvents, openLiveSocket,
+} from './api/client'
+import type { RouterSummary } from './types'
+
+const mbx = (): RouterSummary => ({
+  id: 'mbx', name: 'MBX', mode: 'router', site_lat: null, site_lon: null, wans: [], device: null,
+  capabilities: null, status: 'connecté', error: null, age_seconds: 1, period_seconds: 5,
+  cycle_seconds: 2, bond_routes: [], bond_profiles: [], lan_clients: null, latency_threshold_ms: 1000, tunnel_uptime_s: null, tunnel_attendu: null, never_connected: [], alerts: [],
+})
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  window.location.hash = ''
+  vi.mocked(fetchHealth).mockResolvedValue({
+    status: 'ok', mode: 'router', routers: 0, poll_interval_seconds: 3,
+    cycle_period_seconds: null, cycle_seconds: null,
+  })
+  vi.mocked(fetchDevices).mockResolvedValue([])
+  vi.mocked(fetchDiscovery).mockResolvedValue([])
+  vi.mocked(fetchKnownDevices).mockResolvedValue([])
+  vi.mocked(fetchRouter).mockResolvedValue(mbx())
+  vi.mocked(fetchSessions).mockResolvedValue([])
+  vi.mocked(fetchTimeline).mockRejectedValue(new Error('hors sujet'))
+  vi.mocked(fetchEvents).mockRejectedValue(new Error('hors sujet'))
+  vi.mocked(openLiveSocket).mockImplementation(() => () => {})
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+describe('une flotte vide', () => {
+  it('mène à l’écran de découverte au lieu d’attendre pour toujours', async () => {
+    // L'exécutable sans routers.yaml — le cas normal — affichait « Chargement
+    // de la flotte… » à vie, avant le routeur : #/decouverte n'existait pas,
+    // rien à appairer. Une liste vide est une réponse, pas une attente.
+    vi.mocked(fetchRouters).mockResolvedValue([])
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('#/decouverte')
+    expect(screen.queryByText(/Chargement de la flotte/)).toBeNull()
+  })
+
+  it('attend tant que la flotte n’a pas été lue', async () => {
+    let repondre: (liste: RouterSummary[]) => void = () => {}
+    vi.mocked(fetchRouters).mockReturnValue(new Promise((r) => { repondre = r }))
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(screen.getByText(/Chargement de la flotte/)).toBeInTheDocument()
+    await act(async () => { repondre([mbx()]); await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('#/e/mbx')
+  })
+})
+
+describe('une panne du service', () => {
+  it('se dit aussi à l’entrée, quand la flotte n’a jamais été lue', async () => {
+    // Le bandeau ne vivait que sous le cadre : à `#/` avec le service
+    // arrêté au premier chargement, « Chargement de la flotte… » à vie, sans
+    // un mot — l'ancien écran affichait l'erreur.
+    vi.mocked(fetchRouters).mockRejectedValue(new Error('ECONNREFUSED'))
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(screen.getByRole('alert').textContent).toMatch(/ne répond pas/)
+    expect(screen.queryByText(/Chargement de la flotte/)).toBeNull()
+    // Le service revient : l'entrée mène à l'équipement.
+    vi.mocked(fetchRouters).mockResolvedValue([mbx()])
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(window.location.hash).toBe('#/e/mbx')
+  })
+
+  it('se dit en bandeau sans démonter l’écran, et s’efface au retour', async () => {
+    // Le message remplaçait tout l'arbre ; au cycle suivant qui réussissait,
+    // tout était remonté à neuf — WebSocket, session, métrique perdues — pour
+    // un hoquet. Et il disait « rechargez » pour un rétablissement automatique.
+    vi.mocked(fetchRouters).mockResolvedValue([mbx()])
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('#/e/mbx')
+    const sockets = vi.mocked(openLiveSocket).mock.calls.length
+    expect(sockets).toBeGreaterThan(0)
+
+    vi.mocked(fetchRouters).mockRejectedValueOnce(new Error('ECONNREFUSED'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(screen.getByRole('alert').textContent).toMatch(/ne répond pas/)
+    expect(screen.getByRole('alert').textContent).not.toMatch(/rechargez/)
+    // L'écran de l'équipement est toujours monté : aucune socket rouverte.
+    expect(vi.mocked(openLiveSocket).mock.calls.length).toBe(sockets)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(vi.mocked(openLiveSocket).mock.calls.length).toBe(sockets)
+  })
+})
