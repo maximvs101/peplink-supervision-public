@@ -98,6 +98,10 @@ flotte (◆), n'acceptent que le poste local — et jamais une requête venue d'
 - [docs/REFERENCE.md](docs/REFERENCE.md) — la référence technique : ce que l'application lit
   sur l'équipement, l'identité de cellule, pourquoi on n'identifie pas l'antenne, le tunnel,
   l'architecture, la configuration par fichier.
+- [CHANGELOG.md](CHANGELOG.md) — ce que chaque version change pour l'exploitant.
+- [docs/HISTORIQUE-2026-09.md](docs/HISTORIQUE-2026-09.md) — les messages des commits du
+  25 au 26 septembre : l'historique git a été ramené à un seul commit (il portait un numéro
+  de série réel), leur raisonnement reste lisible ici.
 
 ## Ce qui reste faible
 

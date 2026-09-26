@@ -6,7 +6,7 @@ version change.
 
 ## v0.1.1 — Revue d'exploitation, relecture complète, Windows rétabli
 
-Mêmes fichiers, même usage que la v0.1.0. Ce qui change pour l'exploitant :
+Mêmes fichiers, même usage que la version précédente. Ce qui change pour l'exploitant :
 
 - **Ce que l'écran affirme.** Un tunnel à terre ne repasse plus au vert faute de
   débit mesuré ; un lien désactivé n'est plus une panne rouge ; un état inconnu
@@ -34,6 +34,10 @@ Détail constat par constat : `docs/REVUE-2026-09-24.md` et
 `docs/RELECTURE-2026-09-25.md`.
 
 ## v0.1.0 — Première version emportable
+
+*Release retirée le 26 septembre 2026 (C-45) : son archive source portait le numéro de
+série et une position réels d'un équipement. La v0.1.1 la remplace, et l'historique git
+est ramené à un seul commit ; voir `docs/HISTORIQUE-2026-09.md`.*
 
 Un fichier par système, rien à installer, aucun droit d'administrateur : le
 serveur, ses dépendances, Python et l'interface. Double-clic, le navigateur
