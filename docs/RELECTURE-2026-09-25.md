@@ -346,12 +346,13 @@ Côté forces : 697 tests backend et 507 tests frontend passent, tsc est propre,
   - Vérification : J'ai relu DeviceCard.tsx l.174-183. BandTable n'est lu que par l'axe composants, et le cas matériel n'est pas vérifié.
   - Correctif proposé : Rendre le badge neutre, et comparer aussi le canal.
 
-- [ ] **C-45** — Numéro de série réel du Dome encore lisible dans l'historique git poussé
+- [x] **C-45** — Numéro de série réel du Dome encore lisible dans l'historique git poussé
   - Où : `docs/REVUE-2026-09-24.md` · axes : Sécurité et confidentialité
   - Constat : La série a été retirée à HEAD, mais reste dans les blobs de commits déjà poussés sur un dépôt privé.
   - Scénario : Un git log -p la restitue.
   - Vérification : Script en lecture seule : aucune occurrence à HEAD, 3 commits via git log -S.
   - Correctif proposé : Réécrire l'historique si c'est jugé nécessaire (côté Max), sinon consigner l'exposition.
+  - Fait le 26/09 : l'historique de main est ramené à un seul commit, sans la série ni la position, aux fichiers identiques ; les messages des 59 commits précédents sont dans `docs/HISTORIQUE-2026-09.md`. Les Releases et étiquettes v0.1.0 (ancienne histoire, archive source exposée) et v0.1.1 ont été supprimées, v0.1.1 reposée sur le nouveau commit. Les anciens commits restent lisibles par identifiant chez GitHub jusqu'à son nettoyage ; une purge peut être demandée à son support.
 
 - [x] **C-46** — Tests fragiles ou peu hygiéniques : dépendance à la table de routage, vraies connexions TCP, dossiers temporaires laissés, api/client.ts jamais testé
   - Où : `backend/app/peplink/router_api.py:2627` · axes : Tests et garde-fous

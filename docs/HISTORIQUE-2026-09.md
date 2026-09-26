@@ -1,10 +1,10 @@
 # Historique des commits, 25 → 26 septembre 2026
 
-Préparé pour C-45 : le numéro de série réel du Dome et une position GPS
-réelle, retirés des tests par C-14, restent lisibles dans les commits déjà
-poussés, et l'historique doit être ramené à un seul commit. Les messages des
+C-45 : le numéro de série réel du Dome et une position GPS réelle, retirés
+des tests par C-14, restaient lisibles dans les commits déjà poussés ;
+l'historique a été ramené à un seul commit le 26 septembre 2026. Les messages des
 59 commits de cette période sont conservés ici, du plus ancien au plus récent,
-sans leurs identifiants, qui disparaîtront avec eux. Le constat de chaque correctif
+sans leurs identifiants, qui n'existent plus. Le constat de chaque correctif
 reste dans `docs/RELECTURE-2026-09-25.md`.
 
 ### 2026-09-25 — Relecture complète du 25/09 : 49 constats consignés, à reprendre
