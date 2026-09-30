@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import socket
+import tempfile
 import weakref
 
 import aiosqlite
@@ -15,6 +16,17 @@ import pytest
 # rebinding (C-3) les refuserait : ils sont déclarés ici, comme l'exploitant
 # déclarerait le nom de son poste. Un nom rebasculé, lui, reste refusé.
 os.environ.setdefault("ALLOWED_HOSTS", "testserver,test,t,rejeu")
+
+# Jamais le `.env` du poste : sur une machine d'exploitation, il désigne la base
+# RÉELLE (`DATABASE_PATH=./data/samples.db`), et tout test qui importe
+# `app.main` la lisait comme configuration. Aucun n'y écrit aujourd'hui ; le
+# premier qui démarrerait l'application le ferait sur les mesures de terrain.
+# Les tests du lanceur posent leur propre fichier. Et la valeur PAR DÉFAUT du
+# chemin de base est la même `data/samples.db` : écarter le `.env` n'y suffit pas.
+os.environ.setdefault("ENV_FILE", os.devnull)
+os.environ.setdefault(
+    "DATABASE_PATH", os.path.join(tempfile.mkdtemp(prefix="peplink-tests-"), "samples.db")
+)
 
 # Chaque connexion s'inscrit à sa naissance ; les références sont faibles, donc
 # une connexion fermée et oubliée disparaît d'elle-même. Un parcours de

@@ -553,7 +553,14 @@ export function linkVerdict({
   if (status && status !== 'connecté') {
     // Une valeur hors contrat est traitée comme une injoignabilité : rester
     // muet sur un état qu'on ne sait pas nommer serait pire qu'alerter à tort.
-    return { ...(STATUS_VERDICT[status] ?? STATUS_VERDICT.injoignable), ageSeconds, stale, bondGrievances: [], radioGrievances: [] }
+    const base = STATUS_VERDICT[status] ?? STATUS_VERDICT.injoignable
+    // Sans relevé en mémoire, il n'y a pas de « valeurs affichées » auxquelles
+    // renvoyer : la moitié de phrase qui les annonce est retirée (vu le 30/09
+    // sur un MBX éteint depuis le lancement).
+    const detail = samples.length === 0 && base.detail
+      ? base.detail.replace(/ — les (mesures|valeurs) affichées datent d’avant$/, '')
+      : base.detail
+    return { ...base, detail, ageSeconds, stale, bondGrievances: [], radioGrievances: [] }
   }
 
   if (samples.length === 0) {

@@ -1412,7 +1412,8 @@ class SampleRepository:
         Tout début de stationnement était touché, c'est-à-dire le cas d'usage
         central.
 
-        La largeur ne descend donc pas sous la cadence observée. Et elle est
+        La largeur ne descend donc pas sous deux fois la cadence observée — une
+        moyenne, que les écarts réels dépassent souvent. Et elle est
         RENDUE, avec le nombre de parts réellement employé : la route les
         recalculait de son côté sans connaître le plancher, si bien que la bande
         plaçait les tranches jusqu'à quarante-huit secondes du bon endroit et
@@ -1424,7 +1425,13 @@ class SampleRepository:
         # Le plancher d'une seconde reste, pour le cas où la cadence est inconnue
         # ou absurde : une tranche plus fine que la seconde n'a aucun sens sur
         # des horodatages qui s'écrivent à la milliseconde.
-        plancher = max(1.0, periode or 0.0)
+        #
+        # DEUX périodes, pas une : la période est une moyenne lissée, et une part
+        # n'est sûre de contenir un relevé que si elle dépasse le plus grand
+        # écart. Sur un HD2 en HTTP, un écart sur cinq frôle le double de la
+        # médiane ; à une période, 8 parts sur 68 restaient vides sur une
+        # fenêtre couverte, lues comme autant de trous de supervision.
+        plancher = max(1.0, 2 * (periode or 0.0))
         largeur = max(plancher, etendue / max(1, tranches))
         # Le nombre de parts suit la largeur retenue, sans quoi l'écran étalerait
         # la fenêtre sur deux cents pas dont la plupart ne peuvent rien porter.

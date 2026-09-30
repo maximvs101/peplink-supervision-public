@@ -1924,6 +1924,48 @@ async def test_a_slice_is_never_finer_than_the_polling_cadence(tmp_path):
     await repo.close()
 
 
+async def test_an_irregular_cadence_leaves_no_empty_slice(tmp_path):
+    """La période publiée est une MOYENNE ; une part n'est sûre de contenir un
+    relevé que si elle est plus large que le plus grand ÉCART entre deux.
+
+    Mesuré sur un MAX HD2 en HTTP (30/09) : écart médian 5,4 s, un sur cinq
+    près de 10 s, et une période lissée qui retombe à 5,8 s après une suite de
+    cycles courts. Des parts larges d'une période restaient vides — 8 sur 68 —
+    sur une fenêtre intégralement couverte : l'écran annonçait « 18 % de la
+    fenêtre sans relevé », et chaque part vide coupait en deux un bond resté à
+    un lien sur trois — « redondance réduite 9 fois » en huit minutes d'un état
+    qui n'avait pas bougé.
+    """
+    from datetime import datetime, timedelta
+
+    repo = SampleRepository(str(tmp_path / "s.db"))
+    await repo.connect()
+    t0 = datetime.fromisoformat("2026-09-01T08:00:00+00:00")
+    # Les écarts relevés ce jour-là, dans l'ordre.
+    ecarts = [
+        9.9, 5.3, 5.3, 5.4, 5.5, 5.2, 5.5, 5.3, 8.5, 5.4, 9.9, 9.6, 5.5, 5.4, 4.4,
+        5.3, 5.3, 5.4, 7.6, 5.3, 9.9, 5.4, 5.3, 9.8, 5.3, 5.5, 5.5, 5.4, 8.0, 10.0,
+        5.4, 5.3, 5.3, 5.3, 5.3, 9.9, 5.5, 5.3, 7.9, 10.2, 5.3, 5.3, 5.5, 5.3, 5.4,
+        5.6, 5.4, 9.9, 7.6, 10.0, 5.5, 5.5, 5.4, 5.6, 5.4, 5.4, 5.4, 5.5, 7.6, 14.6,
+    ]
+    instants, t = [], t0
+    for e in ecarts:
+        instants.append(t)
+        t += timedelta(seconds=e)
+    await repo._conn.executemany(
+        "INSERT INTO samples (router_id, wan_id, ts, connected, kind) "
+        "VALUES ('r1', '4', ?, 1, 'cellular')",
+        [(i.isoformat(),) for i in instants],
+    )
+    await repo._conn.commit()
+    fin = instants[-1]
+
+    lignes, _, parts = await repo.timeline("r1", t0, fin, periode=5.8)
+    vues = {l["tranche"] for l in lignes}
+    assert sorted(set(range(parts)) - vues) == [], "une part vide dans une fenêtre couverte"
+    await repo.close()
+
+
 async def test_a_sample_on_the_upper_bound_does_not_duplicate_its_slice(tmp_path):
     """Un relevé tombant EXACTEMENT sur la borne haute donne une part hors du
     tableau. Ce n'est pas un arrondi : c'est déterministe, et cela arrive à

@@ -870,3 +870,54 @@ setup-node v7, setup-python v7, upload-artifact v7, download-artifact v8,
 action-gh-release v3. Chaque entrée employée existe toujours ; les ruptures
 annoncées (ESM, cache npm automatique, empreinte vérifiée au
 téléchargement) ne touchent pas ce workflow. Un test garde le plancher.
+
+### 2026-09-30 — Recette sur le Mac, face à un MAX HD2 réel
+
+Clone neuf à v0.1.1, base recopiée de l'ancien poste (6 stationnements,
+~99 000 relevés, lue en `mode=ro`). Python 3.12.7, Node 24.19. Suite backend
+et interface vertes ; `test_a_port_bound_but_not_yet_listening_is_refused`,
+rouge dans le conteneur cloud, passe sur le Mac. C-31 vérifié en simulant
+l'onglet caché : aucune relecture de bande ni de journal pendant quatre
+cadences, relecture immédiate au retour. C-20 non éprouvé (aucun WAN
+désactivé ce jour-là).
+
+Écarts constatés, et corrigés :
+
+- **Tranches vides sur une fenêtre couverte.** Le plancher de largeur valait
+  UNE période lissée ; sur le HD2 en HTTP, un écart sur cinq frôle le double
+  de la médiane (5,4 s, jusqu'à 14,6 s). Jusqu'à 18 % de la fenêtre se disait
+  « sans relevé », et chaque trou coupait en deux un bond resté à un lien sur
+  trois : « redondance réduite 24 fois » en vingt minutes d'un état immobile.
+  Plancher porté à deux périodes ; sur une copie de la base, 0 tranche vide.
+- **Stationnements passés sans chemin** pour un équipement éteint : leur seul
+  accès était l'historique d'un lien, qu'on n'atteint pas sans relevé. L'état
+  « sans mesure » (vue d'ensemble et détail d'un lien) les liste, vers leur
+  rapport.
+- **« Première mesure en cours… »** sous « Équipement injoignable » dans le
+  détail d'un lien : la correction de la vue d'ensemble n'y était pas. Les
+  deux écrans partagent désormais `SansMesure`.
+- **Bandeau contradictoire** sans relevé en mémoire : « les valeurs affichées
+  datent d'avant » sur un écran vide, et « jamais mesuré » pour un équipement
+  dont la base garde des stationnements. La demi-phrase tombe quand rien
+  n'est affiché ; le tampon dit « aucun relevé depuis le lancement ».
+- **Ouverture sur un équipement éteint** : `#/` menait au premier réel du
+  fichier de flotte, injoignable, plutôt qu'au HD2 appairé qui répondait.
+- **« 5 seul sur 3 »** se lisait comme une fraction : « lien 5 seul, sur 3
+  liens ».
+- **Tests et base de terrain** : avec un `backend/.env` en place, tout test
+  important `app.main` en lisait la configuration, et le chemin par défaut
+  est de toute façon `data/samples.db`. Aucun n'y écrivait ; `conftest.py`
+  écarte désormais le `.env` et pose une base temporaire.
+- **Pas d'icône d'onglet** : `favicon.ico` en 404 à chaque chargement. Une
+  icône SVG neutre (barres de signal, sans couleur d'état) est posée dans
+  `src/`, pas `public/` : Vite lui donne un nom à empreinte, et le serveur
+  garde un an en cache tout ce qui n'est pas du HTML.
+
+Laissé en l'état, à trancher :
+
+- Un lien hors du bond dès le premier relevé n'entre pas au journal : il ne
+  liste que des transitions. L'état est dit sur la ligne du lien et par
+  l'alerte.
+- `backend/.env` n'était pas dans le clone neuf (ignoré par git, à recopier).
+- `StarletteDeprecationWarning` : `httpx` avec le client de test est déprécié
+  au profit de `httpx2`.

@@ -199,8 +199,11 @@ export function VerdictBanner({
             {raw.ageSeconds === null ? '—' : `${Math.round(raw.ageSeconds)} s`}
           </span>
           <span className="lbl">
+            {/* L'âge vient de la mémoire du serveur, pas de la base : « jamais
+                mesuré » se lisait sur un MBX dont la base gardait deux
+                stationnements (30/09). */}
             {raw.ageSeconds === null
-              ? 'jamais mesuré'
+              ? 'aucun relevé depuis le lancement'
               : raw.stale
                 ? 'relevé périmé'
                 : 'dernier relevé'}

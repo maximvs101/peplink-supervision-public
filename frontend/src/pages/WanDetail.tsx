@@ -14,6 +14,7 @@ const HistoryChart = lazy(() =>
 import { ChartBoundary } from '../components/ChartBoundary'
 import { WanCard } from '../components/WanCard'
 import { useDevice } from './DeviceShell'
+import { SansMesure } from '../components/SansMesure'
 import { etiquetteSupport } from '../lib/format'
 
 /**
@@ -27,7 +28,7 @@ export function WanDetail() {
   const { wanId = '' } = useParams()
   const {
     routerId, samples, showThroughput, hasTunnel, periodSeconds, events, windowLabel,
-    sessions, rafraichirSessions,
+    sessions, rafraichirSessions, status,
   } = useDevice()
   const sample = samples.find((s) => s.wan.wan_id === wanId)
 
@@ -37,11 +38,11 @@ export function WanDetail() {
         <Link className="link-back" to={`/e/${encodeURIComponent(routerId)}`}>
           ‹ Retour aux liens
         </Link>
-        <div className="notice">
-          {samples.length === 0
-            ? 'Première mesure en cours…'
-            : `Aucun lien « ${wanId} » sur cet équipement.`}
-        </div>
+        {samples.length === 0 ? (
+          <SansMesure status={status} sessions={sessions} />
+        ) : (
+          <div className="notice">Aucun lien « {wanId} » sur cet équipement.</div>
+        )}
       </div>
     )
   }

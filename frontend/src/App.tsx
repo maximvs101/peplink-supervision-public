@@ -18,7 +18,11 @@ import { WanDetail } from './pages/WanDetail'
  *  vertes et plausibles, et devait aller chercher son équipement dans le
  *  sélecteur après l'avoir appairé. */
 function premierReel(routers: RouterSummary[]): RouterSummary {
-  return routers.find((r) => r.mode !== 'mock') ?? routers[0]
+  // Parmi les réels, celui qui RÉPOND d'abord : un équipement du fichier de
+  // flotte éteint passait avant celui qu'on venait d'appairer, et l'ouverture
+  // tombait sur « Équipement injoignable » (vu sur un MBX réel, le 30/09).
+  const reels = routers.filter((r) => r.mode !== 'mock')
+  return reels.find((r) => r.status === 'connecté') ?? reels[0] ?? routers[0]
 }
 
 /** Ce que le cadre publie à ses écrans.

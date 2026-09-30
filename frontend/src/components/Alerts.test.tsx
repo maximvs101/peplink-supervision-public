@@ -64,12 +64,12 @@ describe('les trois genres', () => {
   it('dit ce que « un seul lien » coûte, et qu’elle se tait d’ordinaire', () => {
     render(
       <Alerts
-        alerts={[alerte({ kind: 'liaison sur un seul lien', wan_id: null, detail: '4 seul sur 5', sustained_s: 15 })]}
+        alerts={[alerte({ kind: 'liaison sur un seul lien', wan_id: null, detail: 'lien 4 seul, sur 5 liens', sustained_s: 15 })]}
       />,
     )
     expect(screen.getByText(/ne tient plus que sur un lien/)).toBeInTheDocument()
     expect(screen.getByText(/l’agrégation ne protège plus de rien/i)).toBeInTheDocument()
-    expect(screen.getByText('4 seul sur 5')).toBeInTheDocument()
+    expect(screen.getByText('lien 4 seul, sur 5 liens')).toBeInTheDocument()
   })
 
   it('dit ce que l’interruption de supervision a coûté', () => {

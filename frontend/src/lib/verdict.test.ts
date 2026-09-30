@@ -198,6 +198,16 @@ describe('quand l’équipement lui-même ne répond plus', () => {
     expect(v.detail).toContain('datent d’avant')
   })
 
+  it('ne renvoie pas à des valeurs affichées quand il n’y en a aucune', () => {
+    // Vu le 30/09 sur un MBX éteint depuis le lancement : « les valeurs
+    // affichées datent d'avant » au-dessus d'un écran qui n'en affichait aucune.
+    for (const status of ['injoignable', 'identifiants refusés'] as const) {
+      const v = linkVerdict({ samples: [], status })
+      expect(v.verdict).toBe('rompu')
+      expect(v.detail).not.toContain('datent d’avant')
+    }
+  })
+
   it('distingue un refus d’identifiants d’une injoignabilité', () => {
     // Le remède n'est pas le même : corriger un mot de passe, ou vérifier un câble.
     const v = linkVerdict({ samples: [sample({})], status: 'identifiants refusés' })

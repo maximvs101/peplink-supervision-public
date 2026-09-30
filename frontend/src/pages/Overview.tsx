@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { Alerts } from '../components/Alerts'
 import { Note, Notes } from '../components/Note'
 import { RepriseIdentifiants } from '../components/RepriseIdentifiants'
+import { SansMesure } from '../components/SansMesure'
 import { BondPlan } from '../components/BondPlan'
 import { DeviceCard } from '../components/DeviceCard'
 import { EventLog } from '../components/EventLog'
@@ -41,7 +42,7 @@ import { useDevice } from './DeviceShell'
 export function Overview() {
   const {
     routerId, router, samples, showThroughput, hasTunnel, status, ageSeconds,
-    timeline, events, periodSeconds, health, role, windowLabel,
+    timeline, events, periodSeconds, health, role, windowLabel, sessions,
   } = useDevice()
 
   // Mémorisées sur `samples`. Ces trois dérivations rendent des objets NEUFS à
@@ -107,18 +108,7 @@ export function Overview() {
       <RepriseIdentifiants routerId={routerId} status={status} />
 
       {samples.length === 0 ? (
-        // Le libellé suit l'ÉTAT, pas seulement l'absence de relevé : « première
-        // mesure en cours… » sous un bandeau « Équipement injoignable » promettait
-        // une mesure qui ne viendrait pas (vu sur un MBX réel).
-        <div className="notice">
-          {status === 'connecté' || status === 'en attente'
-            ? 'Connexion à l’équipement et première mesure en cours…'
-            : status === 'identifiants refusés'
-              // Un refus n'est pas un silence : « ne répond pas » envoyait
-              // chercher une panne de réseau (C-42).
-              ? 'Aucune mesure : les identifiants ont été refusés — voir ci-dessus.'
-              : 'Aucune mesure : l’équipement ne répond pas — voir le bandeau.'}
-        </div>
+        <SansMesure status={status} sessions={sessions} />
       ) : (
         <>
           {/* L'ordre suit les questions : ce qui porte, puis lequel décroche,

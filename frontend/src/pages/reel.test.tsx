@@ -33,6 +33,7 @@ import { WanCard } from '../components/WanCard'
 import type { EventLog, RouterSummary, Session, Timeline } from '../types'
 import { DeviceShell } from './DeviceShell'
 import { Overview } from './Overview'
+import { WanDetail } from './WanDetail'
 
 import dome from '../test/reel/dome.json'
 import hd2 from '../test/reel/hd2.json'
@@ -203,6 +204,52 @@ describe('le tableau de bord sur un équipement réel', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(50) })
     expect(container.textContent).not.toMatch(/première mesure en cours/)
     expect(container.textContent).toMatch(/ne répond pas/)
+    unmount()
+  })
+
+  it('garde ses stationnements passés lisibles quand il ne répond plus', async () => {
+    // Vu le 30/09 : deux stationnements en base pour un MBX éteint, et aucun
+    // chemin vers eux — le seul accès aux rapports est l'historique d'un lien,
+    // qu'on n'atteint pas sans relevé en cours.
+    const reel = REELS['MAX HD4 MBX, quatre SIM, tunnel monté']
+    vi.mocked(fetchRouter).mockResolvedValue({
+      ...reel.router, wans: [], status: 'injoignable', error: 'connexion refusée',
+    })
+    vi.mocked(fetchSessions).mockResolvedValue(reel.sessions)
+    vi.mocked(fetchTimeline).mockResolvedValue(reel.timeline)
+    vi.mocked(fetchEvents).mockResolvedValue(reel.events)
+    const { container, unmount } = monterTableauDeBord()
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    const liens = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))
+    expect(liens).toContain(`/rapport/${reel.sessions[0].id}`)
+    expect(container.textContent).not.toMatch(/Invalid Date/)
+    unmount()
+  })
+
+  it('ne promet pas non plus de première mesure dans le détail d’un lien', async () => {
+    const reel = REELS['MAX HD4 MBX, quatre SIM, tunnel monté']
+    vi.mocked(fetchRouter).mockResolvedValue({
+      ...reel.router, wans: [], status: 'injoignable', error: 'connexion refusée',
+    })
+    vi.mocked(fetchSessions).mockResolvedValue(reel.sessions)
+    vi.mocked(fetchTimeline).mockResolvedValue(reel.timeline)
+    vi.mocked(fetchEvents).mockResolvedValue(reel.events)
+    const { container, unmount } = render(
+      <MemoryRouter initialEntries={['/e/reel/wan/1']}>
+        <Routes>
+          <Route element={<Outil />}>
+            <Route path="/e/:routerId" element={<DeviceShell />}>
+              <Route path="wan/:wanId" element={<WanDetail />} />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    expect(container.textContent).not.toMatch(/première mesure en cours/i)
+    expect(container.textContent).toMatch(/ne répond pas/)
+    const liens = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))
+    expect(liens).toContain(`/rapport/${reel.sessions[0].id}`)
     unmount()
   })
 

@@ -275,9 +275,11 @@ def _conditions(statuses: list[WanRadioStatus], *, tunnel_attendu: bool = True):
     # développement, un MAX HD2 dont le concentrateur était injoignable,
     # l'écran titrait « la liaison ne tient plus que sur un lien » avec le
     # détail « aucun sur 3 ». Zéro n'est pas un. Le genre dit désormais lequel.
+    # « 5 seul sur 3 » se lisait comme une fraction : le lien est nommé comme
+    # dans « Lien 4 hors du bond », et le total dit ce qu'il compte (30/09).
     if len(porteurs) == 1:
         yield ("liaison sur un seul lien", None,
-               f"{porteurs[0].wan_id} seul sur {len(regardes)}", SEUL_LIEN_S, False)
+               f"lien {porteurs[0].wan_id} seul, sur {len(regardes)} liens", SEUL_LIEN_S, False)
     elif not porteurs:
         # La cause voyage avec l'alerte de niveau bond quand elle est commune :
         # absorber les alertes par lien ne doit pas faire disparaître le mot du

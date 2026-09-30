@@ -75,6 +75,29 @@ describe('une flotte vide', () => {
   })
 })
 
+describe('l’équipement ouvert à l’entrée', () => {
+  it('est celui qui répond, pas le premier du fichier de flotte', async () => {
+    // Vu le 30/09 : le MBX de routers.yaml, éteint, passait avant le HD2 qu'on
+    // venait d'appairer et qui répondait — l'ouverture tombait sur « Équipement
+    // injoignable », et l'équipement vivant était à chercher dans le sélecteur.
+    const eteint = { ...mbx(), status: 'injoignable' as const, age_seconds: null }
+    const vivant = { ...mbx(), id: 'hd2', name: 'HD2' }
+    vi.mocked(fetchRouters).mockResolvedValue([eteint, vivant])
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('#/e/hd2')
+  })
+
+  it('reste le premier réel quand aucun ne répond', async () => {
+    const a = { ...mbx(), status: 'injoignable' as const }
+    const b = { ...mbx(), id: 'b', status: 'injoignable' as const }
+    vi.mocked(fetchRouters).mockResolvedValue([a, b])
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('#/e/mbx')
+  })
+})
+
 describe('une panne du service', () => {
   it('se dit aussi à l’entrée, quand la flotte n’a jamais été lue', async () => {
     // Le bandeau ne vivait que sous le cadre : à `#/` avec le service
