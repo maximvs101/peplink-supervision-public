@@ -77,6 +77,16 @@ def _coupures_json(coupures: list[regles.Coupure]) -> list[dict]:
     ]
 
 
+def _suffit(releves: list[regles.Releve], v: dict) -> bool:
+    """Le verdict calculé sur cette fin de série vaut-il pour toute la série ?
+
+    Oui s'il s'arrête avant son début — et si ce début n'est pas un relevé
+    injoignable : une suite d'injoignables coupée par le début de la lecture
+    paraîtrait plus courte, et un redémarrage pourrait ne pas s'y voir.
+    """
+    return v["depuis"] != releves[0].ts and releves[0].joignable
+
+
 def _rogner(segments: list[regles.Segment], depuis: datetime) -> list[regles.Segment]:
     """La bande à partir de `depuis`."""
     return [
@@ -423,7 +433,7 @@ def creer_app(
         """
         if lus:
             v = await asyncio.to_thread(regles.verdict, lus, maintenant)
-            if complet or v["depuis"] != lus[0].ts:
+            if complet or _suffit(lus, v):
                 _retenir_verdict(ident, lus, v)
                 return v
         elif complet or dernier is None:
@@ -431,7 +441,10 @@ def creer_app(
         connu = session.verdicts.get(ident)
         if connu is not None:
             ancre, v_connu = connu
-            suite = await depot.releves(ident, depuis=ancre.ts)
+            # Un routeur injoignable peut s'avérer redémarré : la suite repart
+            # du premier injoignable, pour que la détection voie toute la suite.
+            repere = v_connu["depuis"] if v_connu["etat"] == "injoignable" else ancre.ts
+            suite = await depot.releves(ident, depuis=repere)
             v = await asyncio.to_thread(regles.verdict, suite, maintenant)
             if suite and v["depuis"] == suite[0].ts and v["etat"] == v_connu["etat"]:
                 v = {"etat": v["etat"], "depuis": v_connu["depuis"]}
@@ -443,7 +456,7 @@ def creer_app(
                 continue  # déjà lu
             releves = await depot.releves(ident, depuis=depuis)
             v = await asyncio.to_thread(regles.verdict, releves, maintenant)
-            if depuis is None or not releves or v["depuis"] != releves[0].ts:
+            if depuis is None or not releves or _suffit(releves, v):
                 _retenir_verdict(ident, releves, v)
                 return v
         raise AssertionError("inatteignable : le dernier recul relit tout")

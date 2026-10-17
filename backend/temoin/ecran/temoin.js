@@ -65,6 +65,9 @@
         return { classe: 'v-gris', titre: 'Routeur injoignable', detail: depuis ? `${depuis} — non mesuré, ce n'est pas une coupure` : '' };
       case 'desactive':
         return { classe: 'v-gris', titre: 'Lien désactivé', detail: depuis ? `${depuis} — désactivé sur le routeur, ce n'est pas une coupure` : '' };
+      case 'redemarrage':
+        // Le routeur a redémarré ; le WAN filaire renégocie encore (au plus 3 min).
+        return { classe: 'v-gris', titre: 'Routeur redémarré — le lien se reconnecte', detail: v.depuis ? `depuis ${quand(v.depuis)} — ce n'est pas une coupure` : "ce n'est pas une coupure" };
       case 'introuvable':
         // Le WAN choisi n'est plus dans la réponse du routeur (reconfiguré, renuméroté).
         return {

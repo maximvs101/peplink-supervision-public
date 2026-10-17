@@ -257,3 +257,26 @@ def test_une_coupure_interrompue_n_a_pas_de_fin_observee():
     rel = serie(0, 30) + serie(33, 60, connecte=False) + serie(63, 72)
     [c] = coupures(rel, [])
     assert c.fin_observee is True
+
+
+def test_hypothese_le_verdict_dit_redemarrage_pendant_la_renegociation():
+    # Injoignable de 33 à 90 s, routeur revenu à 93 s (20 s), WAN qui négocie.
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in range(33, 91, 3)]
+           + _apres_redemarrage(93, 120, connecte=False))
+    assert verdict(rel, t(123)) == {"etat": "redemarrage", "depuis": t(33)}
+    # Revenu debout : stable depuis le retour, pas avant.
+    rel += _apres_redemarrage(123, 150, connecte=True)
+    assert verdict(rel, t(153)) == {"etat": "stable", "depuis": t(123)}
+
+
+def test_hypothese_passe_trois_minutes_le_verdict_dit_coupe_comme_la_liste():
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in range(33, 91, 3)]
+           + _apres_redemarrage(93, 300, connecte=False))
+    [c] = coupures(rel, [])
+    assert verdict(rel, t(303)) == {"etat": "coupe", "depuis": c.debut} == {
+        "etat": "coupe", "depuis": t(255)}
+
+
+def test_un_routeur_encore_injoignable_reste_injoignable_au_verdict():
+    rel = serie(0, 30) + [r(s, joignable=False) for s in range(33, 91, 3)]
+    assert verdict(rel, t(93)) == {"etat": "injoignable", "depuis": t(33)}

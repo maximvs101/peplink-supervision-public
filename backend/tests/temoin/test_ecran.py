@@ -70,7 +70,7 @@ def test_les_libelles_sont_en_francais():
         "Nouvelle observation", "non mesuré", "en cours", "Retenir sur ce poste",
         "en clair", "Mesurer ce lien", "lecture seule", "Imprimer",
         "Horloges du routeur et du poste en désaccord",
-        "Lien introuvable sur le routeur", "fin non observée", "au moins",
+        "Lien introuvable sur le routeur", "Routeur redémarré — le lien se reconnecte", "fin non observée", "au moins",
     ):
         assert libelle in tout, libelle
     for page in ("index.html", "rapport.html"):

@@ -297,12 +297,25 @@ def verdict(releves: list[Releve], maintenant: datetime) -> dict:
         "debout": "stable",
         "secours": "stable",
     }
-    dernier = _etat(releves[-1])
-    etat = groupes[dernier]
+    # Même lecture que la bande et les coupures : les relevés d'un redémarrage
+    # (injoignables, puis le WAN qui renégocie) ne sont ni « injoignable » ni
+    # « coupé ».
+    sequences = _redemarrages(releves)
+    dernier_i = len(releves) - 1
+    for debut, fin in sequences.items():
+        if debut <= dernier_i < fin:
+            # HYPOTHÈSE — à confirmer à la séance de capture (spec §6.7)
+            return {"etat": "redemarrage", "depuis": releves[debut].ts}
+    redemarrage = {i for debut, fin in sequences.items() for i in range(debut, fin)}
+
+    def groupe(i: int) -> str:
+        return "redemarrage" if i in redemarrage else groupes[_etat(releves[i])]
+
+    etat = groupe(dernier_i)
     depuis = releves[-1].ts
     for i in range(len(releves) - 2, -1, -1):
         rel, suivant = releves[i], releves[i + 1]
-        if groupes[_etat(rel)] != etat:
+        if groupe(i) != etat:
             break
         if _trou(rel, suivant.ts):
             break

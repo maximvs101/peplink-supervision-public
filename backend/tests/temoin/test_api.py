@@ -670,3 +670,38 @@ async def test_le_verdict_se_prolonge_sans_tout_relire(api, depot, temps, monkey
     await depot.ajouter_releve(obs, rel(9030, connecte=False))
     assert await verdict_1h(9030) == {"etat": "coupe", "depuis": "2026-10-17T12:30:30+00:00"}
     assert None not in lectures
+
+
+async def test_hypothese_un_redemarrage_se_voit_au_verdict_prolonge(api, depot, temps):
+    # Routeur injoignable 1 h 30 (un essai toutes les 30 s), plus long que la
+    # fenêtre et sa marge : le verdict « injoignable » est retenu d'un sondage à
+    # l'autre. Puis le routeur revient tout jeune et le WAN renégocie : le
+    # verdict dit le redémarrage depuis le premier injoignable, comme la bande.
+    await depot.memoriser_equipement(HOTE, SERIE, MODELE)
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+    for s in range(0, 1000, 10):
+        await depot.ajouter_releve(obs, rel(s))
+    for s in range(1000, 6400, 30):
+        await depot.ajouter_releve(obs, rel(s, joignable=False))
+
+    async def sonder(s, fenetre):
+        temps.now = T0 + timedelta(seconds=s)
+        return (await api.get("/api/observation",
+                              params={"id": obs, "fenetre": fenetre})).json()
+
+    debut = "2026-10-17T10:16:40+00:00"
+    assert (await sonder(6372, "1h"))["verdict"] == {"etat": "injoignable", "depuis": debut}
+    for s in range(6400, 6460, 30):
+        await depot.ajouter_releve(obs, rel(s, joignable=False))
+    # 100 s d'ancienneté : moins que la suite entière (5 460 s), plus que ce qui
+    # suit le dernier relevé examiné (90 s).
+    for s in (6460, 6470):
+        await depot.ajouter_releve(obs, Releve(
+            ts=T0 + timedelta(seconds=s), joignable=True, connecte=False,
+            message="Connecting", anciennete_s=None, desactive=False,
+            anciennete_routeur_s=100 + s - 6460))
+    attendu = {"etat": "redemarrage", "depuis": debut}
+    heure = await sonder(6472, "1h")
+    assert heure["verdict"] == attendu
+    assert heure["coupures"] == []
+    assert (await sonder(6472, "tout"))["verdict"] == attendu
