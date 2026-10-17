@@ -53,6 +53,12 @@ def faux(monkeypatch):
     monkeypatch.setattr(connexion, "ClientTemoin", FauxClient)
     connexion._RETENUS.clear()
 
+    async def aucune_sonde(host, mac=None):
+        return None
+
+    # Jamais le réseau dans ces tests : une adresse sans schéma est sondée.
+    monkeypatch.setattr(connexion, "probe", aucune_sonde)
+
 
 @pytest.fixture
 async def depot(tmp_path):
@@ -245,3 +251,19 @@ async def test_l_adresse_saisie_retrouve_l_equipement_decouvert(monkeypatch, dep
     await connexion.connecter(f"http://{HOTE}/", IDENT, False, depot)
     _, info = await connexion.connecter(HOTE, None, False, depot)
     assert info.serial == SERIE
+
+
+async def test_une_adresse_saisie_sans_schema_prend_celui_qui_repond(monkeypatch, depot):
+    sondees = []
+
+    async def sonde(host, mac=None):
+        sondees.append(host)
+        return DiscoveredDevice(host=f"http://{host}", api_reachable=True)
+
+    monkeypatch.setattr(connexion, "probe", sonde)
+    client, _ = await connexion.connecter(f" {HOTE} ", IDENT, False, depot)
+    assert sondees == [HOTE]
+    assert client.config.host == f"http://{HOTE}"
+    # Une adresse avec son schéma n'est pas sondée.
+    await connexion.connecter(f"https://{HOTE}", IDENT, False, depot)
+    assert sondees == [HOTE]

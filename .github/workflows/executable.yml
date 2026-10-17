@@ -178,6 +178,11 @@ jobs:
       - name: Lancer le témoin, et vérifier qu'il répond — serveur, écran, base
         if: env.TEMOIN == 'true'
         working-directory: backend
+        # Sous Windows, le bash de Git convertit tout argument qui ressemble à
+        # un chemin absolu : `/api/sante` arrivait en
+        # `C:/Program Files/Git/api/sante` (run #19).
+        env:
+          MSYS_NO_PATHCONV: "1"
         run: python tools/verifier_executable.py ${{ matrix.temoin_produit }} --sante /api/sante
 
       # Sur macOS, une archive tar.gz et non le fichier nu : l'emballage des

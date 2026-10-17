@@ -20,6 +20,10 @@ from .fleet import load_fleet
 from .pairing.service import Reconnexion
 from .poller import Poller
 from .storage.db import SampleRepository
+from .types_mime import fixer_types_mime
+
+fixer_types_mime()
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 

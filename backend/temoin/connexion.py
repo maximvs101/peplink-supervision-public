@@ -13,7 +13,7 @@ import logging
 
 from app import coffre
 from app.coffre import Identifiants
-from app.discovery.probe import discover
+from app.discovery.probe import discover, probe
 from app.fleet import RouterConfig
 from app.models import DeviceInfo
 from app.models import WanRadioStatus
@@ -91,6 +91,14 @@ async def connecter(
         if ident is None:
             raise RefusIdentifiants("identifiants requis")
         serie_du_trousseau = serie
+
+    if "://" not in hote:
+        # Une adresse saisie sans schéma visait HTTPS (règle du client) : un
+        # Peplink sans TLS — le HD2, port 80 seul — était dit injoignable. La
+        # sonde de la découverte, sans identifiant, dit lequel des deux répond.
+        trouve = await probe(hote.strip())
+        if trouve is not None and trouve.api_reachable:
+            hote = trouve.host
 
     config = RouterConfig(
         id=f"temoin-{hote}", name=hote, host=hote,

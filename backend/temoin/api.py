@@ -34,6 +34,10 @@ from app.peplink.router_api import CredentialsRefusedError
 from temoin import __version__, connexion, export, regles
 from temoin.collecte import Collecte
 from temoin.stockage import Depot
+from app.types_mime import fixer_types_mime
+
+fixer_types_mime()
+
 
 log = logging.getLogger(__name__)
 

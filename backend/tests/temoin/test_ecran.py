@@ -95,3 +95,17 @@ def test_l_avertissement_en_clair_ne_vaut_que_pour_http():
     html, js = _texte("index.html"), _texte("temoin.js")
     assert re.search(r'<p id="ident-clair"[^>]*\bhidden\b', html)
     assert "schema[0] === 'http'" in js and "$('ident-clair').hidden" in js
+
+
+def test_les_types_de_l_ecran_ne_dependent_pas_du_registre(monkeypatch):
+    import mimetypes
+
+    from app.types_mime import fixer_types_mime
+
+    # Une base de registre Windows qui dirait « text/plain » pour .js :
+    monkeypatch.setattr(mimetypes, "_db", None)
+    mimetypes.init()
+    mimetypes.add_type("text/plain", ".js")
+    fixer_types_mime()
+    assert mimetypes.guess_type("temoin.js")[0] == "text/javascript"
+    assert mimetypes.guess_type("temoin.css")[0] == "text/css"

@@ -94,3 +94,9 @@ def test_le_lancement_manuel_choisit_le_produit():
         elif str(etape.get("uses", "")).startswith("actions/upload-artifact"):
             produit = "TEMOIN" if "temoin" in etape["with"]["name"] else "SUPERVISEUR"
             assert etape["if"] == f"env.{produit} == 'true'"
+
+
+def test_la_route_de_sante_n_est_pas_convertie_en_chemin_sous_windows():
+    for etape in _flux()["jobs"]["construire"]["steps"]:
+        if "--sante /api/sante" in etape.get("run", ""):
+            assert (etape.get("env") or {}).get("MSYS_NO_PATHCONV") == "1"
