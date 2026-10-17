@@ -73,7 +73,8 @@ def retenir(serie: str, ident: Identifiants) -> bool:
         return True
     except Exception as exc:
         # Le type seulement : le message d'un backend peut citer ce qu'on lui a passé.
-        logger.warning("Identifiants non retenus pour %s : %s", serie, type(exc).__name__)
+        # Jamais la série dans le journal (règle du projet).
+        logger.warning("Identifiants non retenus : %s", type(exc).__name__)
         return False
 
 
@@ -92,7 +93,8 @@ def lire(serie: str) -> Identifiants | None:
         )
         return ident if (ident.username or ident.client_id) else None
     except Exception as exc:
-        logger.warning("Identifiants illisibles pour %s : %s", serie, type(exc).__name__)
+        # Jamais la série dans le journal (règle du projet).
+        logger.warning("Identifiants illisibles : %s", type(exc).__name__)
         return None
 
 

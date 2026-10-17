@@ -79,9 +79,12 @@ def test_un_secret_ne_sort_jamais_dans_une_trace():
     assert "TRES-SECRET" not in repr(ident) and "AUSSI-SECRET" not in repr(ident)
 
 
-def test_une_entree_illisible_vaut_rien(trousseau):
+def test_une_entree_illisible_vaut_rien(trousseau, caplog):
     trousseau.entrees[(coffre.SERVICE, "0000-0000-0042")] = "pas du json"
-    assert coffre.lire("0000-0000-0042") is None
+    with caplog.at_level("WARNING"):
+        assert coffre.lire("0000-0000-0042") is None
+    # Le journal dit l'échec, jamais la série.
+    assert "illisibles" in caplog.text and "0000-0000-0042" not in caplog.text
 
 
 # --- les routes ------------------------------------------------------------------

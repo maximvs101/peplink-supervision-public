@@ -110,3 +110,14 @@ async def test_la_base_est_fermee_a_l_arret_de_l_application(monkeypatch, tmp_pa
     monkeypatch.setattr(uvicorn, "Server", FauxServeur)
     await lanceur.servir(tmp_path / "data" / "temoin.db", Path(temoin.__file__).parent / "ecran", 8010)
     assert vu == {"pendant": [], "apres": ["ferme"]}
+
+
+def test_un_port_non_numerique_est_dit_sans_trace(monkeypatch, capsys):
+    import pytest
+
+    for valeur in ("abc", "80 80", "0", "70000"):
+        monkeypatch.setenv("PORT", valeur)
+        monkeypatch.setattr(lanceur, "choisir_port",
+                            lambda depart: pytest.fail("aucun port ne doit être essayé"))
+        assert lanceur.main() == 2
+        assert "n'est pas un numéro de port" in capsys.readouterr().out
