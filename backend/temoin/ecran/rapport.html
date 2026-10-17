@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rapport — Témoin de lien Ethernet</title>
+<link rel="stylesheet" href="temoin.css">
+</head>
+<body data-page="rapport">
+<main class="page rapport">
+  <header>
+    <div>
+      <h1>Rapport du témoin de lien Ethernet</h1>
+      <dl>
+        <dt>Équipement</dt><dd id="r-equipement">—</dd>
+        <dt>Lien</dt><dd id="r-lien">—</dd>
+        <dt>Période observée</dt><dd id="r-periode" class="num">—</dd>
+        <dt>Chiffres et bande sur</dt><dd id="r-fenetre">—</dd>
+        <dt>Rapport établi</dt><dd id="r-etabli" class="num">—</dd>
+      </dl>
+    </div>
+    <span class="spacer"></span>
+    <button type="button" id="imprimer" class="is-primary no-print">Imprimer</button>
+  </header>
+
+  <p id="erreur" class="message is-erreur" role="alert" hidden></p>
+
+  <div id="contenu" class="pile" hidden>
+    <div id="notes"></div>
+    <div class="panel tete" id="tete"></div>
+    <div class="panel">
+      <div class="panel-head"><h2>Bande de temps</h2></div>
+      <div id="bande"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Coupures</h2><span class="note">la plus récente en haut</span></div>
+      <div id="liste"></div>
+    </div>
+    <p class="panel-note">Une absence de mesure (poste en veille, outil fermé, routeur injoignable) est dite « non mesuré » et n'entre ni dans les coupures ni dans la disponibilité. Une désactivation, un passage en secours ou un redémarrage du routeur ne sont pas des coupures. Micro-coupure : le lien est tombé et revenu entre deux relevés (3 s) ; sa durée est inconnue.</p>
+  </div>
+</main>
+<div id="infobulle" class="infobulle" role="tooltip" hidden></div>
+<script src="temoin.js"></script>
+</body>
+</html>

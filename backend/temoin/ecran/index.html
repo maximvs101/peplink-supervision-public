@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Témoin de lien Ethernet</title>
+<link rel="stylesheet" href="temoin.css">
+</head>
+<body data-page="ecran">
+<header class="mast">
+  <div class="mast-id">
+    <b>Témoin de lien Ethernet</b>
+    <span id="identite">Recherche du routeur…</span>
+  </div>
+  <div class="spacer"></div>
+  <label id="choix-observation" hidden>
+    <span class="lbl">Observation</span>
+    <select id="observations" aria-label="Observation affichée"></select>
+  </label>
+</header>
+
+<main class="page">
+  <p id="erreur" class="message is-erreur" role="alert" hidden></p>
+
+  <!-- 1. Recherche du routeur -->
+  <section id="vue-recherche" class="panel" hidden>
+    <div class="panel-head"><h2>Routeur Peplink</h2><span class="note" id="recherche-note"></span></div>
+    <div class="panel-body">
+      <div id="equipements" class="equipements" hidden></div>
+      <p id="aucun-equipement" hidden>Aucun Peplink trouvé sur le réseau de ce poste. La recherche continue ; vous pouvez aussi saisir son adresse.</p>
+      <form id="form-adresse" class="champs" autocomplete="off">
+        <label><span class="lbl">Adresse du routeur</span>
+          <input type="text" id="adresse" placeholder="192.168.50.1" spellcheck="false"></label>
+        <button type="submit">Se connecter</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- 2. Identifiants -->
+  <section id="vue-identifiants" class="panel" hidden>
+    <div class="panel-head"><h2>Identifiants</h2><span class="note num" id="ident-hote"></span></div>
+    <div class="panel-body">
+      <form id="form-identifiants" autocomplete="off">
+        <div class="segmented" role="group" aria-label="Type de compte">
+          <button type="button" data-compte="admin" aria-pressed="true">Compte administrateur</button>
+          <button type="button" data-compte="api" aria-pressed="false">Client API (lecture seule)</button>
+        </div>
+        <div class="champs" data-pour="admin">
+          <label><span class="lbl">Utilisateur</span><input type="text" name="username" spellcheck="false"></label>
+          <label><span class="lbl">Mot de passe</span><input type="password" name="password"></label>
+        </div>
+        <div class="champs" data-pour="api" hidden>
+          <label><span class="lbl">Client ID</span><input type="text" name="client_id" spellcheck="false"></label>
+          <label><span class="lbl">Client secret</span><input type="password" name="client_secret"></label>
+        </div>
+        <label class="case"><input type="checkbox" name="retenir" checked> Retenir sur ce poste (trousseau du système)</label>
+        <p class="message is-reserve">Le témoin parle au routeur en HTTP, sans chiffrement : ces identifiants circulent en clair sur le réseau local entre ce poste et le routeur.</p>
+        <p id="ident-refus" class="message is-erreur" role="alert" hidden></p>
+        <div class="champs">
+          <button type="submit" class="is-primary">Se connecter</button>
+          <button type="button" id="ident-annuler">Annuler</button>
+        </div>
+      </form>
+    </div>
+    <p class="panel-note">Une seule tentative par clic : cinq refus bloquent l'accès administrateur du routeur pendant 5 minutes. Pour un autre routeur, saisissez son adresse ci-dessous.</p>
+    <div class="panel-body">
+      <form id="form-autre" class="champs" autocomplete="off">
+        <label><span class="lbl">Autre adresse</span><input type="text" id="autre-adresse" spellcheck="false"></label>
+        <button type="submit">Se connecter</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- 3. Choix du lien -->
+  <section id="vue-lien" class="panel" hidden>
+    <div class="panel-head"><h2>Lien à observer</h2><span class="note" id="lien-modele"></span></div>
+    <div class="panel-body">
+      <form id="form-lien">
+        <div id="liens" class="liens" role="radiogroup" aria-label="WAN Ethernet"></div>
+        <p id="aucun-lien" hidden>Ce routeur ne publie aucun WAN Ethernet.</p>
+        <button type="submit" class="is-primary" id="mesurer">Mesurer ce lien</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- 4. La mesure (ou une observation passée) -->
+  <section id="vue-mesure" hidden>
+    <div class="pile">
+      <p id="lecture" class="message is-lecture" hidden>
+        <strong>Observation passée — lecture seule</strong>
+        <span id="lecture-quoi"></span>
+        <span class="spacer"></span>
+        <button type="button" id="retour-direct">Revenir à la mesure en cours</button>
+      </p>
+      <div id="notes"></div>
+
+      <div class="panel tete" id="tete"></div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Bande de temps</h2><span class="note" id="bande-note"></span>
+          <span class="spacer"></span>
+          <div class="segmented" role="group" aria-label="Fenêtre affichée" id="fenetres">
+            <button type="button" data-fenetre="tout" aria-pressed="true">Tout</button>
+            <button type="button" data-fenetre="1h" aria-pressed="false">1 h</button>
+            <button type="button" data-fenetre="24h" aria-pressed="false">24 h</button>
+          </div>
+        </div>
+        <div id="bande"></div>
+      </div>
+
+      <div class="panel">
+        <div class="actions">
+          <a class="bouton" id="export-coupures" download>Exporter les coupures</a>
+          <a class="bouton" id="export-releves" download>Exporter les relevés</a>
+          <a class="bouton" id="rapport" target="_blank" rel="noopener">Rapport</a>
+          <span class="spacer"></span>
+          <button type="button" id="nouvelle">Nouvelle observation</button>
+        </div>
+        <div class="confirmer" id="confirmer" hidden>
+          <p>Clore l'observation en cours et en commencer une nouvelle sur le même lien ? L'observation close reste consultable et exportable.</p>
+          <button type="button" class="is-primary" id="nouvelle-oui">Commencer une nouvelle observation</button>
+          <button type="button" id="nouvelle-non">Annuler</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Coupures</h2><span class="note">la plus récente en haut</span></div>
+        <div id="liste"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="infobulle" class="infobulle" role="tooltip" hidden></div>
+<script src="temoin.js"></script>
+</body>
+</html>
