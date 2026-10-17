@@ -245,7 +245,7 @@ jobs:
             /^## / { dedans = index($0, "## " tag " ") == 1 || $0 == "## " tag; next }
             dedans { print }
           ' CHANGELOG.md > notes.md
-          test -s notes.md || echo "Superviseur Peplink ${GITHUB_REF_NAME}." > notes.md
+          test -s notes.md || echo "Superviseur Peplink et témoin Ethernet ${GITHUB_REF_NAME}." > notes.md
           cat notes.md
       - uses: actions/download-artifact@v8
         with:
@@ -253,6 +253,6 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v3
         with:
-          name: Superviseur ${{ github.ref_name }}
+          name: Superviseur et témoin Ethernet ${{ github.ref_name }}
           body_path: notes.md
           files: fichiers/*
