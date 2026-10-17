@@ -42,6 +42,42 @@ de tests, puis **lancé et vérifié** avant d'être livré (`.github/workflows/
 Un routeur qui ne parle qu'HTTP est accepté, et l'écran le dit : le mot de passe passe alors
 en clair sur le LAN. Activer HTTPS dans l'admin du routeur reste préférable.
 
+## Témoin de lien Ethernet
+
+Un second outil, plus petit, pour une seule question : **ce lien Ethernet est-il stable ?**
+— typiquement un lien opérateur raccordé au WAN filaire d'un Peplink. Il suit **un** WAN
+Ethernet d'**un** routeur, pendant quelques heures ou quelques jours : une bande verte et
+rouge sur la période observée, chaque coupure avec son début, sa fin, sa durée et la cause
+donnée par le routeur, puis deux exports CSV qu'Excel en français ouvre tels quels (coupures,
+relevés) et un rapport imprimable. Ni numéro de série, ni position, ni nom de WAN n'en
+sortent : le lien s'y nomme « WAN n », l'équipement par son modèle. Un trou de mesure (PC en
+veille, routeur injoignable) se dit « non mesuré » — jamais une coupure, jamais un zéro.
+
+Même livraison que le superviseur, dans les mêmes [Releases](../../releases) :
+`temoin-ethernet-windows-x64.exe`, `temoin-ethernet-macos-x64.tar.gz` (Intel),
+`temoin-ethernet-macos-arm64.tar.gz` (Apple silicon). Télécharger, décompresser sur Mac,
+double-cliquer : le navigateur s'ouvre, le Peplink est trouvé sur le réseau, une saisie
+d'identifiants la première fois, et la mesure tourne. Non signés, comme le superviseur : au
+premier lancement, Windows demande « Informations complémentaires › Exécuter quand même »,
+macOS un clic droit › Ouvrir (Gatekeeper).
+
+- Il n'écoute que sur `http://127.0.0.1:8010` — le superviseur garde 8000, les deux tournent
+  ensemble. Port pris : il prend le suivant libre et l'affiche. `PORT=…` change le point de
+  départ, `OUVRIR_NAVIGATEUR=0` laisse le navigateur fermé.
+- Sa base, `data/temoin.db`, se range **à côté du fichier**, distincte de celle du
+  superviseur, avec une copie de sauvegarde à chaque lancement. Relancé moins d'une heure
+  après le dernier relevé du même lien, il reprend l'observation.
+- Les identifiants du routeur sont gardés dans le **trousseau du système** (Trousseau
+  d'accès sur macOS, Gestionnaire d'identification sous Windows), jamais dans un fichier.
+- Depuis le dépôt : `cd backend && .venv/bin/python -m temoin`.
+
+> **HYPOTHÈSE** — les causes tirées du journal du routeur (câble absent, test de santé en
+> échec, désactivation par l'exploitant, redémarrage) reposent sur des formats de message
+> pas encore observés sur une vraie coupure Ethernet. Elles seront confirmées ou corrigées
+> par une séance de capture sur matériel ; d'ici là, une cause peut manquer ou se tromper,
+> et une désactivation ou un redémarrage passer pour une coupure. L'état du lien lui-même
+> (connecté ou non, depuis quand) se lit sur le WAN, pas dans le journal.
+
 ## Depuis le dépôt
 
 Node 24 (le `package-lock.json` est écrit par son npm 11), Python 3.12.

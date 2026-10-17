@@ -1,4 +1,6 @@
-# L'exécutable unique, construit pour chaque système par GitHub.
+# L'exécutable unique, construit pour chaque système par GitHub — celui du
+# superviseur, et celui du témoin de lien Ethernet (`temoin-ethernet-*`), deux
+# fichiers par système, construits et vérifiés dans le même job.
 #
 # PyInstaller ne compile pas en croisé : un fichier par système, construit sur
 # ce système. Ici, trois machines de GitHub s'en chargent — Windows, macOS à
@@ -47,10 +49,16 @@ jobs:
             nom: superviseur-windows-x64.exe
             produit: dist/superviseur.exe
             livraison: superviseur-windows-x64.exe
+            temoin_nom: temoin-ethernet-windows-x64.exe
+            temoin_produit: dist/temoin-ethernet.exe
+            temoin_livraison: temoin-ethernet-windows-x64.exe
           - os: macos-latest
             nom: superviseur-macos-arm64
             produit: dist/superviseur
             livraison: superviseur-macos-arm64.tar.gz
+            temoin_nom: temoin-ethernet-macos-arm64
+            temoin_produit: dist/temoin-ethernet
+            temoin_livraison: temoin-ethernet-macos-arm64.tar.gz
           # Le Mac de terrain est un Intel (i7, macOS 13) : le fichier arm64 n'y
           # tourne pas. GitHub retire ses machines Intel par étapes ; si cette
           # étiquette disparaît, prendre celle qu'il propose alors — ou construire
@@ -59,6 +67,9 @@ jobs:
             nom: superviseur-macos-x64
             produit: dist/superviseur
             livraison: superviseur-macos-x64.tar.gz
+            temoin_nom: temoin-ethernet-macos-x64
+            temoin_produit: dist/temoin-ethernet
+            temoin_livraison: temoin-ethernet-macos-x64.tar.gz
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -137,6 +148,18 @@ jobs:
         working-directory: backend
         run: python tools/verifier_executable.py ${{ matrix.produit }}
 
+      # Le témoin de lien Ethernet : son écran est statique, rien à compiler
+      # côté interface ; sa santé se lit sur /api/sante, sa base est temoin.db.
+      - name: Construire le témoin Ethernet
+        working-directory: backend
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/construire_executable.py --produit temoin
+
+      - name: Lancer le témoin, et vérifier qu'il répond — serveur, écran, base
+        working-directory: backend
+        run: python tools/verifier_executable.py ${{ matrix.temoin_produit }} --sante /api/sante
+
       # Sur macOS, une archive tar.gz et non le fichier nu : l'emballage des
       # artefacts et des Releases perd les permissions Unix, et le fichier
       # arrivait sans droit d'exécution — « le build mac ne fonctionne pas »,
@@ -150,12 +173,23 @@ jobs:
           case "${{ matrix.livraison }}" in
             *.tar.gz) tar -czf "dist/${{ matrix.livraison }}" -C dist "${{ matrix.nom }}" ;;
           esac
+          mv "${{ matrix.temoin_produit }}" "dist/${{ matrix.temoin_nom }}"
+          case "${{ matrix.temoin_livraison }}" in
+            *.tar.gz) tar -czf "dist/${{ matrix.temoin_livraison }}" -C dist "${{ matrix.temoin_nom }}" ;;
+          esac
           ls -la dist
 
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.livraison }}
           path: backend/dist/${{ matrix.livraison }}
+          retention-days: 14
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.temoin_livraison }}
+          path: backend/dist/${{ matrix.temoin_livraison }}
           retention-days: 14
           if-no-files-found: error
 

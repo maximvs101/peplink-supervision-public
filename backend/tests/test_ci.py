@@ -62,3 +62,13 @@ def test_aucune_action_ne_tourne_encore_sous_node_20():
             assert int(version.removeprefix("v")) >= _NODE24_DES[action], f"{nom} : {action}@{version}"
             vues.add(action)
     assert vues == set(_NODE24_DES)
+
+
+def test_l_action_construit_aussi_le_temoin():
+    texte = WORKFLOW.read_text(encoding="utf-8")
+    for livre in ("temoin-ethernet-windows-x64.exe", "temoin-ethernet-macos-x64.tar.gz",
+                  "temoin-ethernet-macos-arm64.tar.gz"):
+        assert livre in texte, livre
+    etapes = [e.get("run", "") for e in _flux()["jobs"]["construire"]["steps"]]
+    assert any("construire_executable.py --produit temoin" in r for r in etapes)
+    assert any("verifier_executable.py" in r and "--sante /api/sante" in r for r in etapes)

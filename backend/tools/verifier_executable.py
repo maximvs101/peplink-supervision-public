@@ -1,15 +1,21 @@
 """Lance l'exécutable construit et vérifie qu'il répond — serveur ET interface.
 
     .venv/bin/python tools/verifier_executable.py dist/superviseur
+    .venv/bin/python tools/verifier_executable.py dist/temoin-ethernet --sante /api/sante
 
 Ce que l'essai du 19 septembre a appris : un exécutable peut répondre sur
 `/api/health` et servir un 404 à la place de l'interface. Les deux sont
 vérifiés, depuis un dossier vide et temporaire, sur un port libre, sans ouvrir
 de navigateur. Sert en local comme dans l'action GitHub, sur les trois systèmes.
+
+`--sante` désigne la route de santé, et avec elle le produit : `/api/health`
+(par défaut) pour le superviseur, `/api/sante` pour le témoin Ethernet — qui
+n'a ni la même base ni les mêmes routes.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -43,13 +49,24 @@ def lire(url: str) -> tuple[int, bytes]:
         return 0, b""
 
 
-def main(chemin: str) -> int:
+# Route de santé → (base qui doit naître dans data/, route de lecture à essayer).
+PROFILS = {
+    "/api/health": ("samples.db", "/api/devices"),
+    "/api/sante": ("temoin.db", "/api/observations"),
+}
+
+
+def main(chemin: str, sante_url: str = "/api/health") -> int:
     # Ce script écrit des accents ; la console qui le lit n'est pas forcément
     # en UTF-8 (cp1252 sous Windows, ASCII sous un `LC_ALL=C`) — vu en le
     # rejouant sous une locale ASCII : il tombait sur son propre compte rendu.
     for flux in (sys.stdout, sys.stderr):
         if hasattr(flux, "reconfigure"):
             flux.reconfigure(encoding="utf-8", errors="replace")
+    if sante_url not in PROFILS:
+        print(f"route de santé inconnue : {sante_url} (connues : {', '.join(PROFILS)})")
+        return 2
+    base, lecture = PROFILS[sante_url]
     executable = Path(chemin).resolve()
     if not executable.exists():
         print(f"introuvable : {executable}")
@@ -57,7 +74,7 @@ def main(chemin: str) -> int:
     port = port_libre()
     # Une copie dans un dossier vide, comme sur une clé : les données doivent
     # naître À CÔTÉ de l'exécutable, pas dans le dossier courant ni dans dist/.
-    dossier = Path(tempfile.mkdtemp(prefix="superviseur-"))
+    dossier = Path(tempfile.mkdtemp(prefix=f"{executable.stem}-"))
     copie = dossier / executable.name
     shutil.copy2(executable, copie)
     env = {**os.environ, "PORT": str(port), "OUVRIR_NAVIGATEUR": "0", "HOST": "127.0.0.1"}
@@ -71,17 +88,17 @@ def main(chemin: str) -> int:
             if processus.poll() is not None:
                 fautes.append(f"le processus s'est arrêté (code {processus.returncode})")
                 break
-            code, corps = lire(f"http://127.0.0.1:{port}/api/health")
+            code, corps = lire(f"http://127.0.0.1:{port}{sante_url}")
             if code == 200:
                 pret = time.monotonic() - depart
                 break
             time.sleep(0.25)
         if pret is None and not fautes:
-            fautes.append("pas de réponse sur /api/health en 60 s")
+            fautes.append(f"pas de réponse sur {sante_url} en 60 s")
         if pret is not None:
             sante = json.loads(corps)
             if sante.get("status") != "ok":
-                fautes.append(f"/api/health : {sante}")
+                fautes.append(f"{sante_url} : {sante}")
             # Le NOM du trousseau, jamais son contenu : un exécutable qui n'en
             # voit aucun fait tout ressaisir à chaque lancement, en silence.
             if sys.platform in ("darwin", "win32") and not sante.get("coffre"):
@@ -89,11 +106,11 @@ def main(chemin: str) -> int:
             code, page = lire(f"http://127.0.0.1:{port}/")
             if code != 200 or b"<script" not in page:
                 fautes.append(f"l'interface n'est pas servie : HTTP {code}, {len(page)} o")
-            code, _ = lire(f"http://127.0.0.1:{port}/api/devices")
+            code, _ = lire(f"http://127.0.0.1:{port}{lecture}")
             if code != 200:
-                fautes.append(f"/api/devices : HTTP {code}")
-            if not (dossier / "data" / "samples.db").exists():
-                fautes.append("data/samples.db n'a pas été créée à côté de l'exécutable")
+                fautes.append(f"{lecture} : HTTP {code}")
+            if not (dossier / "data" / base).exists():
+                fautes.append(f"data/{base} n'a pas été créée à côté de l'exécutable")
             print(f"prêt en {pret:.1f} s · {executable.stat().st_size / 1048576:.1f} Mo · interface servie · base créée"
                   f" · trousseau : {sante.get('coffre') or 'aucun'}")
     finally:
@@ -118,4 +135,9 @@ def main(chemin: str) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "dist/superviseur"))
+    lecteur = argparse.ArgumentParser(description="Lance l'exécutable construit et vérifie qu'il répond.")
+    lecteur.add_argument("chemin", nargs="?", default="dist/superviseur")
+    lecteur.add_argument("--sante", default="/api/health", choices=tuple(PROFILS),
+                         help="route de santé : /api/health (superviseur), /api/sante (témoin)")
+    args = lecteur.parse_args()
+    sys.exit(main(args.chemin, args.sante))

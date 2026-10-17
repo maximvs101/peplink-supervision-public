@@ -184,15 +184,17 @@ def port_disponible(hote: str, port: int) -> bool:
         return False
 
 
-def ouvrir_quand_pret(adresse: str, delai_s: float = 15.0) -> None:
-    """Ouvre le navigateur quand le serveur RÉPOND — pas après un délai fixe."""
+def ouvrir_quand_pret(adresse: str, delai_s: float = 15.0, sante: str = "/api/health") -> None:
+    """Ouvre le navigateur quand le serveur RÉPOND — pas après un délai fixe.
+
+    `sante` : la route qui dit « prêt » — `/api/sante` pour le témoin Ethernet."""
     import urllib.request
 
     def attendre() -> None:
         debut = time.monotonic()
         while time.monotonic() - debut < delai_s:
             try:
-                with urllib.request.urlopen(f"{adresse}/api/health", timeout=1) as r:
+                with urllib.request.urlopen(f"{adresse}{sante}", timeout=1) as r:
                     if r.status == 200:
                         webbrowser.open(adresse)
                         return
