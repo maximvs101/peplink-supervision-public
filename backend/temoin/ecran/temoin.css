@@ -55,7 +55,7 @@
     --coupe: #b8322a;
     --alerte: #8c5200;
     --gris: #5b616b;
-    --desactive: #a3a9b2;
+    --desactive: #7a8089;
     --hachure: #5b616b;
     --focus: #1d3f73;
     color-scheme: light;
@@ -203,6 +203,7 @@ form > * + * { margin-top: var(--s4); }
 .v-stable { --v: var(--ok); }
 .v-coupe { --v: var(--coupe); }
 .v-gris { --v: var(--gris); }
+.verdict.is-close h1 { font-size: var(--t-fig); }
 .chiffre .v { display: block; font-family: var(--mono); font-variant-numeric: tabular-nums;
   font-size: var(--t-fig-lg); font-weight: 500; margin-top: var(--s1); white-space: nowrap; }
 .chiffre .sous { display: block; font-size: var(--t-small); color: var(--ink-3); margin-top: 2px; }
@@ -285,7 +286,7 @@ table.coupures { width: 100%; border-collapse: collapse; font-size: var(--t-sub)
     --ground: #ffffff; --sunk: #f3f5f8; --panel: #ffffff; --panel-2: #f3f5f8;
     --rule: #b9c0c9; --rule-soft: #dde1e6; --ink: #000000; --ink-2: #333840; --ink-3: #4b515a;
     --ok: #0f7343; --coupe: #b8322a; --alerte: #8c5200; --gris: #4b515a;
-    --desactive: #a3a9b2; --hachure: #4b515a; color-scheme: light;
+    --desactive: #7a8089; --hachure: #4b515a; color-scheme: light;
   }
   body { min-width: 0; font-size: 12px; }
   .page { padding: 0; max-width: none; }

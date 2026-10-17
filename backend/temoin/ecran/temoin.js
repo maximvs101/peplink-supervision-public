@@ -72,13 +72,31 @@
     }
   }
 
+  // Arrondi vers le bas : 99,999 % ne doit pas s'afficher « 100 % » quand il y a eu une coupure.
+  const texteDispo = (d) => (d == null ? 'non mesuré' : `${nombre(Math.floor(d * 10000 + 1e-9) / 100, 2)} %`);
+  const AU_DERNIER = { ...ETATS, debout: 'stable', secours: 'stable (en secours)' };
+
+  // Une observation close ne dit pas un état « actuel » : elle se résume.
+  function resumeClos(data) {
+    const n = data.chiffres.coupures;
+    const dernier = data.bande.length ? data.bande[data.bande.length - 1].etat : null;
+    const periode = `du ${jourComplet(data.debut)} ${heure(data.debut, false)}`
+      + (data.dernier ? ` au ${jourComplet(data.dernier)} ${heure(data.dernier, false)}` : '');
+    return {
+      classe: 'v-gris is-close',
+      titre: `Observation close — ${nombre(n)} coupure${n > 1 ? 's' : ''} · disponibilité ${texteDispo(data.chiffres.disponibilite)}`,
+      detail: [periode, dernier ? `au dernier relevé : ${AU_DERNIER[dernier] || dernier}` : ''].filter(Boolean).join(' · '),
+    };
+  }
+
   // La tête : verdict (zone lue à voix haute, réécrite seulement s'il change) et trois chiffres.
-  function remplirTete(conteneur, data) {
+  // `vivante` faux : observation close, résumée au lieu d'un verdict.
+  function remplirTete(conteneur, data, vivante = true) {
     if (!conteneur.querySelector('.verdict')) {
       conteneur.innerHTML = '<div class="verdict" aria-live="polite" aria-atomic="true"><h1></h1>'
         + '<div class="detail"></div></div><div class="chiffre"></div><div class="chiffre"></div><div class="chiffre"></div>';
     }
-    const v = texteVerdict(data.verdict);
+    const v = vivante ? texteVerdict(data.verdict) : resumeClos(data);
     const bloc = conteneur.querySelector('.verdict');
     bloc.className = `verdict ${v.classe}`;
     const h1 = bloc.querySelector('h1');
@@ -88,8 +106,7 @@
 
     const c = data.chiffres;
     const micro = data.coupures.filter((x) => x.genre === 'micro-coupure').length;
-    // Arrondi vers le bas : 99,999 % ne doit pas s'afficher « 100 % » quand il y a eu une coupure.
-    const dispo = c.disponibilite == null ? 'non mesuré' : `${nombre(Math.floor(c.disponibilite * 10000) / 100, 2)} %`;
+    const dispo = texteDispo(c.disponibilite);
     const cases = [
       ['Coupures', nombre(c.coupures), micro ? `dont ${nombre(micro)} micro-coupure${micro > 1 ? 's' : ''}` : 'sur la fenêtre affichée'],
       ['Durée coupée', duree(c.coupe_s), micro ? 'cumulée, micro-coupures non chiffrées' : 'cumulée'],
@@ -153,7 +170,11 @@
       + '<span><i class="l-coupe"></i>coupé</span><span><i class="l-micro"></i>micro-coupure</span>'
       + '<span><i class="l-desactive"></i>désactivé</span><span><i class="l-non_mesure"></i>non mesuré</span>'
       + '<span><i class="l-redemarrage"></i>redémarrage du routeur</span></div>';
+    // Le focus clavier survit au redessin : il revient sur la même coupure.
+    const actif = document.activeElement;
+    const focusDebut = actif && conteneur.contains(actif) ? actif.getAttribute('data-debut') : null;
     if (!bande.length) {
+      cacherBulle();
       conteneur.innerHTML = '<div class="bande"><div class="bande-svg"></div></div>'
         + '<p class="panel-note">Aucun relevé sur cette fenêtre : non mesuré.</p>' + legende;
       return;
@@ -181,7 +202,7 @@
       const a = x(c.debut);
       const ec = opts.eclaire === c.debut ? ' is-eclaire' : '';
       const etiquette = esc(`${c.genre} à ${heure(c.debut)}`);
-      svg += `<g data-tip="c${i}" class="coupure${ec}" tabindex="0" role="button" aria-label="${etiquette}">`;
+      svg += `<g data-tip="c${i}" data-debut="${esc(c.debut)}" class="coupure${ec}" tabindex="0" role="button" aria-label="${etiquette}">`;
       if (c.genre === 'micro-coupure') {
         svg += `<rect class="m-cible" x="${f(a - 6)}" y="0" width="12" height="${H}"/>`
           + `<rect class="m-micro" x="${f(a - 1)}" y="0" width="2" height="${H}"/>`;
@@ -208,6 +229,17 @@
       const sous = document.elementFromPoint(pointeur.x, pointeur.y);
       const t = sous && zone.contains(sous) ? sous.closest('[data-tip]') : null;
       if (t) montrerBulle(contenuBulle(data, t.dataset.tip), pointeur.x, pointeur.y); else cacherBulle();
+    }
+    if (focusDebut) {
+      const g = [...zone.querySelectorAll('[data-debut]')].find((el) => el.getAttribute('data-debut') === focusDebut);
+      if (g) {
+        // Les écouteurs ne sont pas encore posés : la bulle se rouvre à la main.
+        g.focus({ preventScroll: true });
+        const r = g.getBoundingClientRect();
+        montrerBulle(contenuBulle(data, g.dataset.tip), r.left, r.bottom);
+      } else {
+        cacherBulle();
+      }
     }
     zone.addEventListener('mousemove', (ev) => {
       const t = cible(ev);
@@ -306,6 +338,7 @@
     sigRecherche: null,
     sigLiens: null,
     sigObs: null,
+    sigMesure: null,
     envoi: false,
     obsLues: 0,
     erreurAction: false,
@@ -488,7 +521,8 @@
     const id = etat.lecture ?? etat.obsLive;
     if (id == null) return;
     const data = await api(`/api/observation?id=${encodeURIComponent(id)}&fenetre=${etat.fenetre}`);
-    if ((etat.lecture ?? etat.obsLive) !== id) return; // l'affichage a changé entre-temps
+    // L'affichage a changé entre-temps (autre observation, autre fenêtre) : réponse périmée.
+    if ((etat.lecture ?? etat.obsLive) !== id || data.fenetre !== etat.fenetre) return;
     etat.donnees = data;
     rendreMesure();
   }
@@ -512,12 +546,19 @@
         + (data.dernier ? ` au ${jourComplet(data.dernier)} ${heure(data.dernier, false)}` : '');
     }
     $('notes').innerHTML = notes(data);
-    remplirTete($('tete'), data);
+    remplirTete($('tete'), data, vivante);
     const b = data.bande;
     $('bande-note').textContent = b.length ? `${quand(b[0].debut)} → ${quand(b[b.length - 1].fin)}` : '';
     const opts = { eclaire: etat.eclaire, surCoupure: eclairer, vivante };
-    dessinerBande($('bande'), data, opts);
-    dessinerListe($('liste'), data, opts);
+    // Rien de neuf : ni bande ni liste ne sont redessinées (focus et bulle restent).
+    // Seule la durée d'une coupure en cours avance : la liste suit, elle n'a pas de focus.
+    const sig = [JSON.stringify(data), etat.eclaire, vivante, $('bande').clientWidth].join('|');
+    const neuf = sig !== etat.sigMesure;
+    etat.sigMesure = sig;
+    if (neuf) dessinerBande($('bande'), data, opts);
+    if (neuf || (vivante && data.coupures.some((c) => !c.fin && c.genre !== 'micro-coupure'))) {
+      dessinerListe($('liste'), data, opts);
+    }
     $('export-coupures').href = `/api/observations/${data.id}/coupures.csv`;
     $('export-releves').href = `/api/observations/${data.id}/releves.csv`;
     $('rapport').href = `rapport.html?id=${data.id}&fenetre=${etat.fenetre}`;
@@ -578,10 +619,7 @@
   }
 
   function ecran() {
-    try {
-      const f = localStorage.getItem('temoin.fenetre');
-      if (FENETRES.includes(f)) etat.fenetre = f;
-    } catch (e) { /* stockage indisponible : fenêtre par défaut */ }
+    try { if (FENETRES.includes(localStorage.getItem('temoin.fenetre'))) etat.fenetre = localStorage.getItem('temoin.fenetre'); } catch (e) { /* fenêtre par défaut */ }
     document.querySelectorAll('[data-fenetre]').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.fenetre === etat.fenetre));
       b.addEventListener('click', () => choisirFenetre(b.dataset.fenetre));
@@ -624,7 +662,11 @@
     $('imprimer').addEventListener('click', () => window.print());
     try {
       const data = await api(`/api/observation?id=${encodeURIComponent(p.get('id') || '')}&fenetre=${fenetre}`);
-      const vivante = (await api('/api/observations')).some((o) => o.id === data.id && o.en_cours);
+      // Sans la liste, le rapport reste lisible : il se dit alors clos.
+      let vivante = false;
+      try {
+        vivante = (await api('/api/observations')).some((o) => o.id === data.id && o.en_cours);
+      } catch (e) { /* repli : observation close */ }
       const champs = {
         'r-equipement': data.modele || 'modèle inconnu',
         'r-lien': data.lien,
@@ -636,7 +678,7 @@
       Object.entries(champs).forEach(([id, t]) => { $(id).textContent = t; });
       document.title = `Rapport — ${data.lien} — ${jourComplet(data.debut)}`;
       $('notes').innerHTML = notes(data);
-      remplirTete($('tete'), data);
+      remplirTete($('tete'), data, vivante);
       const opts = { vivante };
       dessinerBande($('bande'), data, opts);
       dessinerListe($('liste'), data, opts);
