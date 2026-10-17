@@ -25,10 +25,17 @@ Le serveur n'écoute que sur `http://127.0.0.1:8000`. Variables utiles : `HOST=0
 pour consulter depuis un téléphone du même réseau, `PORT=…`, `OUVRIR_NAVIGATEUR=0`.
 
 Chaque fichier est construit par GitHub sur la machine de son système, après les deux suites
-de tests, puis **lancé et vérifié** avant d'être livré (`.github/workflows/executable.yml` —
-à la demande, ou une Release à chaque étiquette `v*`, dont le texte est la section de
-`CHANGELOG.md` qui porte l'étiquette). Pour le construire soi-même :
-`backend/tools/construire_executable.py`.
+de tests, puis **lancé et vérifié** avant d'être livré (`.github/workflows/executable.yml`).
+Deux façons de le déclencher :
+
+- **à la demande** — onglet Actions › « Exécutable » › Run workflow, en choisissant quoi
+  construire : *les deux*, *superviseur* ou *témoin* (le témoin seul saute l'interface et
+  va deux fois plus vite). Les fichiers sont dans les *Artifacts* du run, quatorze jours ;
+- **une Release** à chaque étiquette `v*` — toujours les deux produits, et pour texte la
+  section de `CHANGELOG.md` qui porte l'étiquette.
+
+Pour le construire soi-même : `backend/tools/construire_executable.py` (`--produit temoin`
+pour le témoin), puis `backend/tools/verifier_executable.py`.
 
 ## Mettre un routeur en supervision
 
@@ -36,8 +43,10 @@ de tests, puis **lancé et vérifié** avant d'être livré (`.github/workflows/
    leur préfixe MAC et leur certificat.
 2. « Mettre en supervision », saisir les identifiants admin — ou, mieux, un client API en
    lecture seule (voir la [référence](docs/REFERENCE.md#client-api-en-lecture-seule--recommandé)).
-3. C'est tout. Les identifiants ne sont **jamais écrits sur le disque** : ils vivent en
-   mémoire et se ressaisissent à chaque lancement.
+3. C'est tout. « Retenir sur ce poste », coché par défaut, range les identifiants dans le
+   **trousseau du système** (Trousseau sur macOS, Gestionnaire d'identification sous
+   Windows) — jamais en clair sur le disque — et l'équipement se reconnecte seul au
+   lancement suivant. Décoché, ils vivent en mémoire et se ressaisissent à chaque lancement.
 
 Un routeur qui ne parle qu'HTTP est accepté, et l'écran le dit : le mot de passe passe alors
 en clair sur le LAN. Activer HTTPS dans l'admin du routeur reste préférable.
@@ -53,9 +62,11 @@ relevés) et un rapport imprimable. Ni numéro de série, ni position, ni nom de
 sortent : le lien s'y nomme « WAN n », l'équipement par son modèle. Un trou de mesure (PC en
 veille, routeur injoignable) se dit « non mesuré » — jamais une coupure, jamais un zéro.
 
-Même livraison que le superviseur, dans les mêmes [Releases](../../releases) :
-`temoin-ethernet-windows-x64.exe`, `temoin-ethernet-macos-x64.tar.gz` (Intel),
-`temoin-ethernet-macos-arm64.tar.gz` (Apple silicon). Télécharger, décompresser sur Mac,
+Même livraison que le superviseur : `temoin-ethernet-windows-x64.exe`,
+`temoin-ethernet-macos-x64.tar.gz` (Intel), `temoin-ethernet-macos-arm64.tar.gz` (Apple
+silicon), dans les [Releases](../../releases) à partir de la première version qui l'embarque
+— d'ici là, dans les *Artifacts* d'un lancement à la demande avec le choix *témoin*. GitHub
+emballe chaque artefact dans un zip : le décompresser d'abord. Télécharger, décompresser sur Mac,
 double-cliquer : le navigateur s'ouvre, le Peplink est trouvé sur le réseau, une saisie
 d'identifiants la première fois, et la mesure tourne. Non signés, comme le superviseur : au
 premier lancement, Windows demande « Informations complémentaires › Exécuter quand même »,
@@ -69,6 +80,13 @@ macOS un clic droit › Ouvrir (Gatekeeper).
   après le dernier relevé du même lien, il reprend l'observation.
 - Les identifiants du routeur sont gardés dans le **trousseau du système** (Trousseau
   d'accès sur macOS, Gestionnaire d'identification sous Windows), jamais dans un fichier.
+  Ils restent sur ce poste : une autre machine les demande une fois. Refusés par le routeur
+  (mot de passe changé), ils sont oubliés et redemandés — jamais rejoués, puisque cinq refus
+  bloquent l'accès admin cinq minutes.
+- Routeur introuvable par la recherche : taper son adresse. Sans `http://` ni `https://`,
+  le témoin sonde lequel des deux répond (un Peplink sans TLS n'a que le port 80).
+- Un seul témoin par dossier : relancé alors qu'il tourne déjà, il rouvre l'écran du premier
+  au lieu de mesurer en double. Les observations voyagent avec le dossier `data/`.
 - Depuis le dépôt : `cd backend && .venv/bin/python -m temoin`.
 
 > **HYPOTHÈSE** — les causes tirées du journal du routeur (câble absent, test de santé en

@@ -4,6 +4,34 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
+## Prochaine version — Témoin de lien Ethernet
+
+Un second exécutable, `temoin-ethernet-*`, à côté du superviseur et dans la même Release,
+pour une seule question : ce lien Ethernet est-il stable ? Voir la section « Témoin de lien
+Ethernet » du README.
+
+- **Un WAN, une bande.** Il suit un WAN Ethernet d'un Peplink trouvé sur le réseau : verdict
+  en tête (« Lien stable depuis 2 h 14 », « Coupé depuis 00:42 »), bande verte et rouge,
+  liste des coupures avec début, fin, durée et cause (« câble », « test de santé »).
+- **Ce qui n'est pas une coupure ne le devient pas** : PC en veille ou routeur injoignable
+  (« non mesuré »), WAN désactivé, passage en secours, redémarrage du routeur. Une coupure
+  dont on n'a pas vu la fin le dit (« au moins … »).
+- **Exports CSV** pour Excel en français (coupures, relevés) et rapport imprimable, sans
+  numéro de série, position ni nom de WAN.
+- **Sans installation**, port 8010 à côté du superviseur, base à côté du fichier,
+  identifiants dans le trousseau du système.
+- Les causes lues dans le journal du routeur restent une **hypothèse** jusqu'à la séance de
+  capture sur matériel.
+
+Côté superviseur : la série n'apparaît plus dans les messages du trousseau, et les types
+des fichiers de l'interface sont fixés — une base de registre Windows qui associait `.js` à
+`text/plain` laissait l'écran blanc.
+
+Construction : le lancement à la demande choisit *les deux*, *superviseur* ou *témoin*.
+
+À l'étiquetage : renommer cette section du nom de l'étiquette, et le titre de la Release
+(« Superviseur vX » dans `executable.yml`) pour qu'il dise les deux produits.
+
 ## v0.1.2 — Recette face à un MAX HD2 réel
 
 Mêmes fichiers, même usage. Ce qui change pour l'exploitant :

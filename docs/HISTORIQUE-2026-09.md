@@ -1032,3 +1032,27 @@ simulateur). Ce qui a changé :
 Laissés en l'état, dits : huit champs publiés que l'écran n'affiche pas (`hdop`,
 `speed`, `read_at`…) — le rejeu et les fixtures les portent, les retirer
 changerait le contrat de l'API pour quelques octets.
+
+### 2026-10-17 — Témoin de lien Ethernet : conçu, construit, essayé sur le HD2
+
+Second outil, même dépôt : `backend/temoin/`. Conception
+(`docs/superpowers/specs/2026-10-17-lien-ethernet-design.md`) puis plan en huit tâches
+(`docs/superpowers/plans/2026-10-17-temoin-ethernet.md`), chacune construite par un
+sous-agent et relue, puis une revue de toute la branche. Elle a trouvé ce que les faux
+routeurs des tests cachaient : un WAN désactivé jamais vu comme tel (le client du
+superviseur l'écarte de sa liste), une latence jamais relevée (mauvais champ), un
+redémarrage compté comme coupure pendant la renégociation du WAN, « stable depuis » qui
+enjambait une micro-coupure, la fin inventée d'une coupure interrompue par une veille.
+
+Essai sur le HD2 : routeur trouvé sans identifiant, mesure du WAN 1, latence à la minute,
+exports sans série. Une vraie coupure de 40 s s'y est inscrite, cause « câble ».
+
+Relecture après fusion, neuf constats corrigés — le plus sérieux : des identifiants du
+trousseau refusés étaient rejoués à chaque clic (cinq refus bloquent l'admin). Puis trois
+runs pour l'exécutable Windows : `tzdata` absent (les fuseaux de zoneinfo), fins de ligne
+CRLF dans un test, et le bash de Git qui changeait `/api/sante` en chemin
+(`MSYS_NO_PATHCONV`). Run #20 vert sur les trois systèmes, témoin seul.
+
+Restent : la séance de capture (règles du journal marquées HYPOTHÈSE), le comblement des
+trous par l'historique de latence (reporté), et la Release qui embarquera le témoin.
+
