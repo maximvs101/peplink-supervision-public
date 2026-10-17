@@ -958,3 +958,16 @@ défasse pas ; un stockage refusé ne casse rien.
   vu sur « Retenir sur ce poste », et déjà vrai pour « Vérifier le certificat
   TLS ». Éprouvé en service : identifiants retenus à l'appairage, puis le HD2
   reconnecté seul 5 s après le redémarrage du serveur, sans saisie.
+
+### 2026-10-17 — Recul sur équipement injoignable
+
+La piste ouverte depuis l'exploration de septembre. La pause d'un équipement
+« injoignable » double à chaque échec consécutif, de la cadence jusqu'à
+`_RECUL_MAX_S` (30 s), et revient à la cadence au premier relevé abouti ; un
+refus d'identifiants n'y entre pas (il a son propre arrêt). La pause se
+découpe en tranches d'une cadence et s'interrompt si l'équipement n'est plus
+celui du registre : un réappairage en plein recul est repris en trois
+secondes, pas en trente. `forget()` efface le compte. Six tests, dont deux
+mutations vérifiées (pause fixe, pause d'un seul tenant). En service, sur le
+MBX injoignable : période lissée 3,9 → 6,4 → 11,7 s en une minute, le HD2
+voisin à sa cadence.

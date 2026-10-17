@@ -152,6 +152,15 @@ _GPS_MAX_AGE_S = 120.0
 # sans que la scrutation d'un équipement dépende de celle d'un autre.
 _RECONCILIATION_S = 1.0
 
+# Plafond du recul sur un équipement injoignable. Les équipements ne sont
+# allumés qu'à l'arrêt du véhicule : une flotte en majorité éteinte est l'état
+# NOMINAL, et chaque muet était réinterrogé à chaque cadence, pour toujours —
+# un délai de connexion par tour. La pause double à chaque échec consécutif
+# (3, 6, 12, 24 s à la cadence de production) jusqu'à ce plafond. Le prix,
+# assumé : un équipement qu'on rallume peut mettre jusqu'à trente secondes à
+# réapparaître.
+_RECUL_MAX_S = 30.0
+
 # Un cycle sur douze rejoue `status.system.info` sur un équipement DÉJÀ
 # identifié. La fiche ne contient pas que de l'identité : la charge CPU, la
 # consommation et l'état des alimentations y vivent aussi, et l'interface les
@@ -299,6 +308,11 @@ class Poller:
         # d'un coup ouvrent vingt sessions TLS depuis un PC de terrain. Huit tient
         # vingt équipements en une période raisonnable sans saturer la machine.
         self._slots = asyncio.Semaphore(_PARALLEL_DEVICES)
+        # Échecs « injoignable » consécutifs, par équipement : la mesure du recul.
+        self._echecs: dict[str, int] = {}
+        # La pause passe par ici : les tests y substituent une attente qui note
+        # les durées sans attendre.
+        self._sommeil = asyncio.sleep
         # Délai accordé à UN équipement. Le client httpx a son propre délai de 15 s
         # par requête, mais un cycle en enchaîne cinq : un équipement mort dont
         # l'adresse est encore routée pouvait donc coûter plus d'une minute. Ce
@@ -464,6 +478,7 @@ class Poller:
         direct à tout onglet ouvert jusqu'au rechargement, sans retour possible.
         """
         self.latest.pop(router_id, None)
+        self._echecs.pop(router_id, None)
         self._gps.pop(router_id, None)
         self._alertes.pop(router_id, None)
         self._bond_porte.pop(router_id, None)
@@ -702,7 +717,36 @@ class Poller:
             except Exception:
                 logger.exception("Erreur inattendue dans la boucle de %s", record.id)
             self._mark_cycle_end(record.id, debut)
-            await asyncio.sleep(self._interval)
+            await self._attendre(record, self._pause(record))
+
+    def _pause(self, record: DeviceRecord) -> float:
+        """La pause avant la prochaine tentative : la cadence, ou le recul.
+
+        Seul l'état « injoignable » recule. Un refus d'identifiants a déjà son
+        arrêt (`auth_blocked`), et le mêler ici ferait croire qu'une seconde
+        tentative finira par passer — exactement ce qu'il ne faut jamais faire.
+        """
+        if record.status != "injoignable":
+            self._echecs.pop(record.id, None)
+            return self._interval
+        n = self._echecs.get(record.id, 0)
+        self._echecs[record.id] = n + 1
+        return min(_RECUL_MAX_S, self._interval * 2 ** n)
+
+    async def _attendre(self, record: DeviceRecord, duree: float) -> None:
+        """Attend `duree` en tranches d'une cadence, et s'arrête si l'équipement
+        n'est plus celui du registre.
+
+        D'un seul tenant, la pause d'un recul au plafond tenait la boucle trente
+        secondes : un réappairage pendant ce temps — un nouveau record pour le
+        même identifiant — attendait son premier relevé que l'ancienne boucle se
+        réveille, là où la cadence le reprenait en trois secondes.
+        """
+        reste = duree
+        while reste > 0 and self._still_supervised(record):
+            tranche = min(self._interval, reste)
+            await self._sommeil(tranche)
+            reste -= tranche
 
     def _still_supervised(self, record: DeviceRecord) -> bool:
         """Cet équipement est-il toujours celui que le registre connaît ?

@@ -672,6 +672,15 @@ Un équipement mal configuré **n'empêche plus le démarrage** : il est enregis
 reste visible. Le mode est propre à chaque équipement, ce qui permet à une flotte de
 démonstration simulée et à un équipement de terrain réel de coexister.
 
+Un équipement **injoignable recule** : la pause avant sa tentative suivante double à chaque
+échec consécutif — 3, 6, 12, 24 s à la cadence par défaut — jusqu'à un plafond de 30 s
+(`_RECUL_MAX_S`, `poller.py`), et revient à la cadence dès qu'un relevé aboutit. Les
+équipements ne sont allumés qu'à l'arrêt : une flotte en majorité éteinte est l'état normal, et
+chaque muet coûtait un délai de connexion à chaque tour. Le prix : un équipement rallumé peut
+mettre jusqu'à 30 s à réapparaître. Un refus d'identifiants ne recule pas — il est déjà
+arrêté jusqu'à l'action de l'exploitant. Un réappairage pendant le recul est repris à la
+cadence : la pause se découpe en tranches et s'interrompt quand l'équipement change.
+
 ## Le tunnel, pas seulement les liens
 
 C'est le tunnel SpeedFusion qui porte le flux, pas les WAN pris isolément. Un lien peut

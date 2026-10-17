@@ -29,6 +29,10 @@ Mêmes fichiers, même usage. Ce qui change pour l'exploitant :
   disque. Au lancement, chaque équipement retenu reçoit une tentative de
   connexion ; « Reconnecter » se fait sans formulaire. Décocher, ou retirer
   l'équipement, efface ce qui était retenu.
+- **Un équipement éteint coûte moins.** Ses tentatives s'espacent — 3, 6, 12,
+  24 s, puis toutes les 30 s — au lieu d'une à chaque cadence ; dès qu'il
+  répond, la cadence normale reprend. Rallumé, il peut mettre jusqu'à trente
+  secondes à réapparaître.
 - **Le journal dit l'état d'ouverture.** Un lien déjà hors du bond au premier
   relevé y entre, daté, avec la cause donnée par le routeur.
 - **Icône d'onglet.**
