@@ -65,6 +65,7 @@ async def pair(
     name: str | None = None,
     verify_ssl: bool = False,
     poller=None,
+    serie_attendue: str | None = None,
 ) -> DeviceRecord:
     """Connecte une fois, identifie l'équipement, et l'ajoute à la supervision.
 
@@ -93,7 +94,7 @@ async def pair(
         return await _identifier_puis_enregistrer(
             registry, client, host, name=name, username=username, password=password,
             client_id=client_id, client_secret=client_secret, verify_ssl=verify_ssl,
-            poller=poller,
+            poller=poller, serie_attendue=serie_attendue,
         )
     except BaseException:
         await client.aclose()
@@ -112,6 +113,7 @@ async def _identifier_puis_enregistrer(
     client_secret: str | None,
     verify_ssl: bool,
     poller,
+    serie_attendue: str | None = None,
 ) -> DeviceRecord:
     """Identifie l'équipement avec `client`, puis l'enregistre en lui confiant
     ce même client. Toute erreur remonte à `pair`, qui ferme le client."""
@@ -138,6 +140,14 @@ async def _identifier_puis_enregistrer(
         raise PairingError(
             "Connexion réussie, mais l'équipement n'a pas publié son identité. "
             "Il est peut-être trop ancien pour être supervisé."
+        )
+    # Une reconnexion vise UN équipement. Un autre occupe peut-être l'adresse
+    # retenue — même mot de passe, courant sur une flotte — : l'appairer en
+    # superviserait un que personne n'a choisi, et la veille recommencerait à
+    # chaque tour, une connexion admin toutes les trois secondes (revue du 17/10).
+    if serie_attendue and info.serial != serie_attendue:
+        raise PairingError(
+            f"Un autre équipement répond à {host} : ce n'est pas celui qui y était retenu."
         )
 
     # Le numéro de série d'abord : c'est la clé d'identité stable, celle qui
@@ -207,21 +217,32 @@ async def reconnecter(registry: DeviceRegistry, repo, connu: dict, *, poller=Non
     """
     from .. import coffre
 
-    ident = coffre.lire(connu["serial"])
-    if ident is None:
-        raise PairingError("Aucun identifiant retenu pour cet équipement.", credentials=True)
-    record = await pair(
-        registry, connu["host"],
-        username=ident.username, password=ident.password,
-        client_id=ident.client_id, client_secret=ident.client_secret,
-        name=connu.get("name"), poller=poller,
-    )
-    if record.info and record.info.serial:
-        await repo.remember_device(
-            serial=record.info.serial, device_id=record.id, name=record.config.name,
-            host=record.config.host, model=record.info.model, firmware=record.info.firmware,
+    serie = connu["serial"]
+    # Un verrou par équipement : la veille, « Reconnecter » et le formulaire
+    # pouvaient appairer le même routeur au même instant — deux connexions
+    # admin, et deux `registry.add` qui se remplacent (revue du 17/10).
+    async with _VERROUS.setdefault(serie, asyncio.Lock()):
+        deja = registry.find_by_serial(serie)
+        if deja is not None:
+            return deja
+        ident = coffre.lire(serie)
+        if ident is None:
+            raise PairingError("Aucun identifiant retenu pour cet équipement.", credentials=True)
+        record = await pair(
+            registry, connu["host"],
+            username=ident.username, password=ident.password,
+            client_id=ident.client_id, client_secret=ident.client_secret,
+            name=connu.get("name"), poller=poller, serie_attendue=serie,
         )
-    return record
+        if record.info and record.info.serial:
+            await repo.remember_device(
+                serial=record.info.serial, device_id=record.id, name=record.config.name,
+                host=record.config.host, model=record.info.model, firmware=record.info.firmware,
+            )
+        return record
+
+
+_VERROUS: dict[str, asyncio.Lock] = {}
 
 
 class Reconnexion:
@@ -249,9 +270,10 @@ class Reconnexion:
         self._refuses: dict[str, object] = {}
 
     async def tour(self, maintenant: float) -> None:
-        from .. import coffre
-        from ..poller import _RECUL_MAX_S
-
+        """Les équipements dus, tentés EN MÊME TEMPS : un absent coûte jusqu'à
+        quinze secondes de délai de connexion, et il retardait d'autant celui
+        qui venait de s'allumer (revue du 17/10)."""
+        dus = []
         for connu in await self._repo.known_devices():
             serie = connu.get("serial")
             if not serie or not connu.get("host"):
@@ -262,29 +284,37 @@ class Reconnexion:
                 continue
             if maintenant < self._prochain.get(serie, 0.0):
                 continue
-            ident = coffre.lire(serie)
-            if ident is None or self._refuses.get(serie) == ident:
-                continue
-            self._refuses.pop(serie, None)
-            try:
-                await reconnecter(self._registry, self._repo, connu, poller=self._poller)
-            except PairingError as exc:
-                if exc.credentials:
-                    self._refuses[serie] = ident
-                    logger.warning(
-                        "Reconnexion de %s refusée : plus de tentative tant que les identifiants "
-                        "retenus ne changent pas", connu.get("name") or serie,
-                    )
-                else:
-                    pause = min(_RECUL_MAX_S, self._pause.get(serie, self._cadence / 2) * 2)
-                    self._pause[serie] = pause
-                    self._prochain[serie] = maintenant + pause
-                    logger.debug("Reconnexion de %s : %s — prochain essai dans %.0f s",
-                                 connu.get("name") or serie, exc, pause)
+            dus.append(connu)
+        await asyncio.gather(*(self._tenter(c, maintenant) for c in dus))
+
+    async def _tenter(self, connu: dict, maintenant: float) -> None:
+        from .. import coffre
+        from ..poller import _RECUL_MAX_S
+
+        serie = connu["serial"]
+        ident = coffre.lire(serie)
+        if ident is None or self._refuses.get(serie) == ident:
+            return
+        self._refuses.pop(serie, None)
+        try:
+            await reconnecter(self._registry, self._repo, connu, poller=self._poller)
+        except PairingError as exc:
+            if exc.credentials:
+                self._refuses[serie] = ident
+                logger.warning(
+                    "Reconnexion de %s refusée : plus de tentative tant que les identifiants "
+                    "retenus ne changent pas", connu.get("name") or serie,
+                )
             else:
-                self._pause.pop(serie, None)
-                self._prochain.pop(serie, None)
-                logger.info("Équipement retenu reconnecté : %s", connu.get("name") or serie)
+                pause = min(_RECUL_MAX_S, self._pause.get(serie, self._cadence / 2) * 2)
+                self._pause[serie] = pause
+                self._prochain[serie] = maintenant + pause
+                logger.debug("Reconnexion de %s : %s — prochain essai dans %.0f s",
+                             connu.get("name") or serie, exc, pause)
+        else:
+            self._pause.pop(serie, None)
+            self._prochain.pop(serie, None)
+            logger.info("Équipement retenu reconnecté : %s", connu.get("name") or serie)
 
     async def boucle(self) -> None:
         """Un tour par cadence, pour toujours ; une erreur coûte un tour."""

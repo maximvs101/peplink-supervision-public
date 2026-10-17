@@ -372,3 +372,22 @@ describe('un geste de l’exploitant, en une ligne (A-3)', () => {
     expect(container.textContent).toMatch(/Coupure/)
   })
 })
+
+describe('un geste sans retour connu (revue du 17/10)', () => {
+  it('n’absorbe pas les signalements bien plus tardifs du même lien', () => {
+    // Journal tronqué côté serveur : le retour a disparu, et chaque signalement
+    // ultérieur de la SIM 4 se fondait dans « Désactivé par l'exploitant ».
+    const { container } = render(
+      <EventLog
+        log={journal([
+          episode({ kind: 'signalement', at: '2026-10-17T14:00:00Z', peak_ms: null, detail: 'No Signal → Connecting...' }),
+          episode({ kind: 'signalement', at: '2026-10-17T11:52:14Z', peak_ms: null, detail: 'désactivé → Connecting...' }),
+          episode({ kind: 'désactivation', at: '2026-10-17T11:51:23Z', peak_ms: null, detail: 'désactivé' }),
+        ])}
+        windowLabel="Depuis la mise sous tension"
+      />,
+    )
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(container.textContent).toMatch(/No Signal → Connecting/)
+  })
+})

@@ -81,6 +81,8 @@ const REFRESH_MS = 10_000
 /** Cadence de relecture de la bande de stationnement. Bien plus lente : elle
  *  couvre des heures, une tranche vaut plusieurs dizaines de secondes, et la
  *  rejouer à chaque cycle coûterait une agrégation SQL pour un pixel. */
+/** Relecture de la fiche du stationnement, pour la tuile du volume (A-5). */
+const RESUME_MS = 5 * 60_000
 const BAND_MS = 30_000
 
 /** Dernier résumé RÉELLEMENT obtenu du serveur, et l'instant de sa réception.
@@ -300,6 +302,8 @@ export function DeviceShell() {
     // repassait en fenêtre glissante pendant que la fiche restait, et le pied
     // écrivait « session du Invalid Date ». Un hoquet n'est pas une liste vide.
     let connues: Session[] | null = null
+    let resumeDe: number | null = null
+    let resumeLu = 0
 
     const relire = async () => {
       if (retire.current) return
@@ -334,13 +338,22 @@ export function DeviceShell() {
       } catch {
         if (!depasse()) setEvents(null)
       }
-      // Même cadence que le journal, et même coût (~100 ms sur 4 h 30) ; un
-      // échec ne prive que la tuile du volume.
-      try {
-        const fiche = courante ? await fetchSessionSummary(courante.id) : null
-        if (!depasse()) setResume(fiche)
-      } catch {
-        if (!depasse()) setResume(null)
+      // Toutes les cinq minutes, pas à chaque relecture : la fiche relit toute
+      // la session (24 h au plus), pour deux chiffres qui bougent peu — à la
+      // cadence du journal, c'était une seconde lecture lourde toutes les 30 s
+      // (revue du 17/10). Une session qui change est relue aussitôt.
+      const maintenant = Date.now()
+      if (courante?.id !== resumeDe || maintenant - resumeLu >= RESUME_MS) {
+        try {
+          const fiche = courante ? await fetchSessionSummary(courante.id) : null
+          if (!depasse()) {
+            setResume(fiche)
+            resumeDe = courante?.id ?? null
+            resumeLu = maintenant
+          }
+        } catch {
+          if (!depasse()) setResume(null)
+        }
       }
     }
 

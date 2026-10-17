@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { fetchHistory, fetchSessionSummary, nameSession } from '../api/client'
+import { fetchEvents, fetchHistory, fetchSessionSummary, nameSession } from '../api/client'
 import type { Episode, HistoryPoint, Session, SessionSummary } from '../types'
 import { decimal, fmtClock, fmtInt, fmtTime } from '../lib/format'
 import {
@@ -133,6 +133,25 @@ export function HistoryChart({
   // affichait « Collecte en cours », une attente qui ne finirait jamais.
   const passee = sessionChoisie !== undefined && sessionChoisie.id !== sessions[0]?.id
 
+  // Les repères d'une session PASSÉE viennent de SON journal : ceux de la
+  // fenêtre courante tombaient hors de l'axe, et la courbe d'hier ne montrait
+  // ni désactivation ni coupure (revue du 17/10). Lu une fois — une session
+  // passée ne change plus.
+  const [episodesPasses, setEpisodesPasses] = useState<Episode[] | null>(null)
+  useEffect(() => {
+    if (!passee || bornes === null) {
+      setEpisodesPasses(null)
+      return
+    }
+    let annule = false
+    Promise.resolve()
+      .then(() => fetchEvents(routerId, { since: bornes.since, until: bornes.lastSeen }))
+      .then((j) => { if (!annule) setEpisodesPasses(j?.episodes ?? []) })
+      .catch(() => { if (!annule) setEpisodesPasses([]) })
+    return () => { annule = true }
+  }, [routerId, passee, bornes?.since, bornes?.lastSeen])
+  const journal = passee ? (episodesPasses ?? []) : episodes
+
   useEffect(() => {
     let cancelled = false
     // La série est rejouée toutes les quinze secondes et une fenêtre de session
@@ -255,7 +274,7 @@ export function HistoryChart({
   const tracees = points.filter((p) => p.value !== null || (p.comble ?? null) !== null).map((p) => p.t)
   const etendue: [number, number] = tracees.length
     ? [Math.min(...tracees), Math.max(...tracees)] : [0, 0]
-  const reperes = reperesDuJournal(episodes, wanId, etendue)
+  const reperes = reperesDuJournal(journal, wanId, etendue)
   const desactivations = reperes.filter((r) => r.genre === 'désactivation')
   const trous = enveloppe ? [] : trousLisibles(trousDeSupervision(points), desactivations)
   const transitions = reperes.filter((r) => r.genre !== 'désactivation')

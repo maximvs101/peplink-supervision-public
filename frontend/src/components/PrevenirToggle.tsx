@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { type ModePrevenir, modeMemorise, preparerSon, retenirMode } from '../lib/prevenir'
 
@@ -16,6 +16,25 @@ const CHOIX: { valeur: ModePrevenir; libelle: string }[] = [
 export function PrevenirToggle() {
   const [mode, setMode] = useState<ModePrevenir>(modeMemorise)
   const [refus, setRefus] = useState(false)
+
+  // Le son retenu se réarme au premier geste sur la page : un navigateur
+  // n'accorde le son qu'après une interaction, et le contexte audio ne naissait
+  // qu'au clic dans cette liste — après un rechargement, « + son » restait
+  // affiché et ne sonnait plus (revue du 17/10).
+  useEffect(() => {
+    if (mode !== 'son') return
+    const armer = () => {
+      preparerSon()
+      window.removeEventListener('pointerdown', armer, true)
+      window.removeEventListener('keydown', armer, true)
+    }
+    window.addEventListener('pointerdown', armer, true)
+    window.addEventListener('keydown', armer, true)
+    return () => {
+      window.removeEventListener('pointerdown', armer, true)
+      window.removeEventListener('keydown', armer, true)
+    }
+  }, [mode])
 
   const choisir = async (valeur: ModePrevenir) => {
     if (valeur !== 'muet' && typeof Notification !== 'undefined' && Notification.permission === 'default') {

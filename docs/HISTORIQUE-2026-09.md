@@ -998,3 +998,12 @@ dans `docs/AMELIORATIONS-2026-10-17.md`. Deux points restent à voir en vrai :
 une notification du système (A-2) et un équipement qui s'allume après l'outil
 (A-1). Relu en service, A-4 annonçait onze trous dont trois expliqués par la
 désactivation et deux d'un même redémarrage : fusionnés et tus, il en reste six.
+
+### 2026-10-17 — Revue des douze améliorations : neuf constats, corrigés
+
+Le plus sérieux : la veille de reconnexion appairait l'équipement qui répond à
+l'adresse retenue sans vérifier sa série — un autre routeur au même mot de
+passe aurait été mis en supervision, puis réappairé à chaque tour. Les huit
+autres, dont un verrou par équipement, la veille en parallèle, le son réarmé
+après rechargement, la courbe d'une session passée et ses propres repères :
+`docs/AMELIORATIONS-2026-10-17.md`, section « Revue de code ».

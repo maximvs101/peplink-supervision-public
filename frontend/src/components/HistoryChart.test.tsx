@@ -15,9 +15,10 @@ vi.mock('../api/client', () => ({
   fetchHistory: vi.fn(),
   nameSession: vi.fn(),
   fetchSessionSummary: vi.fn(),
+  fetchEvents: vi.fn(),
 }))
 
-import { fetchHistory, fetchSessionSummary, nameSession } from '../api/client'
+import { fetchEvents, fetchHistory, fetchSessionSummary, nameSession } from '../api/client'
 import type { HistorySeries, Session, SessionSummary } from '../types'
 import { LOSS_MIN_PACKETS } from '../lib/verdict'
 import { HistoryChart } from './HistoryChart'
@@ -474,5 +475,31 @@ describe('la courbe explique ses creux (A-4)', () => {
     const note = screen.getByText(/Sur la courbe/).textContent ?? ''
     expect(note).toMatch(/1 trou de supervision/)
     expect(note).toMatch(/désactivé par l’exploitant/)
+  })
+})
+
+describe('une session passée garde ses propres repères (revue du 17/10)', () => {
+  it('lit le journal de CETTE session, pas celui de la fenêtre courante', async () => {
+    const t = (s: number) => new Date(T0 + s * 1000).toISOString()
+    vi.mocked(fetchHistory).mockResolvedValue({
+      router_id: 'mbx', wan_id: '4', metric: 'sinr', available: 4,
+      points: [0, 6, 12, 18].map((s) => ({ ts: t(s), value: 5 })),
+    })
+    vi.mocked(fetchSessionSummary).mockResolvedValue(fiche())
+    vi.mocked(fetchEvents).mockResolvedValue({
+      router_id: 'mbx', started_at: t(0), ended_at: t(18), capped: false, churn: [], omitted: 0,
+      latency_threshold_ms: 1000,
+      episodes: [{ kind: 'désactivation', wan_id: '4', link_kind: 'cellular', at: t(6), until: null,
+                   samples: 1, peak_ms: null, detail: 'désactivé', after_handover_s: null }],
+    } as never)
+    const passee = session({ id: 1 })
+    const courante = session({ id: 2, started_at: '2026-08-31T08:00:00Z', first_seen: '2026-08-31T08:00:05Z',
+                               last_seen: '2026-08-31T09:00:00Z' })
+    const { container } = render(chart({ sessions: [courante, passee], episodes: [] }))
+    const select = container.querySelector('select') as HTMLSelectElement
+    select.value = '1'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    await waitFor(() => expect(fetchEvents).toHaveBeenCalledWith('mbx', { since: passee.first_seen, until: passee.last_seen }))
+    await waitFor(() => expect(screen.getByText(/désactivé par l’exploitant/)).toBeInTheDocument())
   })
 })

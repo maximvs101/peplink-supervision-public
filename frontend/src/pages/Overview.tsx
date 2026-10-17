@@ -134,7 +134,12 @@ export function Overview() {
             tunnelAttendu={router?.tunnel_attendu ?? null}
             neverConnected={router?.never_connected ?? []}
             volume={resume && session
-              ? { up: resume.mb_up, down: resume.mb_down, depuis: fmtClock(debutObserve(session)) }
+              // Au-delà de 24 h, la fiche ne couvre que les dernières 24 h
+              // (`partial`) : « depuis » dit alors le début de CETTE fenêtre,
+              // pas le premier relevé de la session (revue du 17/10).
+              ? { up: resume.mb_up, down: resume.mb_down,
+                  depuis: fmtClock(resume.partial && resume.window_start
+                    ? resume.window_start : debutObserve(session)) }
               : null}
             grievances={griefsDuTunnel}
             routerId={routerId}

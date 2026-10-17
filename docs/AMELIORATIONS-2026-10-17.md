@@ -57,3 +57,20 @@ petits correctifs d'abord, puis les fonctions.
 
 Suites : 966 serveur, 595 écran, ruff et tsc propres ; exécutable construit et vérifié (1,6 s).
 
+
+## Revue de code (même jour), neuf constats, tous corrigés
+
+- [x] **R-1** — La veille appairait l'équipement qui répond à l'adresse retenue, quel qu'il soit, puis
+  recommençait à chaque tour : la série identifiée doit être celle qu'on attend (`serie_attendue`).
+- [x] **R-2** — Tuile du volume datée du premier relevé alors que la fiche ne couvre que 24 h :
+  `window_start` quand la fiche est `partial`.
+- [x] **R-3** — « Notifier + son » muet après un rechargement : le son se réarme au premier geste.
+- [x] **R-4** — Regroupement sans retour connu : borné à un quart d'heure.
+- [x] **R-5** — Veille, « Reconnecter » et formulaire pouvaient appairer le même équipement au même
+  instant : un verrou par équipement, et l'équipement déjà repris est rendu tel quel.
+- [x] **R-6** — Tentatives de la veille l'une après l'autre : en parallèle.
+- [x] **R-7** — La courbe d'une session passée n'avait pas ses repères : elle lit son propre journal.
+- [x] **R-8** — Fiche du stationnement relue toutes les 30 s pour la tuile : toutes les 5 min.
+- [x] **R-9** — Titres et explications des alertes dans deux dictionnaires : un seul, `lib/alertes.ts`.
+
+Suites : 970 serveur, 599 écran ; relu en service après redémarrage (reconnexion par la veille, tuile).

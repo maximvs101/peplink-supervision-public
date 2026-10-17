@@ -262,3 +262,69 @@ async def test_un_equipement_deja_supervise_n_est_pas_retente(trousseau):
             await veille.tour(maintenant=float(t))
     assert identify.await_count == 0
     await registry.close()
+
+
+# --- relecture du 17/10 ------------------------------------------------------------
+
+async def test_un_autre_equipement_a_l_adresse_retenue_n_est_pas_appaire(trousseau):
+    """Un autre HD2, même mot de passe, occupe désormais l'adresse retenue : la
+    veille l'appairait, puis recommençait à chaque tour — une connexion admin
+    toutes les 3 s. La série identifiée doit être celle qu'on attend."""
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
+    autre = DeviceInfo(model="Pepwave MAX HD2", serial="0000-0000-0077", firmware="8.5.4", name="AUTRE")
+    registry = DeviceRegistry(default_mode="mock")
+    depot = _Depot([CONNU])
+    veille = _veille(registry, depot)
+    with _identify(autre) as identify:
+        for t in range(0, 60, 3):
+            await veille.tour(maintenant=float(t))
+    assert registry.find_by_serial("0000-0000-0077") is None, "l'autre équipement a été appairé"
+    assert depot.memorises == []
+    assert identify.await_count < 10, "la veille ne recule pas sur une série inattendue"
+    await registry.close()
+
+
+async def test_deux_reconnexions_simultanees_n_en_font_qu_une(trousseau):
+    import asyncio
+
+    from app.pairing.service import reconnecter
+
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
+    registry = DeviceRegistry(default_mode="mock")
+    depot = _Depot([CONNU])
+
+    async def lente(*a, **k):
+        await asyncio.sleep(0.05)
+        return INFO
+
+    with patch("app.pairing.service.RouterApiPeplinkClient.identify", AsyncMock(side_effect=lente)) as identify:
+        a, b = await asyncio.gather(reconnecter(registry, depot, CONNU), reconnecter(registry, depot, CONNU))
+    assert identify.await_count == 1, "deux connexions admin pour une reconnexion"
+    assert a is b
+    await registry.close()
+
+
+async def test_un_equipement_absent_ne_retarde_pas_les_autres(trousseau):
+    import asyncio
+    import time
+
+    autre = {**CONNU, "serial": "0000-0000-0099", "host": "192.0.2.9"}
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
+    coffre.retenir("0000-0000-0099", coffre.Identifiants("admin", "secret"))
+    registry = DeviceRegistry(default_mode="mock")
+
+    contacte: list[float] = []
+
+    async def selon_hote(self):
+        if "192.0.2.9" in self._base:
+            await asyncio.sleep(0.5)
+            raise OSError("injoignable")
+        contacte.append(time.monotonic())
+        return INFO
+
+    with patch("app.pairing.service.RouterApiPeplinkClient.identify", selon_hote):
+        debut = time.monotonic()
+        await _veille(registry, _Depot([autre, CONNU])).tour(maintenant=0.0)
+    assert registry.find_by_serial("0000-0000-0042") is not None
+    assert contacte[0] - debut < 0.25, "l'équipement présent a attendu le délai de l'absent"
+    await registry.close()

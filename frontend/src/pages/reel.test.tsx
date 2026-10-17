@@ -273,6 +273,31 @@ describe('le tableau de bord sur un équipement réel', () => {
     unmount()
   })
 
+  it('date le volume d’une session plafonnée par le début de sa fenêtre', async () => {
+    // Revue du 17/10 : au-delà de 24 h, la fiche ne couvre que les dernières
+    // 24 h ; « depuis » le premier relevé de la session affirmait plus que ça.
+    const reel = REELS['MAX HD2, deux opérateurs, pair injoignable']
+    vi.mocked(fetchRouter).mockResolvedValue(reel.router)
+    vi.mocked(fetchSessions).mockResolvedValue(reel.sessions)
+    vi.mocked(fetchTimeline).mockResolvedValue(reel.timeline)
+    vi.mocked(fetchEvents).mockResolvedValue(reel.events)
+    const debut = '2026-09-19T03:00:00Z'
+    vi.mocked(fetchSessionSummary).mockClear()
+    vi.mocked(fetchSessionSummary).mockResolvedValue(
+      { mb_up: 1, mb_down: 2, partial: true, window_start: debut } as unknown as Awaited<ReturnType<typeof fetchSessionSummary>>)
+    const { container, unmount } = monterTableauDeBord()
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    const tuile = [...container.querySelectorAll('.tot')].find((t) => /Mo ↑ \/ ↓/.test(t.textContent ?? ''))
+    const attendu = new Date(debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    expect(tuile?.textContent).toContain(`depuis ${attendu}`)
+    // Relue toutes les cinq minutes, et non à chaque relecture du journal.
+    await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60_000) })
+    expect(fetchSessionSummary).toHaveBeenCalledTimes(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(4 * 60_000) })
+    expect(fetchSessionSummary).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+
   it('sur le Dome, aucune colonne de débit : le châssis ne le publie pas', async () => {
     const reel = REELS['Dome Pro Duo, fiche sondée, sans débit par WAN']
     expect(reel.router.capabilities?.per_wan_throughput).toBe(false)
