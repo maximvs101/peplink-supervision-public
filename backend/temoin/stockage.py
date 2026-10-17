@@ -189,6 +189,20 @@ class Depot:
         # se fait hors de la boucle d'événements, qui fait tourner la collecte.
         return await asyncio.to_thread(_en_releves, lignes)
 
+    async def releves_apres(
+        self, observation: int, apres_id: int = 0
+    ) -> tuple[list[Releve], int]:
+        """Les relevés rangés après la ligne `apres_id` (dans l'ordre de
+        `releves`), et le plus grand identifiant vu. Les relevés ne sont
+        qu'ajoutés : de quoi tenir une copie à jour sans tout relire."""
+        async with self._db.execute(
+            "SELECT * FROM releves WHERE observation = ? AND id > ? ORDER BY ts, id",
+            (observation, apres_id),
+        ) as cur:
+            lignes = await cur.fetchall()
+        dernier_id = max((r["id"] for r in lignes), default=apres_id)
+        return await asyncio.to_thread(_en_releves, lignes), dernier_id
+
     async def dernier_hors_coupure(
         self, observation: int, avant: datetime
     ) -> datetime | None:

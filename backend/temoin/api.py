@@ -198,6 +198,10 @@ class _Session:
         self._recherche: tuple[datetime, list[dict]] | None = None
         # Par observation : (dernier relevé examiné, verdict), voir `_verdict`.
         self.verdicts: dict[int, tuple] = {}
+        # Les relevés de la dernière observation lue en entier (fenêtre
+        # « tout ») : (observation, dernier id lu, relevés triés). Une seule à
+        # la fois : une autre observation la remplace.
+        self.releves_lus: tuple[int, int, list] | None = None
 
     async def equipements(self) -> list[dict]:
         maintenant = self.horloge()
@@ -465,6 +469,27 @@ def creer_app(
                 return v
         raise AssertionError("inatteignable : le dernier recul relit tout")
 
+    async def _tous_les_releves(ident: int) -> list[regles.Releve]:
+        """Tous les relevés de l'observation, en ne lisant que les nouveaux.
+
+        Les relevés ne sont qu'ajoutés : seules les lignes d'id supérieur au
+        dernier lu sont relues. Si l'une d'elles est plus ancienne que la fin de
+        la copie (horloge du poste reculée), l'ordre changerait : tout est relu.
+        """
+        lus = session.releves_lus
+        if lus is not None and lus[0] == ident:
+            _, dernier_id, copie = lus
+            nouveaux, dernier_id = await depot.releves_apres(ident, dernier_id)
+            if not nouveaux:
+                return copie
+            if not copie or nouveaux[0].ts >= copie[-1].ts:
+                releves = copie + nouveaux
+                session.releves_lus = (ident, dernier_id, releves)
+                return releves
+        releves, dernier_id = await depot.releves_apres(ident)
+        session.releves_lus = (ident, dernier_id, releves)
+        return releves
+
     @app.get("/api/observation")
     async def observation(
         id: int | None = None, fenetre: Literal["tout", "1h", "24h"] = "tout"
@@ -484,7 +509,7 @@ def creer_app(
         faits = await depot.faits(id)
         if largeur is None:
             depuis = None
-            releves = await depot.releves(id)
+            releves = await _tous_les_releves(id)
             verdict = await _verdict(id, dernier, maintenant, releves, complet=True)
         else:
             # Seulement la fenêtre et sa marge : une observation de plusieurs

@@ -738,3 +738,44 @@ async def test_une_coupure_en_cours_avant_la_fenetre_garde_son_vrai_debut(api, d
         assert corps["coupures"][0]["debut"] == "2026-10-17T10:10:00+00:00"
         assert corps["verdict"] == tout["verdict"] == {
             "etat": "coupe", "depuis": "2026-10-17T10:10:00+00:00"}
+
+
+async def test_la_fenetre_entiere_ne_relit_que_les_nouveaux_releves(api, depot, temps, monkeypatch):
+    obs = await observation_passee(depot)
+    lignes = []
+    lire = depot.releves_apres
+
+    async def releves_comptes(ident, apres_id=0):
+        releves, dernier = await lire(ident, apres_id)
+        lignes.append(len(releves))
+        return releves, dernier
+
+    monkeypatch.setattr(depot, "releves_apres", releves_comptes)
+    temps.now = T0 + timedelta(seconds=90)
+    premier = (await api.get("/api/observation", params={"id": obs})).json()
+    assert lignes == [30]
+    second = (await api.get("/api/observation", params={"id": obs})).json()
+    assert lignes == [30, 0] and second == premier
+    await depot.ajouter_releve(obs, rel(90))
+    await depot.ajouter_releve(obs, rel(93, connecte=False))
+    temps.now = T0 + timedelta(seconds=95)
+    troisieme = (await api.get("/api/observation", params={"id": obs})).json()
+    assert lignes == [30, 0, 2]
+    # Même résultat qu'une lecture entière.
+    session = api._transport.app.state.session
+    session.releves_lus = None
+    assert (await api.get("/api/observation", params={"id": obs})).json() == troisieme
+    assert lignes == [30, 0, 2, 32]
+    assert troisieme["verdict"] == {"etat": "coupe", "depuis": "2026-10-17T10:01:33+00:00"}
+
+
+async def test_une_heure_reculee_fait_tout_relire(api, depot, temps):
+    obs = await observation_passee(depot)
+    temps.now = T0 + timedelta(seconds=90)
+    await api.get("/api/observation", params={"id": obs})
+    # Un relevé daté avant la fin de la copie (horloge du poste reculée).
+    await depot.ajouter_releve(obs, rel(50, connecte=False))
+    corps = (await api.get("/api/observation", params={"id": obs})).json()
+    session = api._transport.app.state.session
+    session.releves_lus = None
+    assert (await api.get("/api/observation", params={"id": obs})).json() == corps
