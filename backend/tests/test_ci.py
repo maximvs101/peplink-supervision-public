@@ -72,3 +72,25 @@ def test_l_action_construit_aussi_le_temoin():
     etapes = [e.get("run", "") for e in _flux()["jobs"]["construire"]["steps"]]
     assert any("construire_executable.py --produit temoin" in r for r in etapes)
     assert any("verifier_executable.py" in r and "--sante /api/sante" in r for r in etapes)
+
+
+def test_le_lancement_manuel_choisit_le_produit():
+    flux = _flux()
+    # PyYAML lit la clé `on` comme le booléen True.
+    choix = flux[True]["workflow_dispatch"]["inputs"]["produit"]
+    assert choix["type"] == "choice"
+    assert choix["options"] == ["les deux", "superviseur", "témoin"]
+    assert choix["default"] == "les deux"
+    job = flux["jobs"]["construire"]
+    # Sur une étiquette, l'entrée est vide : les deux produits, toujours.
+    assert job["env"] == {"SUPERVISEUR": "${{ inputs.produit != 'témoin' }}",
+                          "TEMOIN": "${{ inputs.produit != 'superviseur' }}"}
+    for etape in job["steps"]:
+        run, nom = etape.get("run", ""), etape.get("name", "")
+        if "--produit temoin" in run or "--sante /api/sante" in run:
+            assert etape["if"] == "env.TEMOIN == 'true'", nom
+        elif "construire_executable.py" in run or "verifier_executable.py" in run:
+            assert etape["if"] == "env.SUPERVISEUR == 'true'", nom
+        elif str(etape.get("uses", "")).startswith("actions/upload-artifact"):
+            produit = "TEMOIN" if "temoin" in etape["with"]["name"] else "SUPERVISEUR"
+            assert etape["if"] == f"env.{produit} == 'true'"

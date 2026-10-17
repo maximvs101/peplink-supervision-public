@@ -7,9 +7,11 @@
 # puce Apple, macOS Intel — et déposent les fichiers en téléchargement :
 #
 #   - à chaque exécution manuelle (onglet Actions › « Exécutable » › Run
-#     workflow), en « artefacts » du run, gardés quatorze jours ;
+#     workflow), en « artefacts » du run, gardés quatorze jours — avec le
+#     choix du produit : les deux, le superviseur seul, ou le témoin seul ;
 #   - à chaque étiquette `v*` poussée (`git tag v1.0.0 && git push --tags`),
-#     en fichiers d'une Release du dépôt, pour de bon.
+#     en fichiers d'une Release du dépôt, pour de bon — toujours les deux
+#     produits : une Release ne sort jamais à moitié.
 #
 # Aucun fichier n'est produit tant que les suites de tests ne sont pas vertes,
 # et chaque exécutable est LANCÉ après construction : serveur, interface, base à
@@ -30,6 +32,12 @@ name: Exécutable
 
 on:
   workflow_dispatch:
+    inputs:
+      produit:
+        description: "Que construire"
+        type: choice
+        options: [les deux, superviseur, témoin]
+        default: les deux
   push:
     tags: ["v*"]
 
@@ -71,6 +79,10 @@ jobs:
             temoin_produit: dist/temoin-ethernet
             temoin_livraison: temoin-ethernet-macos-x64.tar.gz
     runs-on: ${{ matrix.os }}
+    # Sur une étiquette, `inputs.produit` est vide : les deux produits.
+    env:
+      SUPERVISEUR: ${{ inputs.produit != 'témoin' }}
+      TEMOIN: ${{ inputs.produit != 'superviseur' }}
     defaults:
       run:
         shell: bash
@@ -84,7 +96,10 @@ jobs:
       # tient pour cohérent un verrou que le npm 10 de Node 22 refuse
       # (« Missing: esbuild@0.28.2 from lock file » — premier run, 19 septembre),
       # alors que `npm ci` passe en local depuis une copie vierge.
+      # L'interface compilée ne sert que le superviseur : le témoin a un
+      # écran statique.
       - uses: actions/setup-node@v7
+        if: env.SUPERVISEUR == 'true'
         with:
           node-version: "24"
           cache: npm
@@ -99,6 +114,7 @@ jobs:
             backend/requirements-build.txt
 
       - name: Interface — dépendances, types, tests, compilation
+        if: env.SUPERVISEUR == 'true'
         working-directory: frontend
         run: |
           node --version && npm --version
@@ -139,24 +155,28 @@ jobs:
           PY
 
       - name: Construire l'exécutable
+        if: env.SUPERVISEUR == 'true'
         working-directory: backend
         env:
           PYTHONUTF8: "1"
         run: python tools/construire_executable.py
 
       - name: Le lancer, et vérifier qu'il répond — serveur, interface, base
+        if: env.SUPERVISEUR == 'true'
         working-directory: backend
         run: python tools/verifier_executable.py ${{ matrix.produit }}
 
       # Le témoin de lien Ethernet : son écran est statique, rien à compiler
       # côté interface ; sa santé se lit sur /api/sante, sa base est temoin.db.
       - name: Construire le témoin Ethernet
+        if: env.TEMOIN == 'true'
         working-directory: backend
         env:
           PYTHONUTF8: "1"
         run: python tools/construire_executable.py --produit temoin
 
       - name: Lancer le témoin, et vérifier qu'il répond — serveur, écran, base
+        if: env.TEMOIN == 'true'
         working-directory: backend
         run: python tools/verifier_executable.py ${{ matrix.temoin_produit }} --sante /api/sante
 
@@ -169,17 +189,22 @@ jobs:
       - name: Nommer, et emballer pour livrer le droit d'exécution
         working-directory: backend
         run: |
-          mv "${{ matrix.produit }}" "dist/${{ matrix.nom }}"
-          case "${{ matrix.livraison }}" in
-            *.tar.gz) tar -czf "dist/${{ matrix.livraison }}" -C dist "${{ matrix.nom }}" ;;
-          esac
-          mv "${{ matrix.temoin_produit }}" "dist/${{ matrix.temoin_nom }}"
-          case "${{ matrix.temoin_livraison }}" in
-            *.tar.gz) tar -czf "dist/${{ matrix.temoin_livraison }}" -C dist "${{ matrix.temoin_nom }}" ;;
-          esac
+          if [ "$SUPERVISEUR" = true ]; then
+            mv "${{ matrix.produit }}" "dist/${{ matrix.nom }}"
+            case "${{ matrix.livraison }}" in
+              *.tar.gz) tar -czf "dist/${{ matrix.livraison }}" -C dist "${{ matrix.nom }}" ;;
+            esac
+          fi
+          if [ "$TEMOIN" = true ]; then
+            mv "${{ matrix.temoin_produit }}" "dist/${{ matrix.temoin_nom }}"
+            case "${{ matrix.temoin_livraison }}" in
+              *.tar.gz) tar -czf "dist/${{ matrix.temoin_livraison }}" -C dist "${{ matrix.temoin_nom }}" ;;
+            esac
+          fi
           ls -la dist
 
       - uses: actions/upload-artifact@v7
+        if: env.SUPERVISEUR == 'true'
         with:
           name: ${{ matrix.livraison }}
           path: backend/dist/${{ matrix.livraison }}
@@ -187,6 +212,7 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v7
+        if: env.TEMOIN == 'true'
         with:
           name: ${{ matrix.temoin_livraison }}
           path: backend/dist/${{ matrix.temoin_livraison }}
