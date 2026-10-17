@@ -171,3 +171,21 @@ def test_un_trou_dans_une_suite_de_redemarrage_reste_non_mesure():
     assert ("redemarrage", t(33), t(39)) in seg
     assert ("non_mesure", t(39), t(300)) in seg
     assert ("redemarrage", t(300), t(306)) in seg
+
+
+def test_un_redemarrage_au_recul_reel_reste_un_seul_segment():
+    # recul de la collecte : 3, 6, 12, 24, puis 30 s entre deux essais
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in (33, 39, 51, 75, 105, 135)]
+           + [r(138, anciennete_routeur=20)])
+    seg = etats(bande(rel, t(141)))
+    assert ("redemarrage", t(33), t(138)) in seg
+    assert coupures(rel, []) == []
+
+
+def test_un_trou_de_soixante_secondes_dans_la_suite_reste_non_mesure():
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in (33, 39, 51, 75, 105, 165)]
+           + [r(168, anciennete_routeur=20)])
+    seg = etats(bande(rel, t(171)))
+    assert ("redemarrage", t(33), t(105)) in seg
+    assert ("non_mesure", t(105), t(165)) in seg
+    assert ("redemarrage", t(165), t(168)) in seg

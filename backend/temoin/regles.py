@@ -19,6 +19,11 @@ from app.models import en_secours
 # Écart au-delà duquel deux relevés ne se suivent pas (veille du PC, réseau perdu).
 TROU_S = 15.0
 
+# Après un relevé injoignable, la collecte recule (3, 6, 12, 24, puis 30 s) : deux
+# relevés injoignables se suivent à 30 s au plus. Le trou ne commence qu'au-delà,
+# avec une marge.
+TROU_INJOIGNABLE_S = 45.0
+
 # Tolérance de rapprochement entre un relevé et une ligne du journal (minute).
 TOLERANCE_JOURNAL_S = 15.0
 
@@ -80,6 +85,12 @@ def _s(a: datetime, b: datetime) -> float:
     return (b - a).total_seconds()
 
 
+def _trou(avant: Releve, apres_ts: datetime) -> bool:
+    """Y a-t-il un trou entre ce relevé et l'heure suivante ?"""
+    limite = TROU_S if avant.joignable else TROU_INJOIGNABLE_S
+    return _s(avant.ts, apres_ts) > limite
+
+
 def _cause(rel: Releve, faits: list[FaitRouteur]) -> str | None:
     # HYPOTHÈSE — à confirmer à la séance de capture (spec §6.7)
     if rel.message and "no cable" in rel.message.lower():
@@ -99,7 +110,7 @@ def coupures(releves: list[Releve], faits: list[FaitRouteur]) -> list[Coupure]:
 
     for rel in releves:
         etat = _etat(rel)
-        suite = precedent is not None and _s(precedent.ts, rel.ts) <= TROU_S
+        suite = precedent is not None and not _trou(precedent, rel.ts)
 
         if en_cours is not None:
             if etat == "coupe" and suite:
@@ -209,11 +220,11 @@ def bande(
     while i < len(releves):
         rel = releves[i]
         if i in redemarrages:
-            # Un écart de plus de TROU_S entre deux relevés de la suite reste
+            # Un écart au-delà du trou (voir _trou) entre deux relevés de la suite reste
             # un trou : il n'est pas du redémarrage, il est non mesuré.
             for k in range(i, redemarrages[i]):
                 a, b = releves[k].ts, releves[k + 1].ts
-                segments.append(Segment(a, b, "redemarrage" if _s(a, b) <= TROU_S else "non_mesure"))
+                segments.append(Segment(a, b, "non_mesure" if _trou(releves[k], b) else "redemarrage"))
             i = redemarrages[i]
             continue
         etat = _etat(rel)
@@ -222,10 +233,10 @@ def bande(
             # Injoignable sans redémarrage : rien n'a été mesuré. Le recul de la
             # cadence (jusqu'à 30 s) est connu, il ne fait pas un trou en soi.
             segments.append(Segment(rel.ts, max(suivant_ts, rel.ts), "non_mesure"))
-        elif _s(rel.ts, suivant_ts) <= TROU_S:
-            segments.append(Segment(rel.ts, suivant_ts, etat))
-        else:
+        elif _trou(rel, suivant_ts):
             segments.append(Segment(rel.ts, suivant_ts, "non_mesure"))
+        else:
+            segments.append(Segment(rel.ts, suivant_ts, etat))
         i += 1
     return _aligner(_fusionner(segments), faits or [])
 
@@ -234,7 +245,7 @@ def verdict(releves: list[Releve], maintenant: datetime) -> dict:
     """Où en est le lien, et depuis quand (état du dernier relevé)."""
     if not releves:
         return {"etat": "aucune_mesure", "depuis": None}
-    if _s(releves[-1].ts, maintenant) > TROU_S:
+    if _trou(releves[-1], maintenant):
         # PC en veille ou collecte arrêtée : on ne sait pas, et l'absence n'est pas un zéro.
         return {"etat": "aucune_mesure", "depuis": releves[-1].ts}
     groupes = {
@@ -251,7 +262,7 @@ def verdict(releves: list[Releve], maintenant: datetime) -> dict:
         rel, suivant = releves[i], releves[i + 1]
         if groupes[_etat(rel)] != etat:
             break
-        if etat != "injoignable" and _s(rel.ts, suivant.ts) > TROU_S:
+        if _trou(rel, suivant.ts):
             break
         depuis = rel.ts
     return {"etat": etat, "depuis": depuis}
