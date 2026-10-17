@@ -18,8 +18,8 @@ from datetime import datetime
 from math import atan2, cos, degrees, radians, sin, sqrt
 
 from .models import (
-    BondAvailability, CellLatency, PathDiversity, Session, SessionLink, SessionSummary, en_secours,
-    nom_du_reseau,
+    STATUT_DESACTIVE, BondAvailability, CellLatency, PathDiversity, Session, SessionLink,
+    SessionSummary, en_secours, nom_du_reseau,
 )
 
 # Rayon de la Terre en mètres, pour ramener des degrés à une distance.
@@ -443,7 +443,9 @@ def _resume_lien(
                     mb_down += float(precedent["rx_kbps"]) * ecart / 8_000.0
                     mesure_down = True
 
-            if precedent["connected"] and not ligne["connected"]:
+            # Une désactivation par l'exploitant n'est pas une coupure (C-20).
+            if (precedent["connected"] and not ligne["connected"]
+                    and ligne.get("status_message") != STATUT_DESACTIVE):
                 coupures += 1
             elif (
                 precedent["connected"]

@@ -33,6 +33,11 @@ Mêmes fichiers, même usage. Ce qui change pour l'exploitant :
   24 s, puis toutes les 30 s — au lieu d'une à chaque cadence ; dès qu'il
   répond, la cadence normale reprend. Rallumé, il peut mettre jusqu'à trente
   secondes à réapparaître.
+- **Un lien désactivé exprès n'est plus une panne, nulle part.** Éprouvé sur
+  un HD2 : le journal écrivait « Coupure » en rouge pour une SIM désactivée
+  par l'exploitant, et la table comme la fiche de session la comptaient
+  parmi les coupures. Elle s'écrit « Désactivé par l'exploitant », en gris,
+  et ne compte plus.
 - **Le journal dit l'état d'ouverture.** Un lien déjà hors du bond au premier
   relevé y entre, daté, avec la cause donnée par le routeur.
 - **Icône d'onglet.**

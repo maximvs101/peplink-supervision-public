@@ -670,6 +670,7 @@ _GRAVITE: dict[str, int] = {
     "latence": 3,           # le ROUTEUR a écarté le lien
     "latence haute": 2,     # l'outil juge, le routeur n'a rien fait
     "signalement": 1,
+    "désactivation": 1,   # une décision de l'exploitant, pas une panne (C-20)
     "changement d'opérateur": 1,  # un fait, pas une panne (R-2.3)
     "position perdue": 1,
     "retour": 0,

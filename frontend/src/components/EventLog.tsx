@@ -19,6 +19,10 @@ const GENRES: Record<string, { label: string; colour: string }> = {
   coupure: { label: 'Coupure', colour: QUALITY_COLOR.faible },
   retour: { label: 'Retour', colour: QUALITY_COLOR.excellent },
   'micro-coupure': { label: 'Micro-coupure', colour: QUALITY_COLOR.moyen },
+  // Une DÉCISION de l'exploitant, pas une panne (C-20) : gris, comme le rail du
+  // lien désactivé. Vu le 17/10 : « Coupure — 1 min » en rouge pour une SIM
+  // désactivée exprès.
+  désactivation: { label: 'Désactivé par l’exploitant', colour: QUALITY_COLOR.inconnu },
   // Deux genres, parce que ce sont deux faits différents. « Écarté » est une
   // action DU ROUTEUR, constatée : le firmware a cessé d'employer ce lien parce
   // qu'il dépassait de plus de son seuil le plus rapide du bond. « Latence
@@ -93,6 +97,7 @@ const PREMIERS = 6
  *  le journal. Son ABSENCE derrière une coupure est l'information. */
 const FERMETURE: Record<string, string> = {
   coupure: 'retour',
+  désactivation: 'retour',
   'position perdue': 'position retrouvée',
   'hors du bond': 'de retour dans le bond',
 }

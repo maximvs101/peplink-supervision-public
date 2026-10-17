@@ -172,6 +172,7 @@ Côté forces : 697 tests backend et 507 tests frontend passent, tsc est propre,
   - Scénario : L'exploitant désactive le WAN 3 : le rail, le plan, la bande et la fiche s'affichent en rouge, et il va chercher une panne qui n'existe pas.
   - Vérification : J'ai relu WanCard.tsx l.228-276 et LinkTable.tsx l.332-352 (colour sans disabled). L'expérience relecture1.test.tsx n'a pas été relancée.
   - Correctif proposé : Pour disabled, employer QUALITY_COLOR.inconnu et le texte « Lien désactivé par l'exploitant ».
+  - Complément du 17/10, éprouvé en service (SIM 4 d'un MAX HD2 désactivée à 13:51, réactivée à 13:52) : bande neutre sur le relevé d'adieu, comme prévu ; mais le journal listait une « Coupure » rouge d'une minute, et le compteur de coupures de la table comme la fiche de session l'additionnaient. Corrigé : genre « désactivation », gris, hors des coupures.
   - Complément du 26/09 : la bande aussi. Chaque tranche compte ses relevés d'adieu d'un WAN désactivé (`disabled`) ; une tranche où ils sont les seuls relevés tombés se peint en neutre, plus en panne.
 
 - [x] **C-21** — Après une reprise d'identifiants ratée, l'écran annonce encore une tentative « au prochain cycle » et invite à recliquer

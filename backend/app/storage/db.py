@@ -1631,8 +1631,14 @@ class SampleRepository:
                     "status_message": r["status_message"],
                     "uptime_s": r["uptime_s"],
                     "uptime_avant": r["uptime_avant"],
+                    # Le relevé d'adieu d'un WAN désactivé n'est pas une panne mais
+                    # une DÉCISION de l'exploitant (C-20) : listée en « coupure »,
+                    # elle prenait le premier rang de gravité et le rouge, vu en
+                    # service le 17/10 sur la SIM 4 d'un HD2.
                     "genre": (
-                        "coupure" if r["coupure"] else "retour" if r["retour"] else "micro-coupure"
+                        ("désactivation" if r["status_message"] == STATUT_DESACTIVE else "coupure")
+                        if r["coupure"]
+                        else "retour" if r["retour"] else "micro-coupure"
                     ),
                 })
             if r["signalement"] and not _libelle_varie(r):
@@ -1818,7 +1824,9 @@ class SampleRepository:
                    -- base de temps qui n'apparaissait nulle part, et qui se
                    -- remettait à zéro à chaque relance — dans un panneau intitulé
                    -- « depuis la mise sous tension ».
-                   SUM(f.voisin AND f.avant = 1 AND f.connected = 0)        AS coupures,
+                   -- Une désactivation par l'exploitant n'en est pas une (C-20).
+                   SUM(f.voisin AND f.avant = 1 AND f.connected = 0
+                       AND COALESCE(f.status_message, '') <> ?)              AS coupures,
                    SUM(f.voisin AND f.connected = 1 AND f.avant = 1
                        AND f.uptime_s IS NOT NULL AND f.uptime_avant IS NOT NULL
                        AND f.uptime_s < f.uptime_avant
@@ -1828,7 +1836,7 @@ class SampleRepository:
             GROUP BY f.wan_id
             ORDER BY f.wan_id
             """,
-            (_TROU_MAX_S, *bornes),
+            (_TROU_MAX_S, *bornes, STATUT_DESACTIVE),
         ) as cursor:
             brassage = [dict(r) for r in await cursor.fetchall()]
 

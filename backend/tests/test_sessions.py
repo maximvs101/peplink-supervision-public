@@ -640,3 +640,24 @@ def test_the_sheet_joins_older_samples_to_the_router_series_without_double_count
     lien = build_summary(_session(), lignes, None, {"3": (couverts, [20.0] * 8)}).links[0]
     assert lien.path_latency_samples == 12
     assert lien.path_latency_max_ms == 100.0, "les copies postérieures ne comptent pas"
+
+
+def test_a_link_disabled_by_the_operator_is_not_an_outage():
+    """C-20, vu en service le 17/10 : la SIM 4 d'un HD2 désactivée à 13:51 puis
+    réactivée à 13:52 comptait une coupure dans la fiche. Une décision de
+    l'exploitant n'est pas une panne ; une vraie chute, si."""
+    from app.models import STATUT_DESACTIVE
+
+    desactive = [
+        _ligne("4", 0, uptime_s=3600),
+        _ligne("4", 1, connected=0, status_message=STATUT_DESACTIVE, uptime_s=None),
+        _ligne("4", 2, connected=0, status_message="Connecting...", uptime_s=None),
+        _ligne("4", 3, uptime_s=5),
+    ]
+    assert build_summary(_session(), desactive).links[0].outages == 0
+    tombe = [
+        _ligne("4", 0, uptime_s=3600),
+        _ligne("4", 1, connected=0, status_message="No Signal", uptime_s=None),
+        _ligne("4", 2, uptime_s=5),
+    ]
+    assert build_summary(_session(), tombe).links[0].outages == 1

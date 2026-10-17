@@ -971,3 +971,20 @@ secondes, pas en trente. `forget()` efface le compte. Six tests, dont deux
 mutations vérifiées (pause fixe, pause d'un seul tenant). En service, sur le
 MBX injoignable : période lissée 3,9 → 6,4 → 11,7 s en une minute, le HD2
 voisin à sa cadence.
+
+### 2026-10-17 — C-20 éprouvé en service : la désactivation n'est plus une coupure
+
+L'exploitant a désactivé la SIM 4 du HD2 à 13:51 et l'a réactivée à 13:52.
+Base : relevé d'adieu « désactivé » à 13:51:23, aucun relevé jusqu'à 13:52:14
+(la limite connue), « Connecting... », « Obtaining IP Address... », retour à
+13:52:34 ; le journal du routeur a tracé les deux gestes (« Ordre des WAN
+réévalué » à 13:51:11 et 13:52:06). La bande tenait : la tranche de l'adieu
+est neutre. Mais le journal écrivait « Coupure — 1 min » sur un rail rouge, au
+premier rang de gravité, et le compteur de coupures de la table comme la fiche
+de session comptaient la désactivation. Elle a désormais son genre,
+« désactivation » — « Désactivé par l'exploitant », gris, gravité d'un
+signalement, durée fermée par le retour — et n'entre plus dans aucun compte de
+coupures. Relu en service après redémarrage : la ligne de 13:51:23 est grise,
+la SIM 4 compte 0 coupure. Reste dit tel quel : la tranche « Connecting... »
+de la réactivation, quelques secondes, est peinte comme un lien tombé — le
+lien ne l'est pas encore revenu.

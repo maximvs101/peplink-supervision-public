@@ -1238,7 +1238,8 @@ class Episode(BaseModel):
     # La liste COMPLÈTE des genres, et elle est contractuelle : `_GRAVITE` dans
     # les routes classe la troncature du journal sur ces valeurs, et un genre
     # qu'elle ne connaît pas se retrouverait juste au-dessus des rétablissements.
-    #   coupure · retour · micro-coupure
+    #   coupure · retour · micro-coupure · désactivation (C-20 : un WAN désactivé
+    #   par l'exploitant, reconnu à son relevé d'adieu — une décision, pas une panne)
     #   latence (le routeur a écarté) · latence haute (l'outil juge)
     #   signalement · hors du bond · de retour dans le bond
     #   position perdue · position retrouvée

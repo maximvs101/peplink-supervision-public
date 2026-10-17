@@ -426,7 +426,7 @@ def test_the_journal_keeps_the_most_telling_episodes_not_the_most_recent():
     # journal du routeur compris.
     from app.api.routes import _EPISODES_ROUTEUR
     assert set(_GRAVITE) == {
-        "coupure", "retour", "micro-coupure", "latence", "latence haute",
+        "coupure", "retour", "micro-coupure", "désactivation", "latence", "latence haute",
         "signalement", "hors du bond", "de retour dans le bond",
         "position perdue", "position retrouvée", "changement d'opérateur",
     } | _EPISODES_ROUTEUR

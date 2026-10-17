@@ -1731,6 +1731,42 @@ async def test_a_link_already_out_of_the_bond_at_the_first_reading_is_listed(tmp
     await repo.close()
 
 
+async def test_a_link_disabled_by_the_operator_is_a_decision_not_a_cut(tmp_path):
+    """C-20, vu en service le 17/10 : la SIM 4 désactivée à 13:51 entrait au
+    journal comme « Coupure — 1 min », en rouge et au premier rang de gravité,
+    et le compteur de coupures de la table l'additionnait. Le relevé d'adieu
+    (`STATUT_DESACTIVE`) en fait une désactivation ; une vraie chute reste une
+    coupure."""
+    from datetime import datetime, timedelta
+
+    from app.models import STATUT_DESACTIVE
+
+    repo = SampleRepository(str(tmp_path / "s.db"))
+    await repo.connect()
+    t0 = datetime.fromisoformat("2026-10-17T11:50:00+00:00")
+    lignes = [
+        ("4", 0, 1, "Connected to Bouygues"), ("4", 5, 0, STATUT_DESACTIVE),
+        ("4", 10, 0, "Connecting..."), ("4", 15, 1, "Connected to Bouygues"),
+        ("5", 0, 1, "Connected to Orange"), ("5", 5, 0, "No Signal"),
+        ("5", 10, 1, "Connected to Orange"),
+    ]
+    await repo._conn.executemany(
+        "INSERT INTO samples (router_id, wan_id, ts, connected, kind, status_message) "
+        "VALUES ('r1', ?, ?, ?, 'cellular', ?)",
+        [(w, (t0 + timedelta(seconds=s)).isoformat(), c, m) for w, s, c, m in lignes],
+    )
+    await repo._conn.commit()
+
+    episodes, brassage = await repo.events("r1", t0, t0 + timedelta(minutes=5), 1000.0)
+    genres = {(e["wan_id"], e["genre"]) for e in episodes}
+    assert ("4", "désactivation") in genres
+    assert ("4", "coupure") not in genres, "une décision de l'exploitant listée en panne"
+    assert ("5", "coupure") in genres, "une vraie chute reste une coupure"
+    coupures = {b["wan_id"]: b["coupures"] for b in brassage}
+    assert coupures == {"4": 0, "5": 1}
+    await repo.close()
+
+
 async def test_a_bond_exit_that_comes_with_a_disconnection_is_not_listed_twice(tmp_path):
     """`bascule_bond` sans `connected = connecte_avant` ne faisait tomber aucun
     test : une coupure emportait aussi un « hors du bond », et le retour un

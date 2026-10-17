@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Episode, EventLog as Log } from '../types'
 import { EventLog } from './EventLog'
+import { QUALITY_COLOR } from '../lib/quality'
 
 const episode = (over: Partial<Episode> = {}): Episode => ({
   kind: 'latence', wan_id: '4', link_kind: 'cellular',
@@ -304,5 +305,29 @@ describe('le journal d’un rapport imprimé (R-3.7)', () => {
     render(<EventLog log={journal(beaucoup)} windowLabel="Session" complet />)
     expect(document.querySelectorAll('tbody tr')).toHaveLength(12)
     expect(screen.queryByRole('button', { name: /Voir les/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('un lien désactivé par l’exploitant (C-20)', () => {
+  it('se dit comme une décision, en gris, et sa durée se ferme au retour', () => {
+    // Vu en service le 17/10 : SIM 4 désactivée à 13:51:23, revenue à 13:52:34.
+    // Le journal écrivait « Coupure — 1 min » sur un rail rouge.
+    const { container } = render(
+      <EventLog
+        log={journal([
+          episode({ kind: 'retour', at: '2026-10-17T11:52:34Z', peak_ms: null,
+                    detail: 'Connected to Bouygues' }),
+          episode({ kind: 'désactivation', at: '2026-10-17T11:51:23Z', peak_ms: null,
+                    detail: 'désactivé' }),
+        ])}
+        windowLabel="Depuis la mise sous tension"
+      />,
+    )
+    expect(screen.getByText('Désactivé par l’exploitant')).toBeInTheDocument()
+    expect(screen.queryByText('Coupure')).not.toBeInTheDocument()
+    expect(screen.getByText(/1 min/)).toBeInTheDocument()
+    const rails = [...container.querySelectorAll('tbody .rail')]
+      .map((r) => (r as HTMLElement).style.getPropertyValue('--q'))
+    expect(rails[1]).toBe(QUALITY_COLOR.inconnu)
   })
 })
