@@ -43,7 +43,9 @@ async def test_la_page_et_ses_fichiers_sont_servis(ecran):
     for nom in FICHIERS:
         r = await ecran.get(f"/{nom}")
         assert r.status_code == 200, nom
-        assert r.text == _texte(nom)
+        # Octet pour octet : sous Windows, git rend les fichiers en CRLF, que
+        # `read_text` aurait ramenés à LF.
+        assert r.content == (ECRAN / nom).read_bytes(), nom
     assert "javascript" in (await ecran.get("/temoin.js")).headers["content-type"]
     assert (await ecran.get("/temoin.css")).headers["content-type"].startswith("text/css")
     # Les deux pages chargent le même script et la même feuille.

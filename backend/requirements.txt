@@ -13,4 +13,6 @@ pytest>=8
 # routeurs avec `httpx`.
 httpx2>=2.0
 pytest-asyncio>=0.23
+# Windows n'a pas de base de fuseaux : zoneinfo la prend ici (tests du témoin).
+tzdata>=2024.1; sys_platform == "win32"
 ruff>=0.16
