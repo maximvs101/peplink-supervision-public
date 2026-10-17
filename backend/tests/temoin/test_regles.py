@@ -143,3 +143,31 @@ def test_les_chiffres_comptent_coupures_et_disponibilite():
 
 def test_rien_de_mesure_donne_une_disponibilite_vide():
     assert chiffres([], [])["disponibilite"] is None
+
+
+def test_un_verdict_perime_dit_aucune_mesure():
+    stable = serie(0, 30)
+    assert verdict(stable, t(33))["etat"] == "stable"
+    assert verdict(stable, t(30 + 16)) == {"etat": "aucune_mesure", "depuis": t(30)}
+    tombe = serie(0, 30) + serie(33, 45, connecte=False)
+    assert verdict(tombe, t(48))["etat"] == "coupe"
+    assert verdict(tombe, t(45 + 60)) == {"etat": "aucune_mesure", "depuis": t(45)}
+
+
+def test_une_coupure_interrompue_par_un_trou_finit_au_dernier_releve_tombe():
+    rel = serie(0, 30) + serie(33, 60, connecte=False) + serie(1800, 1830)
+    [c] = coupures(rel, [])
+    assert (c.debut, c.fin, c.duree_s) == (t(33), t(60), 27)
+    seg = bande(rel, t(1830))
+    assert ("coupe", t(33), t(60)) in etats(seg)
+    assert ("non_mesure", t(60), t(1800)) in etats(seg)
+    assert chiffres(seg, [c])["coupe_s"] == 27
+
+
+def test_un_trou_dans_une_suite_de_redemarrage_reste_non_mesure():
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in (33, 36, 39, 300, 303)]
+           + [r(306, anciennete_routeur=20)])
+    seg = etats(bande(rel, t(309)))
+    assert ("redemarrage", t(33), t(39)) in seg
+    assert ("non_mesure", t(39), t(300)) in seg
+    assert ("redemarrage", t(300), t(306)) in seg

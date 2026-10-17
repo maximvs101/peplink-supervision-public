@@ -106,8 +106,9 @@ def coupures(releves: list[Releve], faits: list[FaitRouteur]) -> list[Coupure]:
                 en_cours = (en_cours[0], rel)
                 precedent = rel
                 continue
-            # La coupure s'arrête au relevé qui la contredit, ou, après un trou,
-            # au dernier relevé où l'on a vu le lien tombé.
+            # La coupure s'arrête au relevé qui la contredit (y compris un relevé
+            # injoignable : elle finit à son heure), ou, après un trou, au dernier
+            # relevé où l'on a vu le lien tombé.
             fin = rel.ts if suite else en_cours[1].ts
             premier = en_cours[0]
             sortie.append(Coupure(premier.ts, fin, "coupure", _cause(premier, faits)))
@@ -208,8 +209,11 @@ def bande(
     while i < len(releves):
         rel = releves[i]
         if i in redemarrages:
-            suivant = releves[redemarrages[i]]
-            segments.append(Segment(rel.ts, suivant.ts, "redemarrage"))
+            # Un écart de plus de TROU_S entre deux relevés de la suite reste
+            # un trou : il n'est pas du redémarrage, il est non mesuré.
+            for k in range(i, redemarrages[i]):
+                a, b = releves[k].ts, releves[k + 1].ts
+                segments.append(Segment(a, b, "redemarrage" if _s(a, b) <= TROU_S else "non_mesure"))
             i = redemarrages[i]
             continue
         etat = _etat(rel)
@@ -230,6 +234,9 @@ def verdict(releves: list[Releve], maintenant: datetime) -> dict:
     """Où en est le lien, et depuis quand (état du dernier relevé)."""
     if not releves:
         return {"etat": "aucune_mesure", "depuis": None}
+    if _s(releves[-1].ts, maintenant) > TROU_S:
+        # PC en veille ou collecte arrêtée : on ne sait pas, et l'absence n'est pas un zéro.
+        return {"etat": "aucune_mesure", "depuis": releves[-1].ts}
     groupes = {
         "injoignable": "injoignable",
         "desactive": "desactive",
