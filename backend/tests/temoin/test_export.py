@@ -1,5 +1,6 @@
 """Exports CSV du témoin Ethernet : français, Excel, sans donnée d'identité."""
 
+from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, timezone
 
 from temoin.export import coupures_csv, releves_csv
@@ -40,7 +41,7 @@ def test_une_coupure_en_cours_s_exporte_sans_fin():
     m = Coupure(T0, None, "micro-coupure", None)
     ls = lignes(coupures_csv(ENTETE, [c, m], fuseau=UTC))
     assert "2026-10-17 10:00:00;;;coupure (en cours);câble" in ls
-    assert "2026-10-17 10:00:00;;;micro-coupure (en cours);" in ls
+    assert "2026-10-17 10:00:00;;;micro-coupure;" in ls
 
 
 def test_aucune_coupure_donne_un_fichier_valide():
@@ -89,3 +90,27 @@ def test_les_messages_sont_assainis():
     assert "2026-10-17 10:00:00;oui;oui;a b c;1;" in ls
     assert "2026-10-17 10:00:00;oui;oui;'=SOMME(A1);1;" in ls
     assert "2026-10-17 10:00:00;oui;oui;'-1+2;1;" in ls
+
+
+def test_une_micro_coupure_n_est_jamais_en_cours():
+    m = Coupure(T0, None, "micro-coupure", None)
+    texte = coupures_csv(ENTETE, [m], fuseau=UTC)
+    assert "en cours" not in texte
+    assert "2026-10-17 10:00:00;;;micro-coupure;" in lignes(texte)
+
+
+def test_le_fuseau_est_celui_du_debut_d_observation():
+    paris = ZoneInfo("Europe/Paris")
+    hiver = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
+    ls = lignes(coupures_csv(dict(ENTETE, debut=hiver), [], fuseau=paris))
+    assert "# fuseau;UTC+01:00" in ls
+    ete = datetime(2026, 7, 15, 10, 0, 0, tzinfo=UTC)
+    assert "# fuseau;UTC+02:00" in lignes(coupures_csv(dict(ENTETE, debut=ete), [], fuseau=paris))
+
+
+def test_la_latence_est_arrondie_a_une_decimale():
+    r = Releve(T0, True, True, None, 1, False, 1, 12.5000000001)
+    r2 = Releve(T0, True, True, None, 1, False, 1, 0.1 + 0.2)
+    ls = lignes(releves_csv(ENTETE, [r, r2], fuseau=UTC))
+    assert "2026-10-17 10:00:00;oui;oui;;1;12,5" in ls
+    assert "2026-10-17 10:00:00;oui;oui;;1;0,3" in ls

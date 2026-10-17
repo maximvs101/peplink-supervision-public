@@ -30,8 +30,9 @@ def _instant(d: datetime | None, fuseau: tzinfo | None) -> str:
     return "" if d is None else _local(d, fuseau).strftime(_FORMAT)
 
 
-def _decalage(fuseau: tzinfo | None) -> str:
-    dec = _local(datetime.now(timezone.utc), fuseau).utcoffset()
+def _decalage(fuseau: tzinfo | None, repere: datetime | None = None) -> str:
+    # Décalage à l'instant de début d'observation (heure d'été ou d'hiver).
+    dec = _local(repere or datetime.now(timezone.utc), fuseau).utcoffset()
     minutes = int(dec.total_seconds() // 60) if dec is not None else 0
     signe = "-" if minutes < 0 else "+"
     h, m = divmod(abs(minutes), 60)
@@ -44,13 +45,6 @@ def _nombre(v: float | int | None) -> str:
     if isinstance(v, float) and not v.is_integer():
         return f"{round(v, 1)}".replace(".", ",")
     return str(int(v))
-
-
-def _latence(v: float | None) -> str:
-    # La latence garde sa précision d'origine, avec la virgule.
-    if v is None:
-        return ""
-    return str(int(v)) if float(v).is_integer() else str(v).replace(".", ",")
 
 
 def _texte(v: str | None) -> str:
@@ -75,7 +69,7 @@ def _entete(entete: dict, fuseau: tzinfo | None) -> list[str]:
         elif isinstance(val, datetime):
             val = _instant(val, fuseau)
         lignes.append(f"# {_LIBELLES[cle]};{_texte(None if val is None else str(val))}")
-    lignes.append(f"# fuseau;{_decalage(fuseau)}")
+    lignes.append(f"# fuseau;{_decalage(fuseau, entete.get("debut") if isinstance(entete.get("debut"), datetime) else None)}")
     return lignes
 
 
@@ -86,7 +80,7 @@ def _assembler(lignes: list[str]) -> str:
 def coupures_csv(entete: dict, coupures: list[Coupure], fuseau: tzinfo | None = None) -> str:
     lignes = [*_entete(entete, fuseau), _COLONNES_COUPURES]
     for c in coupures:
-        genre = c.genre + (" (en cours)" if c.fin is None else "")
+        genre = c.genre + (" (en cours)" if c.genre == "coupure" and c.fin is None else "")
         lignes.append(";".join([
             _instant(c.debut, fuseau), _instant(c.fin, fuseau),
             _nombre(c.duree_s), genre, _texte(c.cause),
@@ -100,6 +94,6 @@ def releves_csv(entete: dict, releves: list[Releve], fuseau: tzinfo | None = Non
         connecte = "" if r.connecte is None else ("oui" if r.connecte else "non")
         lignes.append(";".join([
             _instant(r.ts, fuseau), "oui" if r.joignable else "non", connecte,
-            _texte(r.message), _nombre(r.anciennete_s), _latence(r.latence_ms),
+            _texte(r.message), _nombre(r.anciennete_s), _nombre(r.latence_ms),
         ]))
     return _assembler(lignes)
