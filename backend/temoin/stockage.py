@@ -189,6 +189,21 @@ class Depot:
         # se fait hors de la boucle d'événements, qui fait tourner la collecte.
         return await asyncio.to_thread(_en_releves, lignes)
 
+    async def dernier_hors_coupure(
+        self, observation: int, avant: datetime
+    ) -> datetime | None:
+        """L'heure du dernier relevé avant `avant` qui ne montre pas le lien
+        coupé (injoignable, désactivé, connecté) ; None s'il n'y en a pas.
+        Lu à rebours par l'index (observation, ts) : il s'arrête au premier."""
+        async with self._db.execute(
+            "SELECT ts FROM releves WHERE observation = ? AND ts < ?"
+            " AND NOT (joignable = 1 AND desactive = 0 AND connecte = 0)"
+            " ORDER BY ts DESC LIMIT 1",
+            (observation, _ecrire(avant)),
+        ) as cur:
+            ligne = await cur.fetchone()
+        return None if ligne is None else _lire(ligne["ts"])
+
     async def faits(self, observation: int) -> list[FaitRouteur]:
         async with self._db.execute(
             "SELECT ts, genre, detail FROM faits WHERE observation = ? ORDER BY ts, id",

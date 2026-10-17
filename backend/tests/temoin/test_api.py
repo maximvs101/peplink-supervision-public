@@ -705,3 +705,36 @@ async def test_hypothese_un_redemarrage_se_voit_au_verdict_prolonge(api, depot, 
     assert heure["verdict"] == attendu
     assert heure["coupures"] == []
     assert (await sonder(6472, "tout"))["verdict"] == attendu
+
+
+async def test_une_coupure_commencee_avant_la_fenetre_garde_son_vrai_debut(api, depot):
+    # Coupure de 0 h 10 à 1 h 56, observation relue à 2 h 30 sur la dernière
+    # heure : la lecture commence en pleine coupure (fenêtre et marge), son
+    # début reste 0 h 10, comme sur l'observation entière.
+    await depot.memoriser_equipement(HOTE, SERIE, MODELE)
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+    for s in range(0, 9001, 10):
+        await depot.ajouter_releve(obs, rel(s, connecte=not 600 <= s < 7000))
+    tout = (await api.get("/api/observation", params={"id": obs})).json()
+    heure = (await api.get("/api/observation", params={"id": obs, "fenetre": "1h"})).json()
+    assert heure["coupures"] == tout["coupures"]
+    assert heure["coupures"][0]["debut"] == "2026-10-17T10:10:00+00:00"
+    # La bande, elle, reste rognée au début de la fenêtre.
+    assert heure["bande"][0] == {
+        "debut": "2026-10-17T11:30:00+00:00", "fin": "2026-10-17T11:56:40+00:00",
+        "etat": "coupe"}
+
+
+async def test_une_coupure_en_cours_avant_la_fenetre_garde_son_vrai_debut(api, depot, temps):
+    await depot.memoriser_equipement(HOTE, SERIE, MODELE)
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+    for s in range(0, 9001, 10):
+        await depot.ajouter_releve(obs, rel(s, connecte=s < 600))
+    temps.now = T0 + timedelta(seconds=9002)
+    tout = (await api.get("/api/observation", params={"id": obs})).json()
+    for fenetre in ("1h", "24h"):
+        corps = (await api.get("/api/observation", params={"id": obs, "fenetre": fenetre})).json()
+        assert corps["coupures"] == tout["coupures"]
+        assert corps["coupures"][0]["debut"] == "2026-10-17T10:10:00+00:00"
+        assert corps["verdict"] == tout["verdict"] == {
+            "etat": "coupe", "depuis": "2026-10-17T10:10:00+00:00"}

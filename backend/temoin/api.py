@@ -77,6 +77,10 @@ def _coupures_json(coupures: list[regles.Coupure]) -> list[dict]:
     ]
 
 
+def _coupe(r: regles.Releve) -> bool:
+    return r.joignable and not r.desactive and r.connecte is False
+
+
 def _suffit(releves: list[regles.Releve], v: dict) -> bool:
     """Le verdict calculé sur cette fin de série vaut-il pour toute la série ?
 
@@ -488,7 +492,16 @@ def creer_app(
             depuis = fin - largeur
             charge = depuis - MARGE_FENETRE
             releves = await depot.releves(id, depuis=charge)
-            faits = [f for f in faits if f.ts >= charge]
+            if releves and _coupe(releves[0]) and releves[0].ts > o["debut"]:
+                # Une coupure déjà en cours au début de la lecture : sans son
+                # vrai début, elle paraîtrait commencer là. On relit depuis le
+                # dernier relevé qui ne la montrait pas (marge comprise, pour
+                # un redémarrage qui la précéderait).
+                avant = await depot.dernier_hors_coupure(id, releves[0].ts)
+                charge = None if avant is None else avant - MARGE_FENETRE
+                releves = await depot.releves(id, depuis=charge)
+            if charge is not None:
+                faits = [f for f in faits if f.ts >= charge]
             # Le verdict porte sur toute l'observation : « stable depuis » ne se
             # tronque pas à la fenêtre affichée.
             verdict = await _verdict(id, dernier, maintenant, releves, complet=False)
