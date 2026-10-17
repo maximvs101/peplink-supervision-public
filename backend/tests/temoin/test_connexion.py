@@ -214,3 +214,34 @@ async def test_le_client_du_temoin_ne_lit_que_le_lien_et_sa_latence(monkeypatch)
     assert lien.path_latency_ms is None
     assert lus == ["status.wan.connection", "status.wan.latency", "status.wan.connection"]
     await client.aclose()
+
+
+async def test_des_identifiants_retenus_refuses_sont_oublies(monkeypatch, depot):
+    await depot.memoriser_equipement(HOTE, SERIE, "Modèle-Test")
+    oublies = []
+    monkeypatch.setattr(coffre, "lire", lambda serie: IDENT)
+    monkeypatch.setattr(coffre, "oublier", oublies.append)
+    FauxClient.resultat = AuthenticationError("refusé")
+    with pytest.raises(RefusIdentifiants, match="oubliés"):
+        await connexion.connecter(HOTE, None, True, depot)
+    assert oublies == [SERIE]
+    assert FauxClient.instances[0].ferme is True
+    # Le clic suivant ne rejoue rien : le routeur n'est plus dit « retenu ».
+    decouverte(monkeypatch, [appareil()])
+    assert (await connexion.chercher(depot=depot))[0]["retenu"] is False
+
+
+async def test_des_identifiants_saisis_refuses_ne_vident_pas_le_trousseau(monkeypatch, depot):
+    oublies = []
+    monkeypatch.setattr(coffre, "oublier", oublies.append)
+    FauxClient.resultat = AuthenticationError("refusé")
+    with pytest.raises(RefusIdentifiants):
+        await connexion.connecter(HOTE, IDENT, True, depot)
+    assert oublies == []
+
+
+async def test_l_adresse_saisie_retrouve_l_equipement_decouvert(monkeypatch, depot):
+    monkeypatch.setattr(coffre, "lire", lambda serie: IDENT if serie == SERIE else None)
+    await connexion.connecter(f"http://{HOTE}/", IDENT, False, depot)
+    _, info = await connexion.connecter(HOTE, None, False, depot)
+    assert info.serial == SERIE

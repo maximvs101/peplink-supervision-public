@@ -9,6 +9,7 @@ from temoin.regles import (
     bande,
     chiffres,
     coupures,
+    point_stable,
     verdict,
 )
 
@@ -280,3 +281,31 @@ def test_hypothese_passe_trois_minutes_le_verdict_dit_coupe_comme_la_liste():
 def test_un_routeur_encore_injoignable_reste_injoignable_au_verdict():
     rel = serie(0, 30) + [r(s, joignable=False) for s in range(33, 91, 3)]
     assert verdict(rel, t(93)) == {"etat": "injoignable", "depuis": t(33)}
+
+
+def test_hypothese_le_cable_se_lit_sur_tous_les_releves_tombes():
+    releves = [
+        *serie(0, 30),
+        r(33, connecte=False, message="Disconnected"),
+        r(36, connecte=False, message="No Cable Detected"),
+        r(39, connecte=False, message="Disconnected"),
+        *serie(42, 60),
+    ]
+    assert coupures(releves, [])[0].cause == "câble"
+
+
+def test_hypothese_le_test_de_sante_se_lit_pendant_toute_la_coupure():
+    releves = serie(0, 30) + serie(33, 120, connecte=False, message="Disconnected") + serie(123, 150)
+    fait = FaitRouteur(t(100), "test de santé", "WAN failed DNS test")
+    assert coupures(releves, [fait])[0].cause == "test de santé"
+    loin = FaitRouteur(t(400), "test de santé", None)
+    assert coupures(releves, [loin])[0].cause == "Disconnected"
+
+
+def test_le_point_stable_coupe_entre_deux_releves_debout():
+    releves = serie(0, 30) + serie(33, 60, connecte=False) + serie(63, 300)
+    c = point_stable(releves, t(200))
+    assert c is not None and releves[c].ts <= t(200)
+    assert releves[c - 1].connecte and releves[c].connecte
+    # Rien de debout avant la limite : pas de coupe.
+    assert point_stable(serie(0, 60, connecte=False), t(60)) is None

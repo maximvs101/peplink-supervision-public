@@ -21,9 +21,6 @@ from app.peplink.router_api import (
     AuthenticationError,
     RouterApiError,
     RouterApiPeplinkClient,
-    avant_echeance,
-    parse_disabled_wans,
-    parse_wan_connection,
 )
 from temoin.stockage import Depot
 
@@ -38,19 +35,15 @@ _RETENUS: dict[str, bool] = {}
 class ClientTemoin(RouterApiPeplinkClient):
     """Le client du superviseur, réduit à ce que lit le témoin.
 
-    Son `get_radio_status` lit aussi, à chaque cycle, le débit, le tunnel, la
+    Après `status.wan.connection`, le superviseur lit le débit, le tunnel, la
     température, les clients et la qualité : rien de cela ne sert au témoin, et
-    chaque lecture pouvait attendre 15 s. Ici : `status.wan.connection`, puis la
-    latence par WAN (que le client ne relit qu'une fois par minute), bornée par
-    l'`echeance`. Le comportement du superviseur n'est pas touché.
+    chaque lecture pouvait attendre 15 s. Ici, seule la latence par WAN (que le
+    client ne relit qu'une fois par minute), bornée par l'`echeance`. Le relevé
+    lui-même, et les WAN désactivés, restent ceux du client du superviseur.
     """
 
-    async def get_radio_status(self, echeance: float | None = None) -> list[WanRadioStatus]:
-        brut = await self._get("status.wan.connection")
-        statuts = parse_wan_connection(brut)
-        self.wans_desactives = parse_disabled_wans(brut)
-        await avant_echeance(echeance, self._attach_path_latency(statuts))
-        return statuts
+    def _complements(self, statuses: list[WanRadioStatus]) -> tuple:
+        return (lambda: self._attach_path_latency(statuses),)
 
 
 class RefusIdentifiants(Exception):
@@ -85,12 +78,19 @@ async def chercher(*, depot: Depot | None = None) -> list[dict]:
 async def connecter(
     hote: str, ident: Identifiants | None, retenir: bool, depot: Depot
 ) -> tuple[RouterApiPeplinkClient, DeviceInfo]:
-    """Une tentative. Le client rendu reste ouvert : la collecte le réutilise."""
+    """Une tentative. Le client rendu reste ouvert : la collecte le réutilise.
+
+    Des identifiants du trousseau que le routeur refuse sont oubliés : sinon
+    chaque clic suivant les rejouerait, et le cinquième verrouillerait l'accès
+    admin pendant 5 minutes."""
+    serie_du_trousseau = None
     if ident is None:
         serie = await depot.serie_de(hote)
-        ident = coffre.lire(serie) if serie else None
+        # Le trousseau peut bloquer (déverrouillage) : hors de la boucle.
+        ident = await asyncio.to_thread(coffre.lire, serie) if serie else None
         if ident is None:
             raise RefusIdentifiants("identifiants requis")
+        serie_du_trousseau = serie
 
     config = RouterConfig(
         id=f"temoin-{hote}", name=hote, host=hote,
@@ -103,6 +103,14 @@ async def connecter(
         try:
             info = await client.identify()
         except AuthenticationError as exc:
+            if serie_du_trousseau is not None:
+                await asyncio.to_thread(coffre.oublier, serie_du_trousseau)
+                _RETENUS[serie_du_trousseau] = False
+                raise RefusIdentifiants(
+                    "Les identifiants retenus sur ce poste ont été refusés : ils sont "
+                    "oubliés. Saisissez-les à nouveau (cinq tentatives ratées "
+                    "suspendent l'accès à l'équipement pendant 5 minutes)."
+                ) from exc
             raise RefusIdentifiants(
                 "Identifiants refusés. Attention : cinq tentatives ratées "
                 "suspendent l'accès à l'équipement pendant 5 minutes."
@@ -118,7 +126,7 @@ async def connecter(
         await depot.memoriser_equipement(hote, info.serial, info.model)
         _RETENUS.pop(info.serial, None)
         if retenir:
-            coffre.retenir(info.serial, ident)
+            await asyncio.to_thread(coffre.retenir, info.serial, ident)
     except BaseException:
         await client.aclose()
         raise

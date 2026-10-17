@@ -1117,15 +1117,7 @@ class RouterApiPeplinkClient:
         # Ce que le routeur déclare désactivé : le poller en a besoin pour dire
         # « désactivé » plutôt qu'« absent du relevé » d'un WAN qui s'en va.
         self.wans_desactives = parse_disabled_wans(brut)
-        complements = (
-            lambda: self._attach_traffic(statuses),
-            lambda: self._attach_path_latency(statuses),
-            lambda: self._attach_tunnel(statuses),
-            lambda: self._attach_modem_temperature(statuses),
-            self._lire_clients,
-            self._lire_qualite,
-        )
-        for complement in complements:
+        for complement in self._complements(statuses):
             fait, _ = await avant_echeance(echeance, complement())
             if not fait:
                 logger.info(
@@ -1134,6 +1126,19 @@ class RouterApiPeplinkClient:
                 )
                 break
         return statuses
+
+    def _complements(self, statuses: list[WanRadioStatus]) -> tuple:
+        """Les lectures qui suivent le relevé WAN, dans l'ordre, chacune une
+        fonction sans argument qui rend une coroutine. Point d'extension : un
+        client qui n'en veut qu'une partie (le témoin Ethernet) la redéfinit."""
+        return (
+            lambda: self._attach_traffic(statuses),
+            lambda: self._attach_path_latency(statuses),
+            lambda: self._attach_tunnel(statuses),
+            lambda: self._attach_modem_temperature(statuses),
+            self._lire_clients,
+            self._lire_qualite,
+        )
 
     async def _attach_path_latency(self, statuses: list[WanRadioStatus]) -> None:
         """La latence du CHEMIN, une fois par minute.

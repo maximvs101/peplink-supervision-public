@@ -137,3 +137,26 @@ async def test_une_base_d_avant_les_liens_retenus_s_ouvre(tmp_path):
     finally:
         await d.close()
 
+
+
+async def test_l_hote_se_retient_sans_schema(depot):
+    await depot.memoriser_equipement("HTTP://192.0.2.10/", SERIE, None)
+    assert await depot.serie_de("192.0.2.10") == SERIE
+    assert await depot.serie_de("https://192.0.2.10") == SERIE
+
+
+async def test_une_base_d_avant_la_cle_d_hote_est_ramenee(tmp_path):
+    import sqlite3
+
+    chemin = tmp_path / "temoin.db"
+    d = Depot(str(chemin))
+    await d.connect()
+    await d.close()
+    with sqlite3.connect(chemin) as c:
+        c.execute("INSERT INTO equipements VALUES ('http://192.0.2.10', ?, 'M')", (SERIE,))
+    d = Depot(str(chemin))
+    await d.connect()
+    try:
+        assert await d.serie_de("192.0.2.10") == SERIE
+    finally:
+        await d.close()

@@ -14,7 +14,10 @@ Point d'entrée de l'exécutable `temoin-ethernet` construit par
   - le serveur n'écoute que sur 127.0.0.1 — même si `HOST` est posé pour le
     superviseur : le témoin ne s'ouvre jamais au réseau ;
   - port 8010 par défaut (`PORT` le change), le superviseur gardant 8000 : les
-    deux tournent ensemble. Pris, le témoin prend le suivant libre et le dit.
+    deux tournent ensemble. Pris, le témoin prend le suivant libre et le dit ;
+  - un seul témoin par base : un second lancement depuis le même dossier
+    rouvre l'écran du premier au lieu de mesurer en double dans la même
+    observation.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import asyncio
 import os
 import sqlite3
 import sys
+import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -39,6 +43,33 @@ def chemins() -> tuple[Path, Path]:
     """(la base, le dossier de l'écran). Les données : la règle du superviseur."""
     _, donnees = dossiers()
     return donnees / "temoin.db", Path(temoin.__file__).resolve().parent / "ecran"
+
+
+def verrouiller(base: Path):
+    """Le verrou de la base, à garder ouvert tant que le témoin tourne ; None si
+    un autre témoin le tient déjà. Le système le relâche à la mort du
+    processus : un témoin tombé ne bloque pas le suivant."""
+    fichier = open(base.with_name(base.name + ".verrou"), "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            fichier.seek(0)
+            msvcrt.locking(fichier.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fichier.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fichier.close()
+        return None
+    return fichier
+
+
+def _fichier_port(base: Path) -> Path:
+    # À part du verrou : sous Windows, l'octet verrouillé ne se lit pas d'un
+    # autre processus.
+    return base.with_name(base.name + ".port")
 
 
 def choisir_port(depart: int) -> int | None:
@@ -112,13 +143,25 @@ def main() -> int:
         print(f"PORT={brut!r} n'est pas un numéro de port (1 à 65535) : "
               f"relancer sans PORT (port {PORT_DEFAUT}) ou avec PORT=8010 par exemple.", flush=True)
         return 2
+    base.parent.mkdir(parents=True, exist_ok=True)
+    verrou = verrouiller(base)
+    if verrou is None:
+        try:
+            deja = int(_fichier_port(base).read_text().strip())
+        except (OSError, ValueError):
+            deja = None
+        print("Un témoin tourne déjà avec cette base"
+              + (f" : http://{HOTE}:{deja}" if deja else "") + ".", flush=True)
+        if deja and os.environ.get("OUVRIR_NAVIGATEUR", "1") == "1":
+            webbrowser.open(f"http://{HOTE}:{deja}")
+        return 0
     port = choisir_port(depart)
     if port is None:
         print(f"Aucun port libre sur {HOTE} de {depart} à {depart + _ESSAIS} : "
               "fermer un autre outil, ou relancer avec PORT=…", flush=True)
         return 2
+    _fichier_port(base).write_text(str(port))
     # Le port d'abord, la sauvegarde ensuite (comme le superviseur, C-24).
-    base.parent.mkdir(parents=True, exist_ok=True)
     try:
         copie = sauvegarder(base)
     except sqlite3.DatabaseError as exc:
@@ -133,7 +176,10 @@ def main() -> int:
     print(f"  base       {base}", flush=True)
     if copie:
         print(f"  sauvegarde {copie}", flush=True)
-    asyncio.run(servir(base, ecran, port))
+    try:
+        asyncio.run(servir(base, ecran, port))
+    finally:
+        verrou.close()
     return 0
 
 

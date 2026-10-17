@@ -111,21 +111,37 @@ def _micro(avant: Releve, apres: Releve) -> bool:
     )
 
 
-def _cause(rel: Releve, faits: list[FaitRouteur]) -> str | None:
+def _sans_cable(rel: Releve) -> bool:
     # HYPOTHÈSE — à confirmer à la séance de capture (spec §6.7)
-    if rel.message and "no cable" in rel.message.lower():
+    return bool(rel.message) and "no cable" in rel.message.lower()
+
+
+def _cause(tombes: tuple[Releve, Releve, bool], faits: list[FaitRouteur]) -> str | None:
+    """La cause d'une coupure, lue sur TOUS ses relevés tombés : le routeur ne
+    dit pas forcément « No Cable Detected » dès le premier, et la ligne du
+    journal peut tomber n'importe où pendant la coupure.
+
+    `tombes` : (premier relevé tombé, dernier, « No Cable » vu sur l'un d'eux).
+    """
+    premier, dernier, cable = tombes
+    if cable:
         return "câble"
     # HYPOTHÈSE — à confirmer à la séance de capture (spec §6.7)
     for fait in faits:
-        if fait.genre == "test de santé" and abs(_s(rel.ts, fait.ts)) <= TOLERANCE_JOURNAL_S:
+        if (
+            fait.genre == "test de santé"
+            and _s(premier.ts, fait.ts) >= -TOLERANCE_JOURNAL_S
+            and _s(fait.ts, dernier.ts) >= -TOLERANCE_JOURNAL_S
+        ):
             return "test de santé"
-    return rel.message
+    return premier.message
 
 
 def coupures(releves: list[Releve], faits: list[FaitRouteur]) -> list[Coupure]:
     """Coupures et micro-coupures de la série de relevés (triée par heure)."""
     sortie: list[Coupure] = []
-    en_cours: tuple[Releve, Releve] | None = None  # (premier relevé tombé, dernier tombé)
+    # (premier relevé tombé, dernier tombé, « No Cable » vu sur l'un d'eux)
+    en_cours: tuple[Releve, Releve, bool] | None = None
     precedent: Releve | None = None
     # Les relevés d'un redémarrage du routeur (injoignables, puis le WAN qui
     # renégocie) ne font pas de coupure : la bande les dit « redémarrage ».
@@ -137,7 +153,7 @@ def coupures(releves: list[Releve], faits: list[FaitRouteur]) -> list[Coupure]:
 
         if en_cours is not None:
             if etat == "coupe" and suite:
-                en_cours = (en_cours[0], rel)
+                en_cours = (en_cours[0], rel, en_cours[2] or _sans_cable(rel))
                 precedent = rel
                 continue
             # La coupure s'arrête au relevé qui la contredit (y compris un relevé
@@ -145,22 +161,20 @@ def coupures(releves: list[Releve], faits: list[FaitRouteur]) -> list[Coupure]:
             # relevé où l'on a vu le lien tombé. Dans ces deux derniers cas, on
             # n'a pas vu le lien revenir : la fin n'est pas observée.
             fin = rel.ts if suite else en_cours[1].ts
-            premier = en_cours[0]
             sortie.append(Coupure(
-                premier.ts, fin, "coupure", _cause(premier, faits),
+                en_cours[0].ts, fin, "coupure", _cause(en_cours, faits),
                 fin_observee=suite and rel.joignable,
             ))
             en_cours = None
 
         if etat == "coupe":
-            en_cours = (rel, rel)
+            en_cours = (rel, rel, _sans_cable(rel))
         elif suite and precedent is not None and _micro(precedent, rel):
             sortie.append(Coupure(rel.ts, None, "micro-coupure", None))
         precedent = rel
 
     if en_cours is not None:
-        premier = en_cours[0]
-        sortie.append(Coupure(premier.ts, None, "coupure", _cause(premier, faits)))
+        sortie.append(Coupure(en_cours[0].ts, None, "coupure", _cause(en_cours, faits)))
     return sortie
 
 
@@ -222,6 +236,38 @@ def _fusionner(segments: list[Segment]) -> list[Segment]:
         else:
             sortie.append(seg)
     return sortie
+
+
+def assembler(segments: list[Segment]) -> list[Segment]:
+    """Recolle des bandes calculées par morceaux (voir `point_stable`)."""
+    return _fusionner(segments)
+
+
+def point_stable(releves: list[Releve], avant: datetime, recherche: int = 2000) -> int | None:
+    """Un indice `c` où couper la série sans rien changer aux règles.
+
+    Calculées séparément sur `releves[:c + 1]` (bande arrêtée à `releves[c].ts`)
+    et sur `releves[c:]`, bande et coupures se recollent à l'identique : `c` et
+    son prédécesseur sont deux relevés debout qui se suivent sans trou ni
+    micro-coupure, donc aucune coupure, aucun redémarrage, aucun segment ne
+    chevauche la coupe. Cherché à rebours depuis le dernier relevé antérieur à
+    `avant`, sur `recherche` relevés au plus ; None si aucun ne convient.
+    """
+    i = len(releves) - 1
+    while i > 0 and releves[i].ts > avant:
+        i -= 1
+    fin = max(0, i - recherche)
+    while i > fin:
+        a, b = releves[i - 1], releves[i]
+        if (
+            _etat(a) == "debout"
+            and _etat(b) == "debout"
+            and not _trou(a, b.ts)
+            and not _micro(a, b)
+        ):
+            return i
+        i -= 1
+    return None
 
 
 def _aligner(segments: list[Segment], faits: list[FaitRouteur]) -> list[Segment]:

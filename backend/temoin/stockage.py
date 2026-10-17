@@ -71,6 +71,16 @@ def _lire(s: str | None) -> datetime | None:
     return None if s is None else datetime.fromisoformat(s)
 
 
+def cle_hote(hote: str) -> str:
+    """L'hôte tel que le dépôt le retient : sans schéma, sans « / » final, en
+    minuscules. La découverte rend `http://10.10.1.1`, la saisie `10.10.1.1` :
+    c'est le même équipement, et ses identifiants retenus doivent s'y retrouver."""
+    h = hote.strip().rstrip("/")
+    if "://" in h:
+        h = h.split("://", 1)[1]
+    return h.lower()
+
+
 def _bool(v: int | None) -> bool | None:
     return None if v is None else bool(v)
 
@@ -104,6 +114,16 @@ class Depot:
         # WAL : un lecteur ne bloque pas l'écrivain.
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.executescript(_SCHEMA)
+        # Les bases d'avant `cle_hote` gardent l'hôte avec son schéma : ramené
+        # à la clé, sans écraser une entrée déjà à la bonne forme.
+        async with self._conn.execute("SELECT hote, serie, modele FROM equipements") as cur:
+            anciens = [r for r in await cur.fetchall() if cle_hote(r["hote"]) != r["hote"]]
+        for r in anciens:
+            await self._conn.execute(
+                "INSERT OR IGNORE INTO equipements (hote, serie, modele) VALUES (?, ?, ?)",
+                (cle_hote(r["hote"]), r["serie"], r["modele"]),
+            )
+            await self._conn.execute("DELETE FROM equipements WHERE hote = ?", (r["hote"],))
         await self._conn.commit()
 
     async def close(self) -> None:
@@ -253,13 +273,13 @@ class Depot:
             "INSERT INTO equipements (hote, serie, modele) VALUES (?, ?, ?)"
             " ON CONFLICT(hote) DO UPDATE SET serie = excluded.serie,"
             " modele = excluded.modele",
-            (hote, serie, modele),
+            (cle_hote(hote), serie, modele),
         )
         await self._db.commit()
 
     async def serie_de(self, hote: str) -> str | None:
         async with self._db.execute(
-            "SELECT serie FROM equipements WHERE hote = ?", (hote,)
+            "SELECT serie FROM equipements WHERE hote = ?", (cle_hote(hote),)
         ) as cur:
             ligne = await cur.fetchone()
         return None if ligne is None else ligne["serie"]

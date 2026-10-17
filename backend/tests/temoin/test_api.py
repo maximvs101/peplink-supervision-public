@@ -8,7 +8,7 @@ import pytest
 
 from app.models import DeviceInfo, WanRadioStatus
 from app.peplink.router_api import CredentialsRefusedError
-from temoin import __version__
+from temoin import __version__, regles
 from temoin.api import creer_app
 from temoin.connexion import Injoignable, RefusIdentifiants
 from temoin.regles import Releve
@@ -751,6 +751,9 @@ async def test_la_fenetre_entiere_ne_relit_que_les_nouveaux_releves(api, depot, 
         return releves, dernier
 
     monkeypatch.setattr(depot, "releves_apres", releves_comptes)
+    # La copie tenue à jour sert l'observation EN COURS.
+    session = api._transport.app.state.session
+    session.observation = obs
     temps.now = T0 + timedelta(seconds=90)
     premier = (await api.get("/api/observation", params={"id": obs})).json()
     assert lignes == [30]
@@ -762,7 +765,6 @@ async def test_la_fenetre_entiere_ne_relit_que_les_nouveaux_releves(api, depot, 
     troisieme = (await api.get("/api/observation", params={"id": obs})).json()
     assert lignes == [30, 0, 2]
     # Même résultat qu'une lecture entière.
-    session = api._transport.app.state.session
     session.releves_lus = None
     assert (await api.get("/api/observation", params={"id": obs})).json() == troisieme
     assert lignes == [30, 0, 2, 32]
@@ -779,3 +781,53 @@ async def test_une_heure_reculee_fait_tout_relire(api, depot, temps):
     session = api._transport.app.state.session
     session.releves_lus = None
     assert (await api.get("/api/observation", params={"id": obs})).json() == corps
+
+
+async def test_une_observation_passee_ne_chasse_pas_la_copie_en_cours(api, depot, temps, monkeypatch):
+    obs = await observation_passee(depot)
+    autre = await depot.nouvelle_observation(SERIE, "2", T0)
+    await depot.ajouter_releve(autre, rel(0))
+    session = api._transport.app.state.session
+    session.observation = obs
+    temps.now = T0 + timedelta(seconds=90)
+    await api.get("/api/observation", params={"id": obs})
+    copie = session.releves_lus
+    await api.get("/api/observation", params={"id": autre})
+    assert session.releves_lus is copie
+
+
+def test_le_calcul_par_morceaux_rend_le_calcul_entier():
+    from temoin.api import PAS_FIGE, _calculer, _calculer_tout
+
+    # Trois heures à 3 s : debout, une coupure, une micro-coupure, un trou.
+    releves = []
+    for i in range(3600):
+        s = i * 3 + (120 if i > 3000 else 0)
+        releves.append(regles.Releve(
+            ts=T0 + timedelta(seconds=s), joignable=True,
+            connecte=not 1000 <= i < 1010, message="Connected",
+            anciennete_s=5 if i == 2000 else 100 + i, desactive=False,
+            anciennete_routeur_s=None))
+    faits = [regles.FaitRouteur(T0 + timedelta(seconds=3003), "test de santé", None)]
+    fin = releves[-1].ts + timedelta(seconds=2)
+    attendu = _calculer(releves, faits, fin, None)
+    segments, liste, chiffres, fige = _calculer_tout(releves, faits, fin, None)
+    assert fige is not None
+    assert (segments, liste, chiffres) == attendu
+    # Le début figé resservi, avec quelques relevés de plus : toujours identique.
+    plus = releves + [regles.Releve(
+        ts=releves[-1].ts + timedelta(seconds=3 * k), joignable=True, connecte=True,
+        message="Connected", anciennete_s=200 + k, desactive=False,
+        anciennete_routeur_s=None) for k in range(1, 4)]
+    fin2 = plus[-1].ts
+    resultat = _calculer_tout(plus, faits, fin2, fige)
+    assert resultat[3] is fige and resultat[:3] == _calculer(plus, faits, fin2, None)
+    assert PAS_FIGE > 3
+
+
+async def test_des_identifiants_incomplets_ne_vont_pas_au_routeur(api, reseau):
+    for corps in ({"hote": HOTE, "username": "admin"},
+                  {"hote": HOTE, "client_id": "id"}):
+        r = await api.post("/api/connexion", json=corps)
+        assert r.status_code == 422
+    assert reseau.connexions == []

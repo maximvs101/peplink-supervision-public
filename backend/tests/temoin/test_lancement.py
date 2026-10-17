@@ -121,3 +121,25 @@ def test_un_port_non_numerique_est_dit_sans_trace(monkeypatch, capsys):
                             lambda depart: pytest.fail("aucun port ne doit être essayé"))
         assert lanceur.main() == 2
         assert "n'est pas un numéro de port" in capsys.readouterr().out
+
+
+def test_un_seul_temoin_par_base(monkeypatch, tmp_path, capsys):
+    base = tmp_path / "temoin.db"
+    premier = lanceur.verrouiller(base)
+    assert premier is not None
+    try:
+        assert lanceur.verrouiller(base) is None
+        # Un second lancement rouvre l'écran du premier, sans servir.
+        lanceur._fichier_port(base).write_text("8011")
+        monkeypatch.setattr(lanceur, "chemins", lambda: (base, tmp_path))
+        monkeypatch.setenv("OUVRIR_NAVIGATEUR", "0")
+        monkeypatch.delenv("PORT", raising=False)
+        monkeypatch.setattr(lanceur, "servir", lambda *a: (_ for _ in ()).throw(AssertionError))
+        assert lanceur.main() == 0
+        assert "http://127.0.0.1:8011" in capsys.readouterr().out
+    finally:
+        premier.close()
+    # Relâché, le verrou se reprend.
+    suivant = lanceur.verrouiller(base)
+    assert suivant is not None
+    suivant.close()

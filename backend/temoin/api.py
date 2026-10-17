@@ -121,6 +121,44 @@ def _calculer(
     return segments, liste, regles.chiffres(segments, liste)
 
 
+# Le calcul de la fenêtre « tout » de l'observation en cours se fait en deux
+# morceaux : un début figé (plus vieux que cette marge), calculé une fois, et la
+# fin, recalculée à chaque sondage. Le début n'avance que par pas de ce nombre
+# de relevés (une heure à 3 s), pour ne pas être recalculé à chaque sondage.
+MARGE_FIGEE = timedelta(hours=1)
+PAS_FIGE = 1200
+
+
+def _calculer_tout(
+    releves: list[regles.Releve],
+    faits: list[regles.FaitRouteur],
+    fin: datetime,
+    fige: tuple | None,
+) -> tuple[list[regles.Segment], list[regles.Coupure], dict, tuple | None]:
+    """Bande, coupures et chiffres de toute l'observation, en réutilisant le
+    début `fige` = (indice de coupe, heure du relevé coupé, nombre de faits,
+    segments, coupures) quand il vaut encore (voir `regles.point_stable`)."""
+    if fige is not None:
+        c, ts, nb_faits, _, _ = fige
+        if nb_faits != len(faits) or c >= len(releves) or releves[c].ts != ts:
+            fige = None
+    if releves:
+        coupe = regles.point_stable(releves, releves[-1].ts - MARGE_FIGEE)
+        if coupe is not None and (fige is None or coupe - fige[0] >= PAS_FIGE):
+            debut = releves[: coupe + 1]
+            fige = (coupe, releves[coupe].ts, len(faits),
+                    regles.bande(debut, releves[coupe].ts, faits),
+                    regles.coupures(debut, faits))
+    if fige is None:
+        segments, liste, ch = _calculer(releves, faits, fin, None)
+        return segments, liste, ch, None
+    c, _, _, segments_fige, coupures_fige = fige
+    reste = releves[c:]
+    segments = regles.assembler(segments_fige + regles.bande(reste, fin, faits))
+    liste = coupures_fige + regles.coupures(reste, faits)
+    return segments, liste, regles.chiffres(segments, liste), fige
+
+
 async def _meme_poste(request: Request) -> None:
     """Les routes qui écrivent : depuis ce poste, et pas pour une page tierce.
 
@@ -202,6 +240,8 @@ class _Session:
         # « tout ») : (observation, dernier id lu, relevés triés). Une seule à
         # la fois : une autre observation la remplace.
         self.releves_lus: tuple[int, int, list] | None = None
+        # Le début figé du calcul « tout » de l'observation en cours : (id, fige).
+        self.fige: tuple[int, tuple | None] | None = None
 
     async def equipements(self) -> list[dict]:
         maintenant = self.horloge()
@@ -363,6 +403,12 @@ def creer_app(
     @app.post("/api/connexion", dependencies=[Depends(_meme_poste)])
     async def poster_connexion(demande: DemandeConnexion) -> dict:
         ident = None
+        # Un compte sans son secret serait une vraie tentative de connexion,
+        # comptée par le routeur : refusée ici, avant lui.
+        if (demande.username and not demande.password) or (
+            demande.client_id and not demande.client_secret
+        ):
+            raise HTTPException(422, "Identifiants incomplets : il manque le mot de passe ou le secret.")
         if demande.username or demande.client_id:
             ident = Identifiants(
                 username=demande.username, password=demande.password,
@@ -507,10 +553,17 @@ def creer_app(
         fin = maintenant if vivante or dernier is None else dernier
         largeur = _FENETRES[fenetre]
         faits = await depot.faits(id)
+        fige = None
         if largeur is None:
             depuis = None
-            releves = await _tous_les_releves(id)
-            verdict = await _verdict(id, dernier, maintenant, releves, complet=True)
+            if vivante:
+                # La copie tenue à jour ne sert que l'observation en cours : une
+                # observation passée ou un rapport ouverts à côté ne la chassent pas.
+                releves = await _tous_les_releves(id)
+                if session.fige is not None and session.fige[0] == id:
+                    fige = session.fige[1]
+            else:
+                releves = await depot.releves(id)
         else:
             # Seulement la fenêtre et sa marge : une observation de plusieurs
             # jours n'est pas relue à chaque sondage de l'écran.
@@ -530,9 +583,24 @@ def creer_app(
             # Le verdict porte sur toute l'observation : « stable depuis » ne se
             # tronque pas à la fenêtre affichée.
             verdict = await _verdict(id, dernier, maintenant, releves, complet=False)
-        segments, liste, chiffres = await asyncio.to_thread(
-            _calculer, releves, faits, fin, depuis
-        )
+        if largeur is None and vivante:
+            segments, liste, chiffres, fige = await asyncio.to_thread(
+                _calculer_tout, releves, faits, fin, fige
+            )
+            session.fige = (id, fige)
+            # Le verdict n'a besoin que de la fin : après la coupe, il se
+            # prolonge d'un sondage à l'autre (voir `_verdict`).
+            lus = releves if fige is None else releves[fige[0]:]
+            verdict = await _verdict(id, dernier, maintenant, lus, complet=fige is None)
+        elif largeur is None:
+            segments, liste, chiffres = await asyncio.to_thread(
+                _calculer, releves, faits, fin, None
+            )
+            verdict = await _verdict(id, dernier, maintenant, releves, complet=True)
+        else:
+            segments, liste, chiffres = await asyncio.to_thread(
+                _calculer, releves, faits, fin, depuis
+            )
         collecte = session.collecte if vivante else None
         if collecte is not None and collecte.etat_lien == "introuvable":
             # Le WAN choisi a disparu de la réponse du routeur (reconfiguré,
