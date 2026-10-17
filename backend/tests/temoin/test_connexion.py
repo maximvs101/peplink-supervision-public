@@ -7,7 +7,7 @@ from app.coffre import Identifiants
 from app.models import DeviceInfo, DiscoveredDevice, WanRadioStatus
 from app.peplink.router_api import AuthenticationError, RouterApiError
 from temoin import connexion
-from temoin.connexion import Injoignable, RefusIdentifiants
+from temoin.connexion import ClientTemoin, Injoignable, RefusIdentifiants
 from temoin.stockage import Depot
 
 HOTE = "192.0.2.10"
@@ -50,7 +50,8 @@ def faux(monkeypatch):
     FauxClient.instances = []
     FauxClient.resultat = DeviceInfo(model="Modèle-Test", serial=SERIE)
     FauxClient.liens = []
-    monkeypatch.setattr(connexion, "RouterApiPeplinkClient", FauxClient)
+    monkeypatch.setattr(connexion, "ClientTemoin", FauxClient)
+    connexion._RETENUS.clear()
 
 
 @pytest.fixture
@@ -161,3 +162,55 @@ async def test_les_tests_ne_touchent_jamais_le_vrai_trousseau(depot):
     await depot.memoriser_equipement(HOTE, SERIE, None)
     client, _ = await connexion.connecter(HOTE, IDENT, True, depot)
     assert client.ferme is False
+
+
+async def test_le_trousseau_n_est_lu_qu_une_fois_par_serie(monkeypatch, depot):
+    await depot.memoriser_equipement(HOTE, SERIE, "Modèle-Test")
+    decouverte(monkeypatch, [appareil()])
+    lectures = []
+    monkeypatch.setattr(coffre, "lire", lambda serie: lectures.append(serie) or IDENT)
+    for _ in range(3):
+        assert (await connexion.chercher(depot=depot))[0]["retenu"] is True
+    assert lectures == [SERIE]
+    # Une connexion (qui peut retenir) oublie la réponse gardée.
+    monkeypatch.setattr(coffre, "retenir", lambda s, i: True)
+    await connexion.connecter(HOTE, IDENT, True, depot)
+    await connexion.chercher(depot=depot)
+    assert lectures == [SERIE, SERIE]
+
+
+async def test_le_client_du_temoin_ne_lit_que_le_lien_et_sa_latence(monkeypatch):
+    import asyncio
+
+    from app.fleet import RouterConfig
+
+    lus = []
+    reponses = {
+        "status.wan.connection": {"stat": "ok", "response": {
+            "1": {"type": "ethernet", "enable": True, "statusLed": "green",
+                  "name": "LIEN-A", "uptime": 42, "message": "Connected"},
+            "2": {"type": "ethernet", "enable": False},
+            "order": [1, 2],
+        }},
+        "status.wan.latency": {"stat": "ok", "response": {
+            "1": {"latency": {"data": [11, 12.5]}},
+        }},
+    }
+
+    async def faux_get(self, chemin, *a, **kw):
+        lus.append(chemin)
+        return reponses[chemin]
+
+    # Le vrai client du témoin (la fixture remplace celui que `connecter` crée).
+    monkeypatch.setattr(ClientTemoin, "_get", faux_get)
+    client = ClientTemoin(RouterConfig(id="t", name="t", host="192.0.2.10", mode="router"))
+    echeance = asyncio.get_running_loop().time() + 2.0
+    [lien] = await client.get_radio_status(echeance=echeance)
+    assert (lien.wan_id, lien.connected, lien.uptime_s) == ("1", True, 42)
+    assert lien.path_latency_ms == 12.5
+    assert client.wans_desactives == {"2"}
+    # La latence ne se relit qu'une fois par minute.
+    [lien] = await client.get_radio_status(echeance=echeance)
+    assert lien.path_latency_ms is None
+    assert lus == ["status.wan.connection", "status.wan.latency", "status.wan.connection"]
+    await client.aclose()

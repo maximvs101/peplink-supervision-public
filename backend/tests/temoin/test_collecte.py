@@ -46,12 +46,18 @@ class FauxClient:
         self.appels_info = 0
         self.appels_journal = 0
         self.noms_recus = None
+        self.wans_desactives: set[str] = set()
+        self.echeances = []
 
     async def get_radio_status(self, echeance=None):
+        # Comme le vrai client : un WAN désactivé n'est pas dans la liste, son
+        # numéro est rangé dans `wans_desactives`.
         self.appels_radio += 1
+        self.echeances.append(echeance)
         if self.erreur_radio is not None:
             raise self.erreur_radio
-        return list(self.radio)
+        self.wans_desactives = {e.wan_id for e in self.radio if e.disabled}
+        return [e for e in self.radio if not e.disabled]
 
     async def get_device_info(self):
         self.appels_info += 1
@@ -266,7 +272,7 @@ async def test_le_recul_repart_de_la_cadence_au_retour(client, depot, temps):
 
 
 async def test_la_latence_du_lien_est_gardee(collecte, depot, client):
-    client.radio = [wan("1", path_latency_recent_ms=6.0)]
+    client.radio = [wan("1", path_latency_ms=6.0)]
     r = await collecte.tour()
     assert r.latence_ms == 6.0
     assert (await releves(depot))[0].latence_ms == 6.0
@@ -372,3 +378,36 @@ async def test_l_annulation_du_sommeil_remonte_de_la_boucle(client, depot, temps
     c = Collecte(client, depot, obs, "1", sommeil=sommeil, horloge=temps)
     with pytest.raises(asyncio.CancelledError):
         await c.boucle()
+
+
+async def test_un_lien_desactive_donne_un_releve_desactive(collecte, depot, client):
+    client.radio = [wan("1", disabled=True), wan("2", "WAN-B")]
+    r = await collecte.tour()
+    assert r is not None and r.desactive is True and r.joignable is True
+    assert r.connecte is False
+    assert collecte.etat_lien == "ok"
+    assert (await releves(depot))[0].desactive is True
+
+
+async def test_un_lien_absent_et_non_desactive_reste_introuvable(collecte, depot, client):
+    client.radio = [wan("2", "WAN-B", disabled=True)]
+    assert await collecte.tour() is None
+    assert collecte.etat_lien == "introuvable"
+
+
+async def test_la_latence_entre_deux_minutes_reste_vide(collecte, client):
+    # Le client ne pose path_latency_ms qu'une fois par minute ; le champ
+    # « récent » du superviseur n'est jamais lu.
+    client.radio = [wan("1", path_latency_ms=None, path_latency_recent_ms=9.0)]
+    r = await collecte.tour()
+    assert r.latence_ms is None
+
+
+async def test_le_releve_borne_les_complements_par_une_echeance(collecte, client):
+    import asyncio
+
+    avant = asyncio.get_running_loop().time()
+    await collecte.tour()
+    [echeance] = client.echeances
+    assert echeance is not None
+    assert avant < echeance <= asyncio.get_running_loop().time() + 2.0

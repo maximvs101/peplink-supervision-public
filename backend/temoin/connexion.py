@@ -8,6 +8,7 @@ identifiants ne sont journalisés.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from app import coffre
@@ -15,14 +16,41 @@ from app.coffre import Identifiants
 from app.discovery.probe import discover
 from app.fleet import RouterConfig
 from app.models import DeviceInfo
+from app.models import WanRadioStatus
 from app.peplink.router_api import (
     AuthenticationError,
     RouterApiError,
     RouterApiPeplinkClient,
+    avant_echeance,
+    parse_disabled_wans,
+    parse_wan_connection,
 )
 from temoin.stockage import Depot
 
 logger = logging.getLogger(__name__)
+
+# `retenu` par série, pour la vie de l'application : le sondage de l'écran ne
+# réinterroge pas le trousseau toutes les 10 s. Seule une connexion (qui peut
+# retenir) change la réponse : elle oublie l'entrée de sa série.
+_RETENUS: dict[str, bool] = {}
+
+
+class ClientTemoin(RouterApiPeplinkClient):
+    """Le client du superviseur, réduit à ce que lit le témoin.
+
+    Son `get_radio_status` lit aussi, à chaque cycle, le débit, le tunnel, la
+    température, les clients et la qualité : rien de cela ne sert au témoin, et
+    chaque lecture pouvait attendre 15 s. Ici : `status.wan.connection`, puis la
+    latence par WAN (que le client ne relit qu'une fois par minute), bornée par
+    l'`echeance`. Le comportement du superviseur n'est pas touché.
+    """
+
+    async def get_radio_status(self, echeance: float | None = None) -> list[WanRadioStatus]:
+        brut = await self._get("status.wan.connection")
+        statuts = parse_wan_connection(brut)
+        self.wans_desactives = parse_disabled_wans(brut)
+        await avant_echeance(echeance, self._attach_path_latency(statuts))
+        return statuts
 
 
 class RefusIdentifiants(Exception):
@@ -42,7 +70,12 @@ async def chercher(*, depot: Depot | None = None) -> list[dict]:
         retenu = False
         if depot is not None:
             serie = await depot.serie_de(appareil.host)
-            retenu = serie is not None and coffre.lire(serie) is not None
+            if serie is not None:
+                retenu = _RETENUS.get(serie)
+                if retenu is None:
+                    # Le trousseau peut bloquer (déverrouillage) : hors de la boucle.
+                    retenu = await asyncio.to_thread(coffre.lire, serie) is not None
+                    _RETENUS[serie] = retenu
         resultat.append(
             {"hote": appareil.host, "firmware": appareil.firmware, "retenu": retenu}
         )
@@ -65,7 +98,7 @@ async def connecter(
         client_id=ident.client_id, client_secret=ident.client_secret,
         verify_ssl=False, mode="router",
     )
-    client = RouterApiPeplinkClient(config)
+    client = ClientTemoin(config)
     try:
         try:
             info = await client.identify()
@@ -83,6 +116,7 @@ async def connecter(
         if info is None or not info.serial:
             raise Injoignable("L'équipement n'a pas publié son identité.")
         await depot.memoriser_equipement(hote, info.serial, info.model)
+        _RETENUS.pop(info.serial, None)
         if retenir:
             coffre.retenir(info.serial, ident)
     except BaseException:

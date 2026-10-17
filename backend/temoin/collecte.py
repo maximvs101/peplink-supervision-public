@@ -26,6 +26,10 @@ PERIODE_JOURNAL_S = 60.0
 DECALAGE_MAX_S = 60.0
 # Une lecture d'ancienneté ratée n'est retentée qu'après ce délai.
 RETENTE_INFO_S = 30.0
+# Ce que le client peut ajouter au relevé WAN (la latence, une fois par minute)
+# doit tenir dans ce délai : au-delà, il est abandonné pour ce tour, et le
+# relevé WAN, lui, est rangé. Un complément lent ne fait jamais de faux trou.
+ECHEANCE_COMPLEMENTS_S = 2.0
 
 # Échecs de lecture : un relevé « non joignable ». Un refus d'identifiants n'en
 # fait pas partie (voir `tour`).
@@ -85,8 +89,9 @@ class Collecte:
     async def tour(self) -> Releve | None:
         """Une lecture, rangée. None si le WAN choisi est introuvable."""
         maintenant = self._horloge()
+        echeance = asyncio.get_running_loop().time() + ECHEANCE_COMPLEMENTS_S
         try:
-            etats = await self._client.get_radio_status()
+            etats = await self._client.get_radio_status(echeance=echeance)
         except CredentialsRefusedError:
             # Jamais de relance : cinq refus verrouillent l'accès admin.
             raise
@@ -107,23 +112,36 @@ class Collecte:
             (e for e in etats if e.wan_id == self._wan_id and e.kind == "ethernet"),
             None,
         )
-        if lien is None:
+        # Le client écarte de sa liste les WAN désactivés (`enable: false`) et
+        # les range à part : un lien désactivé n'est pas un lien disparu.
+        desactive = lien is None and self._wan_id in (
+            getattr(self._client, "wans_desactives", None) or set()
+        )
+        if lien is None and not desactive:
             self.etat_lien = "introuvable"
             return None
         self.etat_lien = "ok"
 
         await self._lire_minute(maintenant)
 
-        rel = Releve(
-            ts=maintenant,
-            joignable=True,
-            connecte=lien.connected,
-            message=lien.status_message,
-            anciennete_s=lien.uptime_s,
-            desactive=bool(lien.disabled),
-            anciennete_routeur_s=self._anciennete_routeur(maintenant),
-            latence_ms=lien.path_latency_recent_ms,
-        )
+        if desactive:
+            rel = Releve(
+                ts=maintenant, joignable=True, connecte=False, message=None,
+                anciennete_s=None, desactive=True,
+                anciennete_routeur_s=self._anciennete_routeur(maintenant),
+            )
+        else:
+            rel = Releve(
+                ts=maintenant,
+                joignable=True,
+                connecte=lien.connected,
+                message=lien.status_message,
+                anciennete_s=lien.uptime_s,
+                desactive=False,
+                anciennete_routeur_s=self._anciennete_routeur(maintenant),
+                # Posée par le client une fois par minute, None entre deux.
+                latence_ms=lien.path_latency_ms,
+            )
         await self._depot.ajouter_releve(self._observation, rel)
         return rel
 
