@@ -921,3 +921,13 @@ Laissé en l'état, à trancher :
 - `backend/.env` n'était pas dans le clone neuf (ignoré par git, à recopier).
 - `StarletteDeprecationWarning` : `httpx` avec le client de test est déprécié
   au profit de `httpx2`.
+
+### 2026-10-17 — Alertes : les résolues se masquent
+
+Un bouton « Masquer » retire du panneau les alertes RÉSOLUES — le panneau
+« Alertes récentes » disparaît, ou seules ses lignes résolues quand une
+alerte est encore en cours (« Masquer les résolues »). Une alerte en cours
+ne se masque jamais : elle demande une décision. Une alerte nouvelle n'a pas
+été vue et se montre. Le choix tient pour la session du navigateur
+(`sessionStorage`), pour qu'un retour depuis le détail d'un lien ne le
+défasse pas ; un stockage refusé ne casse rien.

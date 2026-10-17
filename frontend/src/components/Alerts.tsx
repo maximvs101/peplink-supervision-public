@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Alert } from '../types'
 import { fmtClock, fmtUptime } from '../lib/format'
 import { Notes } from './Note'
@@ -75,11 +76,45 @@ const LIBELLE: Record<string, { titre: (a: Alert) => string; suite: string }> = 
   },
 }
 
-export function Alerts({ alerts }: { alerts: Alert[] }) {
-  if (alerts.length === 0) return null
+/** Une alerte, telle qu'on la reconnaît d'un relevé à l'autre. */
+const cle = (a: Alert) => `${a.kind}|${a.wan_id ?? ''}|${a.since}`
 
-  const encours = alerts.filter((a) => a.until === null)
-  const closes = alerts.filter((a) => a.until !== null)
+/** Les alertes résolues que l'exploitant a masquées, pour la session du
+ *  navigateur : un retour depuis le détail d'un lien remonte ce panneau, et
+ *  elles ne doivent pas revenir pour autant. Une commodité de ce poste, pas une
+ *  donnée — un stockage refusé ne casse rien, le choix vaut pour la page. */
+const STOCKAGE = 'alertes-masquees'
+
+function masqueesMemorisees(): Set<string> {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(STOCKAGE) ?? '[]') as string[])
+  } catch {
+    return new Set()
+  }
+}
+
+export function Alerts({ alerts }: { alerts: Alert[] }) {
+  const [masquees, setMasquees] = useState(masqueesMemorisees)
+
+  // Seules les RÉSOLUES se masquent : une alerte en cours demande une décision,
+  // et la cacher ferait de ce panneau le papier peint qu'il refuse d'être. Une
+  // alerte nouvelle, résolue ou non, n'a pas été vue : elle se montre.
+  const visibles = alerts.filter((a) => a.until === null || !masquees.has(cle(a)))
+  if (visibles.length === 0) return null
+
+  const encours = visibles.filter((a) => a.until === null)
+  const closes = visibles.filter((a) => a.until !== null)
+
+  const masquer = () => {
+    const suite = new Set(masquees)
+    for (const a of closes) suite.add(cle(a))
+    setMasquees(suite)
+    try {
+      sessionStorage.setItem(STOCKAGE, JSON.stringify([...suite]))
+    } catch {
+      // Stockage refusé : masquées pour cette page seulement.
+    }
+  }
 
   return (
     <section className="panel">
@@ -94,11 +129,19 @@ export function Alerts({ alerts }: { alerts: Alert[] }) {
             et {closes.length} récemment {closes.length > 1 ? 'résolues' : 'résolue'}
           </span>
         )}
+        {closes.length > 0 && (
+          <>
+            <span className="spacer" />
+            <button type="button" className="is-quiet" onClick={masquer}>
+              {encours.length > 0 ? 'Masquer les résolues' : 'Masquer'}
+            </button>
+          </>
+        )}
       </div>
       <div className="panel-body">
         <ul className="alertes">
-          {alerts.map((a) => (
-            <Ligne key={`${a.kind}-${a.wan_id ?? ''}-${a.since}`} alerte={a} />
+          {visibles.map((a) => (
+            <Ligne key={cle(a)} alerte={a} />
           ))}
         </ul>
       </div>

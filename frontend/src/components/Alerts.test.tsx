@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { Alert } from '../types'
 import { Alerts } from './Alerts'
@@ -122,5 +122,47 @@ describe('la note des alertes compte juste (C-42)', () => {
     const { container } = render(<Alerts alerts={[alerte({ kind: 'hors du bond', wan_id: '4' })]} />)
     expect(container.textContent).not.toMatch(/Trois règles/)
     expect(container.textContent).toMatch(/Six règles/)
+  })
+})
+
+describe('masquer les alertes résolues', () => {
+  const T1 = '2026-09-13T14:05:00Z'
+  const resolue = (over: Partial<Alert> = {}) => alerte({ until: T1, ...over })
+
+  beforeEach(() => { try { sessionStorage.clear() } catch { /* stockage refusé */ } })
+
+  it('fait disparaître le panneau « Alertes récentes »', () => {
+    const { container } = render(<Alerts alerts={[resolue()]} />)
+    expect(screen.getByText('Alertes récentes')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Masquer/ }))
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('ne propose jamais de masquer une alerte EN COURS', () => {
+    render(<Alerts alerts={[alerte()]} />)
+    expect(screen.queryByRole('button', { name: /Masquer/ })).toBeNull()
+  })
+
+  it('ne retire que les résolues quand une alerte est en cours', () => {
+    render(<Alerts alerts={[alerte(), resolue({ kind: 'supervision interrompue', wan_id: null })]} />)
+    fireEvent.click(screen.getByRole('button', { name: /Masquer/ }))
+    expect(screen.getByText(/Lien 4 hors du bond/)).toBeInTheDocument()
+    expect(screen.queryByText(/La supervision s’est interrompue/)).toBeNull()
+    expect(screen.queryByText(/récemment résolue/)).toBeNull()
+  })
+
+  it('revient pour une alerte nouvelle, et tient au remontage', () => {
+    const premiere = resolue()
+    const { unmount } = render(<Alerts alerts={[premiere]} />)
+    fireEvent.click(screen.getByRole('button', { name: /Masquer/ }))
+    unmount()
+    // Retour depuis le détail d'un lien : l'écran est remonté, le choix tient.
+    const second = render(<Alerts alerts={[premiere]} />)
+    expect(second.container).toBeEmptyDOMElement()
+    second.unmount()
+    // Une autre alerte résolue n'a pas été vue : elle se montre.
+    render(<Alerts alerts={[premiere, resolue({ since: '2026-09-13T15:00:00Z', until: '2026-09-13T15:02:00Z' })]} />)
+    expect(screen.getByText('Alertes récentes')).toBeInTheDocument()
+    expect(screen.getAllByText(/Lien 4 hors du bond/)).toHaveLength(1)
   })
 })
