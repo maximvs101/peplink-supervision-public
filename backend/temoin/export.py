@@ -69,7 +69,8 @@ def _entete(entete: dict, fuseau: tzinfo | None) -> list[str]:
         elif isinstance(val, datetime):
             val = _instant(val, fuseau)
         lignes.append(f"# {_LIBELLES[cle]};{_texte(None if val is None else str(val))}")
-    lignes.append(f"# fuseau;{_decalage(fuseau, entete.get("debut") if isinstance(entete.get("debut"), datetime) else None)}")
+    debut = entete.get("debut")
+    lignes.append(f"# fuseau;{_decalage(fuseau, debut if isinstance(debut, datetime) else None)}")
     return lignes
 
 
