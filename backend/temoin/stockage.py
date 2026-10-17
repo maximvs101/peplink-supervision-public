@@ -5,6 +5,7 @@ relues en datetimes avec fuseau. La série d'un équipement reste dans cette bas
 elle ne sort jamais par `observations()`.
 """
 
+import asyncio
 import os
 from datetime import datetime, timezone
 
@@ -72,6 +73,22 @@ def _lire(s: str | None) -> datetime | None:
 
 def _bool(v: int | None) -> bool | None:
     return None if v is None else bool(v)
+
+
+def _en_releves(lignes) -> list[Releve]:
+    return [
+        Releve(
+            ts=_lire(r["ts"]),
+            joignable=bool(r["joignable"]),
+            connecte=_bool(r["connecte"]),
+            message=r["message"],
+            anciennete_s=r["anciennete_s"],
+            desactive=bool(r["desactive"]),
+            anciennete_routeur_s=r["anciennete_routeur_s"],
+            latence_ms=r["latence_ms"],
+        )
+        for r in lignes
+    ]
 
 
 class Depot:
@@ -168,19 +185,9 @@ class Depot:
         requete += " ORDER BY ts, id"
         async with self._db.execute(requete, args) as cur:
             lignes = await cur.fetchall()
-        return [
-            Releve(
-                ts=_lire(r["ts"]),
-                joignable=bool(r["joignable"]),
-                connecte=_bool(r["connecte"]),
-                message=r["message"],
-                anciennete_s=r["anciennete_s"],
-                desactive=bool(r["desactive"]),
-                anciennete_routeur_s=r["anciennete_routeur_s"],
-                latence_ms=r["latence_ms"],
-            )
-            for r in lignes
-        ]
+        # Des dizaines de milliers de lignes sur plusieurs jours : la conversion
+        # se fait hors de la boucle d'événements, qui fait tourner la collecte.
+        return await asyncio.to_thread(_en_releves, lignes)
 
     async def faits(self, observation: int) -> list[FaitRouteur]:
         async with self._db.execute(

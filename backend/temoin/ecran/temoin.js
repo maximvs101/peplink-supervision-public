@@ -65,6 +65,13 @@
         return { classe: 'v-gris', titre: 'Routeur injoignable', detail: depuis ? `${depuis} — non mesuré, ce n'est pas une coupure` : '' };
       case 'desactive':
         return { classe: 'v-gris', titre: 'Lien désactivé', detail: depuis ? `${depuis} — désactivé sur le routeur, ce n'est pas une coupure` : '' };
+      case 'introuvable':
+        // Le WAN choisi n'est plus dans la réponse du routeur (reconfiguré, renuméroté).
+        return {
+          classe: 'v-gris',
+          titre: 'Lien introuvable sur le routeur',
+          detail: v.depuis ? `dernier relevé ${quand(v.depuis)} — non mesuré depuis, ce n'est pas une coupure` : 'non mesuré, ce n\'est pas une coupure',
+        };
       default:
         return v.depuis
           ? { classe: 'v-gris', titre: `Aucune mesure depuis ${quand(v.depuis)}`, detail: 'non mesuré depuis (poste en veille, outil fermé ou collecte arrêtée)' }
@@ -397,7 +404,7 @@
     else $('identite').textContent = [e.modele, e.lien].filter(Boolean).join(' · ') || 'Routeur connecté';
 
     if (vue === 'recherche') rendreRecherche(e.equipements || []);
-    if (vue === 'identifiants') rendreIdentifiants(etat.formHote || e.hote, e.phase);
+    if (vue === 'identifiants') rendreIdentifiants(etat.formHote || e.hote, e.phase, e.phase === 'identifiants' ? e.motif : null);
     if (vue === 'lien') rendreLiens(e);
     $('retour-direct').textContent = etat.obsLive != null ? 'Revenir à la mesure en cours' : 'Fermer';
     $('nouvelle').hidden = etat.lecture != null || e.phase !== 'mesure';
@@ -459,13 +466,19 @@
     $('ident-refus').hidden = true;
     etat.identHote = null;
   }
-  function rendreIdentifiants(hote, phase) {
+  function rendreIdentifiants(hote, phase, motif) {
     if (etat.identHote !== hote) {
       viderFormulaire();
       etat.identHote = hote;
       $('ident-hote').textContent = hote;
     }
     $('ident-annuler').hidden = !(etat.formHote && phase === 'recherche');
+    // L'avertissement « en clair » ne vaut que pour un routeur joint en HTTP :
+    // sans schéma, le client parle HTTPS.
+    const schema = String(hote || '').trim().toLowerCase().split('://');
+    $('ident-clair').hidden = !(schema.length > 1 && schema[0] === 'http');
+    // La mesure s'est arrêtée seule : l'écran dit pourquoi il redemande.
+    if (motif && ($('ident-refus').hidden || $('ident-refus').textContent !== motif)) refus(motif);
   }
   function choisirCompte(compte) {
     etat.compte = compte;

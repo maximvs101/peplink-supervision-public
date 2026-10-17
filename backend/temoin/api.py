@@ -41,7 +41,20 @@ log = logging.getLogger(__name__)
 CACHE_RECHERCHE_S = 10.0
 # Une collecte tombée sur une erreur imprévue repart après ce délai.
 RELANCE_S = 30.0
+MOTIF_REFUS_EN_MESURE = "Mesure arrêtée : identifiants refusés par le routeur"
 _FENETRES = {"tout": None, "1h": timedelta(hours=1), "24h": timedelta(hours=24)}
+# Les fenêtres 1 h et 24 h ne relisent que leur fenêtre, plus cette marge avant
+# elle : un redémarrage (sa suite d'injoignables, la renégociation du WAN) ou une
+# coupure commencés juste avant la fenêtre s'y lisent comme sur l'observation
+# entière, puis la bande est rognée au début de la fenêtre. Un état commencé
+# plus tôt que la marge y paraît commencer au début de la marge.
+MARGE_FENETRE = timedelta(minutes=15)
+# Le verdict lit la fin de l'observation par reculs croissants depuis son
+# dernier relevé ; il ne relit plus loin que si son « depuis » touche le début
+# de ce qu'il a lu (le verdict ne dépend que des relevés qui se suivent depuis
+# la fin : sur un suffixe, il est exact dès qu'il s'arrête avant son début).
+_RECULS_VERDICT = (timedelta(hours=1), timedelta(hours=24), None)
+_ETATS_PROLONGEABLES = {"stable", "coupe", "injoignable", "desactive"}
 
 
 def _iso(d: datetime | None) -> str | None:
@@ -62,6 +75,36 @@ def _coupures_json(coupures: list[regles.Coupure]) -> list[dict]:
          "cause": c.cause, "duree_s": c.duree_s, "fin_observee": c.fin_observee}
         for c in coupures
     ]
+
+
+def _rogner(segments: list[regles.Segment], depuis: datetime) -> list[regles.Segment]:
+    """La bande à partir de `depuis`."""
+    return [
+        regles.Segment(max(s.debut, depuis), s.fin, s.etat)
+        for s in segments
+        if s.fin > depuis
+    ]
+
+
+def _dans_la_fenetre(c: regles.Coupure, depuis: datetime) -> bool:
+    if c.genre == "micro-coupure":
+        return c.debut >= depuis
+    return c.fin is None or c.fin > depuis
+
+
+def _calculer(
+    releves: list[regles.Releve],
+    faits: list[regles.FaitRouteur],
+    fin: datetime,
+    depuis: datetime | None,
+) -> tuple[list[regles.Segment], list[regles.Coupure], dict]:
+    """Bande, coupures et chiffres (pur : tourne hors de la boucle d'événements)."""
+    segments = regles.bande(releves, fin, faits)
+    liste = regles.coupures(releves, faits)
+    if depuis is not None:
+        segments = _rogner(segments, depuis)
+        liste = [c for c in liste if _dans_la_fenetre(c, depuis)]
+    return segments, liste, regles.chiffres(segments, liste)
 
 
 async def _meme_poste(request: Request) -> None:
@@ -128,6 +171,8 @@ class _Session:
         self.info = None  # DeviceInfo : sa série ne quitte jamais cet objet
         self.hote: str | None = None
         self.hote_a_identifier: str | None = None
+        # Pourquoi l'écran redemande les identifiants, s'il ne le sait pas.
+        self.motif: str | None = None
         self.wan_id: str | None = None
         self.observation: int | None = None
         self.collecte = None
@@ -137,6 +182,8 @@ class _Session:
         self.wan_retenu: str | None = None  # le dernier lien choisi pour cet équipement
         self._tache: asyncio.Task | None = None
         self._recherche: tuple[datetime, list[dict]] | None = None
+        # Par observation : (dernier relevé examiné, verdict), voir `_verdict`.
+        self.verdicts: dict[int, tuple] = {}
 
     async def equipements(self) -> list[dict]:
         maintenant = self.horloge()
@@ -151,6 +198,7 @@ class _Session:
     async def connecter(self, hote: str, ident: Identifiants | None, retenir: bool) -> None:
         await self.fermer()
         self.hote_a_identifier = None
+        self.motif = None
         try:
             client, info = await self._connecter(hote, ident, retenir, self.depot)
         except connexion.RefusIdentifiants:
@@ -207,6 +255,7 @@ class _Session:
                     hote = self.hote
                     await self.fermer()
                     self.hote_a_identifier = hote
+                    self.motif = MOTIF_REFUS_EN_MESURE
                 return
             except Exception:
                 log.exception("Collecte interrompue ; reprise dans %.0f s", RELANCE_S)
@@ -243,7 +292,8 @@ class _Session:
             return {"phase": "choix_lien", "liens": self.liens_proposes,
                     "modele": self.modele(), "lien_retenu": self.lien_retenu()}
         if self.hote_a_identifier is not None:
-            return {"phase": "identifiants", "hote": self.hote_a_identifier}
+            return {"phase": "identifiants", "hote": self.hote_a_identifier,
+                    "motif": self.motif}
         return {"phase": "recherche", "equipements": await self.equipements()}
 
 
@@ -347,6 +397,57 @@ def creer_app(
             for o in await depot.observations()
         ]
 
+    def _retenir_verdict(ident: int, releves: list[regles.Releve], v: dict) -> None:
+        # Seul un verdict tiré des relevés eux-mêmes se prolonge ; « aucune
+        # mesure » dépend de l'heure du sondage.
+        if releves and v["etat"] in _ETATS_PROLONGEABLES:
+            session.verdicts[ident] = (releves[-1], v)
+
+    async def _verdict(
+        ident: int, dernier: datetime | None, maintenant: datetime,
+        lus: list[regles.Releve], complet: bool,
+    ) -> dict:
+        """Le verdict sur toute l'observation, sans relire toute l'observation.
+
+        Le verdict remonte depuis le dernier relevé, et chaque pas ne regarde
+        que deux relevés voisins : calculé sur une fin de la série, il est exact
+        dès qu'il s'arrête avant le début de ce qu'il a lu. D'où trois sources,
+        de la moins chère à la plus chère :
+
+          1. `lus`, les relevés déjà chargés (`complet` : toute l'observation) ;
+          2. le verdict du sondage précédent, prolongé par les seuls relevés
+             arrivés depuis : s'ils remontent sans rupture jusqu'à son dernier
+             relevé et dans le même état, son « depuis » vaut toujours ;
+          3. des reculs croissants depuis le dernier relevé (_RECULS_VERDICT),
+             jusqu'à toute l'observation au pire — une fois, au premier sondage.
+        """
+        if lus:
+            v = await asyncio.to_thread(regles.verdict, lus, maintenant)
+            if complet or v["depuis"] != lus[0].ts:
+                _retenir_verdict(ident, lus, v)
+                return v
+        elif complet or dernier is None:
+            return regles.verdict([], maintenant)
+        connu = session.verdicts.get(ident)
+        if connu is not None:
+            ancre, v_connu = connu
+            suite = await depot.releves(ident, depuis=ancre.ts)
+            v = await asyncio.to_thread(regles.verdict, suite, maintenant)
+            if suite and v["depuis"] == suite[0].ts and v["etat"] == v_connu["etat"]:
+                v = {"etat": v["etat"], "depuis": v_connu["depuis"]}
+            _retenir_verdict(ident, suite, v)
+            return v
+        for recul in _RECULS_VERDICT:
+            depuis = None if recul is None else dernier - recul
+            if depuis is not None and lus and depuis >= lus[0].ts:
+                continue  # déjà lu
+            releves = await depot.releves(ident, depuis=depuis)
+            v = await asyncio.to_thread(regles.verdict, releves, maintenant)
+            if depuis is None or not releves or v["depuis"] != releves[0].ts:
+                _retenir_verdict(ident, releves, v)
+                return v
+        raise AssertionError("inatteignable : le dernier recul relit tout")
+
     @app.get("/api/observation")
     async def observation(
         id: int | None = None, fenetre: Literal["tout", "1h", "24h"] = "tout"
@@ -358,32 +459,44 @@ def creer_app(
         o = await _observation(id)
         vivante = id == session.observation
         maintenant = horloge()
-        tous = await depot.releves(id)
+        dernier = o["dernier"]
         # La fin de la bande : maintenant pour la mesure en cours, le dernier
         # relevé pour une observation passée (sinon tout l'après serait un trou).
-        fin = maintenant if vivante or not tous else tous[-1].ts
-        faits = await depot.faits(id)
-        releves = tous
+        fin = maintenant if vivante or dernier is None else dernier
         largeur = _FENETRES[fenetre]
-        if largeur is not None:
+        faits = await depot.faits(id)
+        if largeur is None:
+            depuis = None
+            releves = await depot.releves(id)
+            verdict = await _verdict(id, dernier, maintenant, releves, complet=True)
+        else:
+            # Seulement la fenêtre et sa marge : une observation de plusieurs
+            # jours n'est pas relue à chaque sondage de l'écran.
             depuis = fin - largeur
-            releves = [r for r in tous if r.ts >= depuis]
-            faits = [f for f in faits if f.ts >= depuis]
-        segments = regles.bande(releves, fin, faits)
-        liste = regles.coupures(releves, faits)
-        # Le verdict porte sur toute l'observation : « stable depuis » ne se
-        # tronque pas à la fenêtre affichée.
-        verdict = regles.verdict(tous, maintenant)
+            charge = depuis - MARGE_FENETRE
+            releves = await depot.releves(id, depuis=charge)
+            faits = [f for f in faits if f.ts >= charge]
+            # Le verdict porte sur toute l'observation : « stable depuis » ne se
+            # tronque pas à la fenêtre affichée.
+            verdict = await _verdict(id, dernier, maintenant, releves, complet=False)
+        segments, liste, chiffres = await asyncio.to_thread(
+            _calculer, releves, faits, fin, depuis
+        )
         collecte = session.collecte if vivante else None
+        if collecte is not None and collecte.etat_lien == "introuvable":
+            # Le WAN choisi a disparu de la réponse du routeur (reconfiguré,
+            # renuméroté) : aucun relevé n'est rangé, et ce n'est pas le poste
+            # qui dort.
+            verdict = {"etat": "introuvable", "depuis": dernier}
         return {
             "id": id,
             "fenetre": fenetre,
             "lien": _lien(o["wan_id"]),
             "modele": o["modele"],
             "debut": _iso(o["debut"]),
-            "dernier": _iso(o["dernier"]),
+            "dernier": _iso(dernier),
             "verdict": {**verdict, "depuis": _iso(verdict["depuis"])},
-            "chiffres": regles.chiffres(segments, liste),
+            "chiffres": chiffres,
             "bande": _bande_json(segments),
             "coupures": _coupures_json(liste),
             "etat_lien": collecte.etat_lien if collecte is not None else None,
@@ -402,9 +515,12 @@ def creer_app(
         }
         releves = await depot.releves(ident)
         if genre == "coupures":
-            texte = export.coupures_csv(entete, regles.coupures(releves, await depot.faits(ident)))
+            faits = await depot.faits(ident)
+            texte = await asyncio.to_thread(
+                lambda: export.coupures_csv(entete, regles.coupures(releves, faits))
+            )
         else:
-            texte = export.releves_csv(entete, releves)
+            texte = await asyncio.to_thread(export.releves_csv, entete, releves)
         return Response(
             content=texte.encode("utf-8"),
             media_type="text/csv; charset=utf-8",

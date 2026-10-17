@@ -70,6 +70,7 @@ def test_les_libelles_sont_en_francais():
         "Nouvelle observation", "non mesuré", "en cours", "Retenir sur ce poste",
         "en clair", "Mesurer ce lien", "lecture seule", "Imprimer",
         "Horloges du routeur et du poste en désaccord",
+        "Lien introuvable sur le routeur", "fin non observée", "au moins",
     ):
         assert libelle in tout, libelle
     for page in ("index.html", "rapport.html"):
@@ -84,3 +85,11 @@ def test_les_nombres_et_les_themes_suivent_le_poste():
     assert "document.hidden" in js and "visibilitychange" in js
     # Jamais de boîte de dialogue du navigateur pour confirmer.
     assert "confirm(" not in js
+
+
+def test_l_avertissement_en_clair_ne_vaut_que_pour_http():
+    # Sans schéma, le client parle HTTPS : l'avertissement est caché par défaut
+    # et le script ne le montre que pour un hôte « http://… ».
+    html, js = _texte("index.html"), _texte("temoin.js")
+    assert re.search(r'<p id="ident-clair"[^>]*\bhidden\b', html)
+    assert "schema[0] === 'http'" in js and "$('ident-clair').hidden" in js

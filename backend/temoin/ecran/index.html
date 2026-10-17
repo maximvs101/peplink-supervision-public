@@ -54,7 +54,7 @@
           <label><span class="lbl">Client secret</span><input type="password" name="client_secret"></label>
         </div>
         <label class="case"><input type="checkbox" name="retenir" checked> Retenir sur ce poste (trousseau du système)</label>
-        <p class="message is-reserve">Le témoin parle au routeur en HTTP, sans chiffrement : ces identifiants circulent en clair sur le réseau local entre ce poste et le routeur.</p>
+        <p id="ident-clair" class="message is-reserve" hidden>Ce routeur est joint en HTTP, sans chiffrement : ces identifiants circulent en clair sur le réseau local entre ce poste et le routeur.</p>
         <p id="ident-refus" class="message is-erreur" role="alert" hidden></p>
         <div class="champs">
           <button type="submit" class="is-primary">Se connecter</button>

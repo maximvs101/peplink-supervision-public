@@ -260,7 +260,7 @@ async def test_un_refus_rend_401_et_ne_retente_rien(api, reseau):
     assert len(reseau.connexions) == 1
 
     r = await api.get("/api/etat")
-    assert r.json() == {"phase": "identifiants", "hote": HOTE}
+    assert r.json() == {"phase": "identifiants", "hote": HOTE, "motif": None}
     await api.get("/api/etat")
     assert len(reseau.connexions) == 1
 
@@ -314,7 +314,10 @@ async def test_un_refus_pendant_la_collecte_redemande_les_identifiants(
             await c.post("/api/connexion", json={"hote": HOTE})
             await c.post("/api/lien", json={"wan_id": "1"})
             await laisser_tourner()
-            assert (await c.get("/api/etat")).json() == {"phase": "identifiants", "hote": HOTE}
+            assert (await c.get("/api/etat")).json() == {
+                "phase": "identifiants", "hote": HOTE,
+                "motif": "Mesure arrêtée : identifiants refusés par le routeur",
+            }
             assert reseau.clients[0].ferme is True
             assert len(reseau.connexions) == 1
 
@@ -502,7 +505,7 @@ async def test_un_refus_a_la_lecture_des_liens_redemande_les_identifiants(api, r
     r = await api.post("/api/connexion", json={"hote": HOTE})
     assert r.status_code == 401
     assert reseau.clients[0].ferme is True
-    assert (await api.get("/api/etat")).json() == {"phase": "identifiants", "hote": HOTE}
+    assert (await api.get("/api/etat")).json() == {"phase": "identifiants", "hote": HOTE, "motif": None}
     assert len(reseau.connexions) == 1
 
 
@@ -550,3 +553,120 @@ async def test_une_page_tierce_ne_choisit_ni_lien_ni_observation(api, reseau):
     assert r.status_code == 403
     assert (await api.get("/api/etat")).json()["observation"] == obs
 
+
+
+async def test_un_wan_disparu_se_dit_introuvable_au_verdict(
+    depot, interface, reseau, temps
+):
+    class CollecteSansLien(CollecteRefusee):
+        def __init__(self, *a, **kw):
+            self.etat_lien = "introuvable"
+            self.horloge_decalee = False
+
+        async def boucle(self):
+            await asyncio.Event().wait()
+
+    app = fabriquer(depot, interface, reseau, temps, fabrique_collecte=CollecteSansLien)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+            await c.post("/api/connexion", json={"hote": HOTE})
+            obs = (await c.post("/api/lien", json={"wan_id": "1"})).json()["observation"]
+            await depot.ajouter_releve(obs, rel(0))
+            # Plus aucun relevé depuis une minute : sans le lien introuvable, ce
+            # serait « aucune mesure » (poste en veille), une fausse raison.
+            temps.now = T0 + timedelta(seconds=60)
+            corps = (await c.get("/api/observation")).json()
+            assert corps["verdict"] == {
+                "etat": "introuvable", "depuis": "2026-10-17T10:00:00+00:00",
+            }
+
+
+def _rogner_json(bande, depuis):
+    return [
+        {**s, "debut": max(s["debut"], depuis)} for s in bande if s["fin"] > depuis
+    ]
+
+
+async def test_la_fenetre_d_une_heure_est_la_fin_du_calcul_entier(api, depot):
+    # 2 h 30 de relevés toutes les 10 s : une coupure à 0 h 30 (hors fenêtre),
+    # une à cheval sur le début de la fenêtre (1 h 30), une micro-coupure et une
+    # coupure dans la fenêtre.
+    await depot.memoriser_equipement(HOTE, SERIE, MODELE)
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+    for s in range(0, 9001, 10):
+        tombe = 1800 <= s < 1900 or 5280 <= s < 5420 or 7200 <= s < 7260
+        anciennete = s - 8000 if s >= 8000 else s + 100
+        await depot.ajouter_releve(obs, rel(s, connecte=not tombe, anciennete=anciennete))
+    params = {"id": obs}
+    tout = (await api.get("/api/observation", params=params)).json()
+    heure = (await api.get("/api/observation", params={**params, "fenetre": "1h"})).json()
+    depuis = "2026-10-17T11:30:00+00:00"  # dernier relevé (12:30) moins une heure
+
+    assert heure["bande"] == _rogner_json(tout["bande"], depuis)
+    attendues = [
+        c for c in tout["coupures"]
+        if (c["debut"] >= depuis if c["genre"] == "micro-coupure" else c["fin"] > depuis)
+    ]
+    assert heure["coupures"] == attendues
+    assert [c["debut"][11:19] for c in attendues] == ["11:28:00", "12:00:00", "12:13:20"]
+    assert heure["verdict"] == tout["verdict"]
+    assert heure["chiffres"]["coupe_s"] == pytest.approx(20 + 60)
+
+
+async def test_le_verdict_d_une_fenetre_remonte_au_dela_de_la_fenetre(api, depot, temps):
+    await depot.memoriser_equipement(HOTE, SERIE, MODELE)
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+    for s in range(0, 9001, 10):
+        await depot.ajouter_releve(obs, rel(s))
+    temps.now = T0 + timedelta(seconds=9005)
+    heure = (await api.get("/api/observation", params={"id": obs, "fenetre": "1h"})).json()
+    # Stable depuis le tout premier relevé, 2 h 30 avant : ni la fenêtre ni le
+    # premier recul (1 h) ne le tronquent.
+    assert heure["verdict"] == {"etat": "stable", "depuis": "2026-10-17T10:00:00+00:00"}
+
+
+async def test_une_coupure_interrompue_par_un_trou_le_dit(api, depot, temps):
+    await depot.memoriser_equipement(HOTE, SERIE, MODELE)
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+    for s in [*range(0, 30, 3)]:
+        await depot.ajouter_releve(obs, rel(s))
+    for s in range(30, 45, 3):
+        await depot.ajouter_releve(obs, rel(s, connecte=False))
+    for s in range(1800, 1830, 3):
+        await depot.ajouter_releve(obs, rel(s))
+    [c] = (await api.get("/api/observation", params={"id": obs})).json()["coupures"]
+    assert c["fin_observee"] is False and c["fin"] == "2026-10-17T10:00:42+00:00"
+
+
+async def test_le_verdict_se_prolonge_sans_tout_relire(api, depot, temps, monkeypatch):
+    await depot.memoriser_equipement(HOTE, SERIE, MODELE)
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+    for s in range(0, 9001, 10):
+        await depot.ajouter_releve(obs, rel(s))
+    lectures = []
+    lire = depot.releves
+
+    async def releves_comptes(ident, depuis=None):
+        lectures.append(depuis)
+        return await lire(ident, depuis=depuis)
+
+    monkeypatch.setattr(depot, "releves", releves_comptes)
+
+    async def verdict_1h(s):
+        temps.now = T0 + timedelta(seconds=s + 2)
+        corps = (await api.get("/api/observation", params={"id": obs, "fenetre": "1h"})).json()
+        return corps["verdict"]
+
+    assert await verdict_1h(9000) == {"etat": "stable", "depuis": "2026-10-17T10:00:00+00:00"}
+    assert None in lectures  # premier sondage : toute l'observation, une fois
+    lectures.clear()
+    await depot.ajouter_releve(obs, rel(9010))
+    assert await verdict_1h(9010) == {"etat": "stable", "depuis": "2026-10-17T10:00:00+00:00"}
+    assert None not in lectures
+    # Une micro-coupure, puis une coupure : le verdict suit, toujours sans tout relire.
+    await depot.ajouter_releve(obs, rel(9020, anciennete=1))
+    assert await verdict_1h(9020) == {"etat": "stable", "depuis": "2026-10-17T12:30:20+00:00"}
+    await depot.ajouter_releve(obs, rel(9030, connecte=False))
+    assert await verdict_1h(9030) == {"etat": "coupe", "depuis": "2026-10-17T12:30:30+00:00"}
+    assert None not in lectures
