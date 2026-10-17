@@ -114,3 +114,15 @@ def test_la_latence_est_arrondie_a_une_decimale():
     ls = lignes(releves_csv(ENTETE, [r, r2], fuseau=UTC))
     assert "2026-10-17 10:00:00;oui;oui;;1;12,5" in ls
     assert "2026-10-17 10:00:00;oui;oui;;1;0,3" in ls
+
+
+def test_une_coupure_a_fin_non_observee_le_dit():
+    c = Coupure(T0, T0 + timedelta(seconds=27), "coupure", None, fin_observee=False)
+    ls = lignes(coupures_csv(ENTETE, [c], fuseau=UTC))
+    assert "2026-10-17 10:00:00;2026-10-17 10:00:27;27;coupure (fin non observée);" in ls
+
+
+def test_un_releve_desactive_le_dit_dans_la_colonne_connecte():
+    r = Releve(T0, True, False, None, None, True, 9000)
+    ls = lignes(releves_csv(ENTETE, [r], fuseau=UTC))
+    assert "2026-10-17 10:00:00;oui;désactivé;;;" in ls

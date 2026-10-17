@@ -81,7 +81,12 @@ def _assembler(lignes: list[str]) -> str:
 def coupures_csv(entete: dict, coupures: list[Coupure], fuseau: tzinfo | None = None) -> str:
     lignes = [*_entete(entete, fuseau), _COLONNES_COUPURES]
     for c in coupures:
-        genre = c.genre + (" (en cours)" if c.genre == "coupure" and c.fin is None else "")
+        genre = c.genre
+        if c.genre == "coupure" and c.fin is None:
+            genre += " (en cours)"
+        elif c.genre == "coupure" and not c.fin_observee:
+            # Interrompue par un trou ou un routeur injoignable : la durée est un minimum.
+            genre += " (fin non observée)"
         lignes.append(";".join([
             _instant(c.debut, fuseau), _instant(c.fin, fuseau),
             _nombre(c.duree_s), genre, _texte(c.cause),
@@ -92,7 +97,10 @@ def coupures_csv(entete: dict, coupures: list[Coupure], fuseau: tzinfo | None = 
 def releves_csv(entete: dict, releves: list[Releve], fuseau: tzinfo | None = None) -> str:
     lignes = [*_entete(entete, fuseau), _COLONNES_RELEVES]
     for r in releves:
-        connecte = "" if r.connecte is None else ("oui" if r.connecte else "non")
+        if r.desactive:
+            connecte = "désactivé"
+        else:
+            connecte = "" if r.connecte is None else ("oui" if r.connecte else "non")
         lignes.append(";".join([
             _instant(r.ts, fuseau), "oui" if r.joignable else "non", connecte,
             _texte(r.message), _nombre(r.anciennete_s), _nombre(r.latence_ms),

@@ -373,7 +373,7 @@ async def test_l_observation_rend_verdict_bande_et_coupures(api, depot, temps):
     assert corps["bande"][1]["debut"] == "2026-10-17T10:00:30+00:00"
     assert corps["coupures"] == [{
         "debut": "2026-10-17T10:00:30+00:00", "fin": "2026-10-17T10:00:45+00:00",
-        "genre": "coupure", "cause": "câble", "duree_s": 15.0,
+        "genre": "coupure", "cause": "câble", "duree_s": 15.0, "fin_observee": True,
     }]
     # Une observation passée n'a pas de collecte vivante.
     assert corps["etat_lien"] is None and corps["horloge_decalee"] is False

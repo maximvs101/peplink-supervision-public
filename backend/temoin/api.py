@@ -59,7 +59,7 @@ def _bande_json(segments: list[regles.Segment]) -> list[dict]:
 def _coupures_json(coupures: list[regles.Coupure]) -> list[dict]:
     return [
         {"debut": _iso(c.debut), "fin": _iso(c.fin), "genre": c.genre,
-         "cause": c.cause, "duree_s": c.duree_s}
+         "cause": c.cause, "duree_s": c.duree_s, "fin_observee": c.fin_observee}
         for c in coupures
     ]
 

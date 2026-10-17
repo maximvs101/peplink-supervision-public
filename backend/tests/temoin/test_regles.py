@@ -189,3 +189,71 @@ def test_un_trou_de_soixante_secondes_dans_la_suite_reste_non_mesure():
     assert ("redemarrage", t(33), t(105)) in seg
     assert ("non_mesure", t(105), t(165)) in seg
     assert ("redemarrage", t(165), t(168)) in seg
+
+
+def _apres_redemarrage(debut, fin, connecte, depart_routeur=20, depart_s=93):
+    """Relevés qui suivent le redémarrage : le routeur vieillit avec l'heure."""
+    return [
+        r(s, connecte=connecte, anciennete=None if not connecte else s - fin + 3,
+          anciennete_routeur=depart_routeur + s - depart_s)
+        for s in range(debut, fin + 1, 3)
+    ]
+
+
+def test_hypothese_le_wan_qui_renegocie_apres_un_redemarrage_n_est_pas_coupe():
+    # Routeur injoignable de 33 à 90 s, de retour à 93 s (20 s d'ancienneté) ;
+    # le WAN filaire négocie jusqu'à 120 s, debout à 123 s.
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in range(33, 91, 3)]
+           + _apres_redemarrage(93, 120, connecte=False)
+           + _apres_redemarrage(123, 150, connecte=True))
+    assert coupures(rel, []) == []
+    seg = bande(rel, t(153))
+    assert ("redemarrage", t(33), t(123)) in etats(seg)
+    assert "coupe" not in [s.etat for s in seg]
+    assert chiffres(seg, coupures(rel, []))["coupe_s"] == 0
+
+
+def test_hypothese_la_renegociation_s_arrete_a_trois_minutes_de_routeur():
+    # Le routeur a 20 s au retour (93 s) : à 253 s il a 180 s, le WAN toujours
+    # tombé devient une vraie coupure.
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in range(33, 91, 3)]
+           + _apres_redemarrage(93, 300, connecte=False)
+           + _apres_redemarrage(303, 330, connecte=True))
+    [c] = coupures(rel, [])
+    assert (c.debut, c.fin, c.genre) == (t(255), t(303), "coupure")
+    seg = bande(rel, t(333))
+    assert ("redemarrage", t(33), t(255)) in etats(seg)
+    assert ("coupe", t(255), t(303)) in etats(seg)
+    assert chiffres(seg, [c])["coupe_s"] == 48
+
+
+def test_hypothese_sans_redemarrage_un_wan_tombe_au_retour_reste_une_coupure():
+    # Injoignable sans redémarrage (routeur ancien) : le lien tombé au retour
+    # est une coupure ordinaire.
+    rel = (serie(0, 30) + [r(s, joignable=False) for s in range(33, 91, 3)]
+           + serie(93, 120, connecte=False) + serie(123, 150))
+    [c] = coupures(rel, [])
+    assert (c.debut, c.fin) == (t(93), t(123))
+
+
+def test_le_verdict_stable_ne_remonte_pas_avant_une_micro_coupure():
+    rel = [*serie(0, 30, anciennete=5000), *serie(33, 60, anciennete=2)]
+    assert verdict(rel, t(63)) == {"etat": "stable", "depuis": t(33)}
+    # Sans micro-coupure, il remonte au premier relevé.
+    assert verdict(serie(0, 60), t(63)) == {"etat": "stable", "depuis": t(0)}
+
+
+def test_une_coupure_interrompue_n_a_pas_de_fin_observee():
+    # Par un trou : fin au dernier relevé tombé, non observée.
+    rel = serie(0, 30) + serie(33, 60, connecte=False) + serie(1800, 1830)
+    [c] = coupures(rel, [])
+    assert c.fin == t(60) and c.fin_observee is False
+    # Par un routeur injoignable (sans redémarrage) : non observée non plus.
+    rel = (serie(0, 30) + serie(33, 60, connecte=False)
+           + [r(s, joignable=False) for s in (63, 66)] + serie(69, 90))
+    [c] = coupures(rel, [])
+    assert c.fin == t(63) and c.fin_observee is False
+    # Le lien vu revenir : observée.
+    rel = serie(0, 30) + serie(33, 60, connecte=False) + serie(63, 72)
+    [c] = coupures(rel, [])
+    assert c.fin_observee is True

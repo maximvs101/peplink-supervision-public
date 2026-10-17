@@ -141,8 +141,10 @@
       return `<b>Micro-coupure</b><span>vers ${instant(c.debut, multi)}</span><span>durée inconnue (&lt; 3 s)</span><span>${cause}</span>`;
     }
     if (!c.fin) return `<b>Coupure en cours</b><span>depuis ${instant(c.debut, multi)}</span><span>${cause}</span>`;
-    return `<b>Coupure</b><span>${instant(c.debut, multi)} → ${instant(c.fin, multi)}</span>`
-      + `<span>durée ${duree(c.duree_s)}</span><span>${cause}</span>`;
+    // Fin non observée (trou de mesure, routeur injoignable) : la durée est un minimum.
+    const nonVue = c.fin_observee === false;
+    return `<b>Coupure${nonVue ? ' (fin non observée)' : ''}</b><span>${instant(c.debut, multi)} → ${instant(c.fin, multi)}</span>`
+      + `<span>durée ${nonVue ? 'au moins ' : ''}${duree(c.duree_s)}</span><span>${cause}</span>`;
   }
 
   function montrerBulle(html, x, y) {
@@ -284,10 +286,13 @@
         fin = `<span class="en-cours">${opts.vivante ? 'en cours' : 'en cours au dernier relevé'}</span>`;
         dur = `${duree((borne - date(c.debut)) / 1000)} <span class="en-cours">en cours</span>`;
       } else {
-        fin = instant(c.fin, multi); dur = duree(c.duree_s);
+        fin = instant(c.fin, multi);
+        // Fin non observée (trou de mesure, routeur injoignable) : la durée est un minimum.
+        dur = c.fin_observee === false ? `au moins ${duree(c.duree_s)}` : duree(c.duree_s);
       }
       const ec = opts.eclaire === c.debut ? ' class="is-eclaire"' : '';
-      const genre = c.genre === 'micro-coupure' ? '<span class="genre-micro">micro-coupure</span>' : 'coupure';
+      const genre = c.genre === 'micro-coupure' ? '<span class="genre-micro">micro-coupure</span>'
+        : c.fin && c.fin_observee === false ? 'coupure (fin non observée)' : 'coupure';
       return `<tr data-i="${i}"${ec}><td class="num">${instant(c.debut, multi)}</td><td class="num">${fin}</td>`
         + `<td class="num">${dur}</td><td>${genre}</td><td>${c.cause ? esc(c.cause) : '<span title="non donnée par le routeur">—</span>'}</td></tr>`;
     }).join('');
