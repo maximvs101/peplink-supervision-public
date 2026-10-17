@@ -1007,3 +1007,28 @@ passe aurait été mis en supervision, puis réappairé à chaque tour. Les huit
 autres, dont un verrou par équipement, la veille en parallèle, le son réarmé
 après rechargement, la courbe d'une session passée et ses propres repères :
 `docs/AMELIORATIONS-2026-10-17.md`, section « Revue de code ».
+
+### 2026-10-17 — Nettoyage et optimisation, par outils
+
+Passe sur tout le dépôt, outils et mesures plutôt qu'à l'œil. Ce qui était
+propre et le reste : aucun code mort (vulture côté serveur, exports côté écran),
+aucune classe CSS orpheline sur 138, aucune dépendance inutile, 0,21 % de code
+dupliqué ; les règles de lint élargies ne remontent que des faux positifs
+(colonnes SQL tirées d'une liste fermée, un condensé non cryptographique du
+simulateur). Ce qui a changé :
+
+- **L'ouverture pèse 292 Ko au lieu de 688** (94 Ko compressés au lieu de 205).
+  La page du rapport importait `recharts` et `App.tsx` l'importait
+  statiquement : toute la bibliothèque de courbes revenait dans le paquet
+  principal. Rapport chargé à la demande, comme la courbe d'un lien.
+- **Journal −6 %** : `f`, lue deux fois dans le brassage et les opérateurs,
+  est matérialisée ; résultats identiques sur la base copiée. Le reste du coût
+  (~150 ms pour 6 h, toutes les 30 s, onglet visible) vient de trois requêtes
+  qui relisent les mêmes relevés ; les fusionner serait une refonte du journal
+  pour un demi-pour-cent de processeur — écarté.
+- **Deux duplications factorisées** : les paramètres de fenêtre du client, la
+  fiche d'équipement de la vue d'ensemble.
+
+Laissés en l'état, dits : huit champs publiés que l'écran n'affiche pas (`hdop`,
+`speed`, `read_at`…) — le rejeu et les fixtures les portent, les retirer
+changerait le contrat de l'API pour quelques octets.

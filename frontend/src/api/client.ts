@@ -129,29 +129,22 @@ export async function reconnectKnownDevice(serial: string): Promise<DeviceStatus
  *  L'agrégation est faite par SQLite et le nombre de tranches est fixe : la
  *  réponse pèse le même poids pour une demi-heure que pour une session de
  *  vingt-quatre heures. */
-export const fetchTimeline = (
-  routerId: string,
-  window: { minutes?: number; since?: string; until?: string },
-) => {
-  const p = new URLSearchParams()
-  if (window.since) p.set('since', window.since)
-  if (window.until) p.set('until', window.until)
-  if (window.minutes !== undefined) p.set('minutes', String(window.minutes))
-  return getJson<Timeline>(
-    `/api/routers/${encodeURIComponent(routerId)}/timeline?${p.toString()}`,
-  )
-}
+export const fetchTimeline = (routerId: string, window: Fenetre) =>
+  getJson<Timeline>(`/api/routers/${encodeURIComponent(routerId)}/timeline?${parametres(window)}`)
 
 /** Le journal d'une fenêtre : ce qui s'y est passé, daté. */
-export const fetchEvents = (
-  routerId: string,
-  window: { minutes?: number; since?: string; until?: string },
-) => {
+export const fetchEvents = (routerId: string, window: Fenetre) =>
+  getJson<EventLog>(`/api/routers/${encodeURIComponent(routerId)}/events?${parametres(window)}`)
+
+/** Une fenêtre relue : bornée par ses instants, ou par une durée glissante. */
+type Fenetre = { minutes?: number; since?: string; until?: string }
+
+function parametres(window: Fenetre): string {
   const p = new URLSearchParams()
   if (window.since) p.set('since', window.since)
   if (window.until) p.set('until', window.until)
   if (window.minutes !== undefined) p.set('minutes', String(window.minutes))
-  return getJson<EventLog>(`/api/routers/${encodeURIComponent(routerId)}/events?${p.toString()}`)
+  return p.toString()
 }
 
 export const fetchSessionSummary = (sessionId: number) =>

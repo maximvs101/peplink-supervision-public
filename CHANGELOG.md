@@ -54,6 +54,9 @@ Mêmes fichiers, même usage. Ce qui change pour l'exploitant :
   désactivations et coupures.
 - **Le journal dit l'état d'ouverture.** Un lien déjà hors du bond au premier
   relevé y entre, daté, avec la cause donnée par le routeur.
+- **Une ouverture plus légère** : 292 Ko de code au lieu de 688, la
+  bibliothèque de courbes n'étant chargée qu'à l'ouverture d'une courbe ou d'un
+  rapport.
 - **Icône d'onglet.**
 
 Détail : `docs/HISTORIQUE-2026-09.md`, entrées du 30/09 et du 17/10.

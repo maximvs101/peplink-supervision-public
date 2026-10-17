@@ -1775,7 +1775,9 @@ class SampleRepository:
               FROM samples
               WHERE router_id = ? AND ts >= ? AND ts <= ?
               WINDOW w AS (PARTITION BY wan_id ORDER BY ts)
-            ), f AS (
+            -- MATERIALIZED : `f` est lue deux fois ; sans cela SQLite la
+            -- recalcule, fenêtres comprises (−6 % sur le journal, mesuré le 17/10).
+            ), f AS MATERIALIZED (
               SELECT wan_id, kind, ts, connected, cell_id, uptime_s, status_message, voisin,
                      LAG(connected) OVER w AS avant,
                      LAG(uptime_s)  OVER w AS uptime_avant,
@@ -1857,7 +1859,9 @@ class SampleRepository:
               FROM samples
               WHERE router_id = ? AND ts >= ? AND ts <= ?
               WINDOW w AS (PARTITION BY wan_id ORDER BY ts)
-            ), f AS (
+            -- MATERIALIZED : `f` est lue deux fois ; sans cela SQLite la
+            -- recalcule, fenêtres comprises (−6 % sur le journal, mesuré le 17/10).
+            ), f AS MATERIALIZED (
               SELECT *, SUM(CASE WHEN voisin = 0 THEN 1 ELSE 0 END)
                           OVER (PARTITION BY wan_id ORDER BY ts ROWS UNBOUNDED PRECEDING) AS segment
               FROM f0

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { HashRouter, Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
 
 import { fetchHealth, fetchRouters } from './api/client'
@@ -6,7 +6,11 @@ import type { Health, RouterSummary } from './types'
 import { EcranBoundary } from './components/EcranBoundary'
 import { DeviceShell } from './pages/DeviceShell'
 import { Discovery } from './pages/Discovery'
-import { Rapport } from './pages/Rapport'
+// Chargée à la demande, comme la courbe d'un lien : le rapport importe
+// `recharts`, et un import statique ici le remettait dans le paquet principal —
+// 688 Ko chargés à l'ouverture du tableau de bord au lieu de ~290 Ko (revue
+// d'optimisation du 17/10).
+const Rapport = lazy(() => import('./pages/Rapport').then((m) => ({ default: m.Rapport })))
 import { Overview } from './pages/Overview'
 import { WanDetail } from './pages/WanDetail'
 
@@ -161,7 +165,13 @@ export default function App() {
         </Route>
         {/* Le rapport d'une session, hors du cadre de l'application : une page
             à imprimer, sans barre ni navigation (R-3.7). */}
-        <Route path="/rapport/:sessionId" element={<EcranBoundary titre="Rapport"><Rapport /></EcranBoundary>} />
+        <Route path="/rapport/:sessionId" element={
+          <EcranBoundary titre="Rapport">
+            <Suspense fallback={<div className="rapport"><p className="disclaimer">Chargement du rapport…</p></div>}>
+              <Rapport />
+            </Suspense>
+          </EcranBoundary>
+        } />
         <Route path="*" element={<Entree routers={routers} panne={error} />} />
       </Routes>
     </HashRouter>

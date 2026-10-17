@@ -104,6 +104,21 @@ export function Overview() {
   // disparaît plutôt que d'afficher une valeur fabriquée ici.
   const sousTension = router?.device?.uptime_s ?? null
 
+  // La fiche technique, à deux places : à côté du journal, ou seule quand aucun
+  // relevé n'est là.
+  const ficheEquipement = (
+    <DeviceCard
+      device={router?.device ?? null}
+      capabilities={router?.capabilities ?? null}
+      siteLat={router?.site_lat ?? null}
+      siteLon={router?.site_lon ?? null}
+      periodSeconds={periodSeconds}
+      cycleSeconds={router?.cycle_seconds ?? null}
+      intervalSeconds={health?.poll_interval_seconds ?? null}
+      lanClients={router?.lan_clients ?? null}
+    />
+  )
+
   return (
     <div className="page">
       <RepriseIdentifiants routerId={routerId} status={status} />
@@ -168,16 +183,7 @@ export function Overview() {
               coûtait deux cents pixels pour rien. */}
           <div className="grid-side">
             <EventLog log={events} windowLabel={fenetre} />
-            <DeviceCard
-              device={router?.device ?? null}
-              capabilities={router?.capabilities ?? null}
-              siteLat={router?.site_lat ?? null}
-              siteLon={router?.site_lon ?? null}
-              periodSeconds={periodSeconds}
-              cycleSeconds={router?.cycle_seconds ?? null}
-              intervalSeconds={health?.poll_interval_seconds ?? null}
-              lanClients={router?.lan_clients ?? null}
-            />
+            {ficheEquipement}
           </div>
 
           {/* Le partage de cellule est un FAIT, et il est actionnable justement
@@ -218,18 +224,7 @@ export function Overview() {
 
       {/* Sans le moindre relevé, la fiche technique est tout ce qu'on peut
           montrer : elle reste. */}
-      {samples.length === 0 && (
-        <DeviceCard
-          device={router?.device ?? null}
-          capabilities={router?.capabilities ?? null}
-          siteLat={router?.site_lat ?? null}
-          siteLon={router?.site_lon ?? null}
-          periodSeconds={periodSeconds}
-          cycleSeconds={router?.cycle_seconds ?? null}
-          intervalSeconds={health?.poll_interval_seconds ?? null}
-          lanClients={router?.lan_clients ?? null}
-        />
-      )}
+      {samples.length === 0 && ficheEquipement}
     </div>
   )
 }
