@@ -23,12 +23,13 @@ vi.mock('../api/client', () => ({
   fetchSessions: vi.fn(),
   fetchTimeline: vi.fn(),
   fetchEvents: vi.fn(),
+  fetchSessionSummary: vi.fn(),
   reauthDevice: vi.fn(),
   httpStatus: () => null,
   openLiveSocket: vi.fn(() => () => {}),
 }))
 
-import { fetchEvents, fetchRouter, fetchSessions, fetchTimeline } from '../api/client'
+import { fetchEvents, fetchRouter, fetchSessionSummary, fetchSessions, fetchTimeline } from '../api/client'
 import { WanCard } from '../components/WanCard'
 import type { EventLog, RouterSummary, Session, Timeline } from '../types'
 import { DeviceShell } from './DeviceShell'
@@ -250,6 +251,25 @@ describe('le tableau de bord sur un équipement réel', () => {
     expect(container.textContent).toMatch(/ne répond pas/)
     const liens = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))
     expect(liens).toContain(`/rapport/${reel.sessions[0].id}`)
+    unmount()
+  })
+
+  it('dit le volume du stationnement à côté du débit de l’instant (A-5)', async () => {
+    // Vu le 17/10 : « 0,0 Mbit/s » en tête de page, pendant que le rapport de
+    // la même session comptait 1,5 Go descendus par le WAN 1.
+    const reel = REELS['MAX HD2, deux opérateurs, pair injoignable']
+    vi.mocked(fetchRouter).mockResolvedValue(reel.router)
+    vi.mocked(fetchSessions).mockResolvedValue(reel.sessions)
+    vi.mocked(fetchTimeline).mockResolvedValue(reel.timeline)
+    vi.mocked(fetchEvents).mockResolvedValue(reel.events)
+    vi.mocked(fetchSessionSummary).mockResolvedValue(
+      { mb_up: 95.8, mb_down: 1619.1 } as unknown as Awaited<ReturnType<typeof fetchSessionSummary>>)
+    const { container, unmount } = monterTableauDeBord()
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    const tuile = [...container.querySelectorAll('.tot')].find((t) => /Mo ↑ \/ ↓/.test(t.textContent ?? ''))
+    expect(tuile?.textContent).toMatch(/95,8/)
+    expect(tuile?.textContent).toMatch(/1\u202f619/)
+    expect(tuile?.textContent).toMatch(/depuis \d\d:\d\d/)
     unmount()
   })
 

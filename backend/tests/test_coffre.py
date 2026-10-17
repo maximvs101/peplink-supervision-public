@@ -20,7 +20,7 @@ from app import coffre
 from app.api import routes
 from app.devices.registry import DeviceRegistry
 from app.models import DeviceInfo
-from app.pairing.service import reconnecter_retenus
+from app.pairing.service import Reconnexion
 
 INFO = DeviceInfo(model="Pepwave MAX HD2", serial="0000-0000-0042",
                   firmware="8.5.4 build 5808", name="HD2-ESSAI")
@@ -196,26 +196,69 @@ async def test_retirer_un_equipement_efface_son_entree(trousseau):
     await registry.close()
 
 
-# --- le lancement ---------------------------------------------------------------
+# --- la veille : au lancement, puis dès que l'équipement apparaît (A-1) -----------
+
+def _veille(registry, depot):
+    return Reconnexion(registry, depot, SimpleNamespace(forget=lambda *a, **k: None), cadence=3.0)
+
 
 async def test_au_lancement_une_tentative_par_equipement_retenu(trousseau):
     coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
     autre = {**CONNU, "serial": "0000-0000-0099", "host": "192.0.2.9"}   # non retenu
-    depot = _Depot([CONNU, autre])
     registry = DeviceRegistry(default_mode="mock")
-    poller = SimpleNamespace(forget=lambda *a, **k: None)
     with _identify(INFO) as identify:
-        await reconnecter_retenus(registry, depot, poller)
+        await _veille(registry, _Depot([CONNU, autre])).tour(maintenant=0.0)
     assert identify.await_count == 1
     assert registry.get("0000-0000-0042") is not None
     await registry.close()
 
 
-async def test_au_lancement_un_equipement_absent_ne_bloque_rien(trousseau):
+async def test_un_equipement_qui_apparait_apres_le_lancement_est_reconnecte(trousseau):
+    """Le véhicule arrive après l'ouverture de l'outil : le routeur s'allume, et
+    il fallait cliquer « Reconnecter ». La veille le reprend, en reculant tant
+    qu'il ne répond pas — 3, 6, 12, 24 s, puis toutes les 30 s."""
     coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
     registry = DeviceRegistry(default_mode="mock")
+    veille = _veille(registry, _Depot([CONNU]))
     with _identify(error=OSError("injoignable")) as identify:
-        await reconnecter_retenus(registry, _Depot([CONNU]), SimpleNamespace(forget=lambda *a, **k: None))
+        for t in range(0, 60):
+            await veille.tour(maintenant=float(t))
+    # Tentatives à 0, 3, 9, 21, 45 s : le recul, pas une par seconde.
+    assert identify.await_count == 5
+    with _identify(INFO) as identify:
+        await veille.tour(maintenant=75.0)
     assert identify.await_count == 1
-    assert registry.get("0000-0000-0042") is None
+    assert registry.get("0000-0000-0042") is not None
+    await registry.close()
+
+
+async def test_un_refus_arrete_la_veille_jusqu_a_de_nouveaux_identifiants(trousseau):
+    """Jamais d'essai répété sur un refus : cinq échecs suspendent l'accès admin
+    cinq minutes. La veille reprend seulement si le trousseau change."""
+    from app.peplink.router_api import AuthenticationError
+
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "ancien"))
+    registry = DeviceRegistry(default_mode="mock")
+    veille = _veille(registry, _Depot([CONNU]))
+    with _identify(error=AuthenticationError("refusé")) as identify:
+        for t in range(0, 120, 3):
+            await veille.tour(maintenant=float(t))
+    assert identify.await_count == 1, "un refus ne se retente jamais seul"
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "nouveau"))
+    with _identify(INFO) as identify:
+        await veille.tour(maintenant=200.0)
+    assert identify.await_count == 1
+    await registry.close()
+
+
+async def test_un_equipement_deja_supervise_n_est_pas_retente(trousseau):
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
+    registry = DeviceRegistry(default_mode="mock")
+    veille = _veille(registry, _Depot([CONNU]))
+    with _identify(INFO):
+        await veille.tour(maintenant=0.0)
+    with _identify(INFO) as identify:
+        for t in range(3, 60, 3):
+            await veille.tour(maintenant=float(t))
+    assert identify.await_count == 0
     await registry.close()

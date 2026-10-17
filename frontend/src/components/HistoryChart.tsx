@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { fetchHistory, fetchSessionSummary, nameSession } from '../api/client'
-import type { HistoryPoint, Session, SessionSummary } from '../types'
-import { fmtClock, fmtInt, fmtTime } from '../lib/format'
-import { axisDigits, changementsDeTechno, framedDomain, metricsFor, outOfFrameNote, withGaps } from '../lib/chart'
+import type { Episode, HistoryPoint, Session, SessionSummary } from '../types'
+import { decimal, fmtClock, fmtInt, fmtTime } from '../lib/format'
+import {
+  axisDigits, changementsDeTechno, framedDomain, metricsFor, outOfFrameNote, reperesDuJournal,
+  trousDeSupervision, trousLisibles, withGaps,
+} from '../lib/chart'
 import { useElementSize } from '../lib/useElementSize'
 import { LOSS_MIN_PACKETS } from '../lib/verdict'
 import { debutObserve } from '../lib/session'
@@ -29,6 +32,8 @@ const REFRESH_MS = 15000
 
 
 interface Props {
+  /** Les épisodes du journal de la fenêtre relue, à poser sur la courbe (A-4). */
+  episodes?: Episode[]
   routerId: string
   wanId: string
   wanName: string
@@ -53,7 +58,7 @@ interface Props {
 
 export function HistoryChart({
   routerId, wanId, wanName, kind, hasTunnel = false, periodSeconds = null,
-  sessions: sessionsProp, onRafraichirSessions,
+  sessions: sessionsProp, onRafraichirSessions, episodes = [],
 }: Props) {
   // Les grandeurs du tunnel étaient offertes sur tous les liens de tous les
   // équipements. Sur un boîtier sans SpeedFusion, cela faisait deux boutons de
@@ -244,6 +249,16 @@ export function HistoryChart({
   // Les changements de technologie : sans repère, un passage de 5G en LTE se
   // lisait comme une chute de signal (revue, scénario 5).
   const technos = changementsDeTechno(data)
+  // Ce qui explique un creux (A-4) : les trous de supervision — sur une courbe
+  // complète seulement, l'enveloppe le dit déjà — et les épisodes du journal de
+  // CE lien, dans la fenêtre tracée.
+  const tracees = points.filter((p) => p.value !== null || (p.comble ?? null) !== null).map((p) => p.t)
+  const etendue: [number, number] = tracees.length
+    ? [Math.min(...tracees), Math.max(...tracees)] : [0, 0]
+  const reperes = reperesDuJournal(episodes, wanId, etendue)
+  const desactivations = reperes.filter((r) => r.genre === 'désactivation')
+  const trous = enveloppe ? [] : trousLisibles(trousDeSupervision(points), desactivations)
+  const transitions = reperes.filter((r) => r.genre !== 'désactivation')
 
   return (
     <section className="card">
@@ -344,7 +359,7 @@ export function HistoryChart({
                   width={54}
                   domain={domain}
                   allowDataOverflow
-                  tickFormatter={(v: number) => v.toFixed(digits)}
+                  tickFormatter={(v: number) => decimal(v, digits)}
                 />
                 <Tooltip
                   contentStyle={{
@@ -356,7 +371,7 @@ export function HistoryChart({
                   }}
                   labelFormatter={(t) => fmtTime(Number(t))}
                   formatter={(value: number) => [
-                    `${value.toFixed(divide > 1 ? 2 : 1)} ${current.unit}`,
+                    `${decimal(value, divide > 1 ? 2 : 1)} ${current.unit}`,
                     current.label,
                   ]}
                 />
@@ -393,6 +408,35 @@ export function HistoryChart({
                     isAnimationActive={false}
                   />
                 )}
+                {trous.map((t) => (
+                  <ReferenceArea
+                    key={`trou-${t.de}`}
+                    x1={t.de}
+                    x2={t.a}
+                    fill="var(--ink-3)"
+                    fillOpacity={0.08}
+                    stroke="none"
+                  />
+                ))}
+                {desactivations.map((d) => (
+                  <ReferenceArea
+                    key={`des-${d.de}`}
+                    x1={d.de}
+                    x2={d.a ?? etendue[1]}
+                    fill="var(--q-inconnu)"
+                    fillOpacity={0.15}
+                    stroke="none"
+                    label={{ value: 'désactivé', position: 'insideTop', fill: 'var(--ink-3)', fontSize: 10 }}
+                  />
+                ))}
+                {transitions.map((r) => (
+                  <ReferenceLine
+                    key={`${r.genre}-${r.de}`}
+                    x={r.de}
+                    stroke={r.genre === 'retour' ? 'var(--q-excellent)' : r.genre === 'coupure' ? 'var(--q-faible)' : 'var(--q-moyen)'}
+                    strokeDasharray="2 3"
+                  />
+                ))}
                 {technos.map((c) => (
                   <ReferenceLine
                     key={`${c.t}-${c.vers}`}
@@ -414,6 +458,25 @@ export function HistoryChart({
             En pointillé, {fmtInt(combles)} point{combles > 1 ? 's' : ''} comblé{combles > 1 ? 's' : ''} par l’historique du
             routeur (un point toutes les 10 s), là où cet outil n’a rien relevé — des mesures
             passées, sans état de connexion.
+          </p>
+        )}
+        {(trous.length > 0 || reperes.length > 0) && (
+          <p className="disclaimer">
+            Sur la courbe :{' '}
+            {[
+              trous.length > 0
+                ? `${trous.length} trou${trous.length > 1 ? 's' : ''} de supervision (`
+                  + trous.slice(0, 6).map((t) => fmtClock(t.de)).join(', ')
+                  + (trous.length > 6 ? ', …' : '')
+                  + ') — zones grisées, le superviseur ne relevait rien'
+                : null,
+              ...desactivations.map((d) => `désactivé par l’exploitant de ${fmtClock(d.de)}`
+                + (d.a ? ` à ${fmtClock(d.a)}` : ', toujours')),
+              ...(() => {
+                const c = transitions.filter((r) => r.genre !== 'retour').length
+                return c > 0 ? [`${c} coupure${c > 1 ? 's' : ''} marquée${c > 1 ? 's' : ''} en pointillé`] : []
+              })(),
+            ].filter(Boolean).join(' · ')}.
           </p>
         )}
         {technos.length > 0 && (

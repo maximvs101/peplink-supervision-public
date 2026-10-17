@@ -13,7 +13,8 @@ import { bondRedundancy } from '../lib/redundancy'
 import { linkVerdict } from '../lib/verdict'
 import { keyFigures } from '../lib/dashboard'
 import { compareWanIds } from '../lib/wanOrder'
-import { fmtUptime } from '../lib/format'
+import { fmtClock, fmtUptime } from '../lib/format'
+import { debutObserve } from '../lib/session'
 import { useDevice } from './DeviceShell'
 
 /**
@@ -42,7 +43,7 @@ import { useDevice } from './DeviceShell'
 export function Overview() {
   const {
     routerId, router, samples, showThroughput, hasTunnel, status, ageSeconds,
-    timeline, events, periodSeconds, health, role, windowLabel, sessions,
+    timeline, events, periodSeconds, health, role, windowLabel, sessions, resume, session,
   } = useDevice()
 
   // Mémorisées sur `samples`. Ces trois dérivations rendent des objets NEUFS à
@@ -131,6 +132,10 @@ export function Overview() {
             attached={diversite.attached}
             role={role}
             tunnelAttendu={router?.tunnel_attendu ?? null}
+            neverConnected={router?.never_connected ?? []}
+            volume={resume && session
+              ? { up: resume.mb_up, down: resume.mb_down, depuis: fmtClock(debutObserve(session)) }
+              : null}
             grievances={griefsDuTunnel}
             routerId={routerId}
             cellGroups={diversite.cellGroups}
@@ -150,6 +155,7 @@ export function Overview() {
             latencyThresholdMs={router?.latency_threshold_ms ?? null}
             radioGrievances={griefsRadio}
             tunnelAttendu={router?.tunnel_attendu ?? null}
+            neverConnected={router?.never_connected ?? []}
           />
 
           {/* Le journal et la fiche technique se partagent la dernière rangée :

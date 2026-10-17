@@ -1032,3 +1032,39 @@ describe('la ligature entre rails non adjacents', () => {
     unmount()
   })
 })
+
+describe('un filaire jamais raccordé dans la table des liens (A-6)', () => {
+  it('a un rail, une étiquette et une bande neutres', () => {
+    const filaire = sample({ wan_id: '2', kind: 'ethernet', connected: false, operator: null,
+      operator_name: null, rat: null, band: null, rsrp: null, rsrq: null, sinr: null,
+      cell_id: null, enb_id: null, status_message: 'No Cable Detected' })
+    const timeline: Timeline = {
+      router_id: 'r', started_at: '2026-10-17T07:00:00Z', ended_at: '2026-10-17T08:00:00Z',
+      capped: false, slice_count: 10, slice_seconds: 360,
+      lanes: [{ wan_id: '2', slices: [{
+        t: 0, samples: 10, up: 0, carrying: 0, tunnel_known: 0, sinr_worst: null, rsrp_worst: null,
+        repair: null, packets: null, disabled: 0,
+      }] }],
+    }
+    const monter = (jamais: string[]) => render(
+      <MemoryRouter>
+        <LinkTable
+          routerId="r" samples={[filaire]} showThroughput hasTunnel={false}
+          sameCell={new Map()} timeline={timeline} windowLabel="Depuis la mise sous tension"
+          churn={[]} latencyThresholdMs={1000} radioGrievances={[]} neverConnected={jamais}
+        />
+      </MemoryRouter>,
+    )
+    const neutre = monter(['2'])
+    const rail = neutre.container.querySelector('tbody .rail') as HTMLElement
+    expect(rail.style.getPropertyValue('--q')).toBe(QUALITY_COLOR.inconnu)
+    expect(neutre.container.querySelector('tbody .tag.is-off')).toBeNull()
+    expect(neutre.container.textContent).toContain('No Cable Detected')
+    expect(neutre.container.innerHTML).not.toContain(QUALITY_COLOR.faible)
+    neutre.unmount()
+    // Un filaire qui TOMBE, lui, reste une panne.
+    const tombe = monter([])
+    expect((tombe.container.querySelector('tbody .rail') as HTMLElement).style.getPropertyValue('--q'))
+      .toBe(QUALITY_COLOR.faible)
+  })
+})

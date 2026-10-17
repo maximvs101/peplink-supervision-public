@@ -268,6 +268,10 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
         <span className="spacer" />
         <span className="badge">{fmtTime(sample.ts)}</span>
       </header>
+      {/* La fenêtre des comptes, dite UNE fois : collée à chaque libellé
+          (« Coupures · depuis 12:51 — sous tension depuis 09:52 »), elle serrait
+          la grille au point de chevaucher le libellé voisin (A-9). */}
+      {windowLabel && <p className="card-window">Comptes {fenetre}.</p>}
 
       <div className="card-body">
         {!wan.connected && wan.disabled ? (
@@ -306,7 +310,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
             <div className="details">
               <Detail label="Adresse" value={wan.ip ?? '—'} />
               <OutboundPriority priority={wan.priority} />
-              <Detail label={`Coupures · ${fenetre}`} value={coupures === null ? null : fmtInt(coupures)} />
+              <Detail label="Coupures" value={coupures === null ? null : fmtInt(coupures)} />
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
               <Detail label="État" value={wan.status_message ?? '—'} />
               {/* La MTU vaut pour tous les supports : une MTU hétérogène entre
@@ -354,7 +358,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
               <Detail label="BSSID" value={wan.wifi?.bssid ?? '—'} />
               <Detail label="Canal" value={fmtId(wan.wifi?.channel)} />
               <Detail label="Bande" value={wan.wifi?.band ?? '—'} />
-              <Detail label={`Coupures · ${fenetre}`} value={coupures === null ? null : fmtInt(coupures)} />
+              <Detail label="Coupures" value={coupures === null ? null : fmtInt(coupures)} />
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
             </div>
 
@@ -417,7 +421,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
               <Detail label="Station (eNodeB)" value={fmtId(wan.enb_id)} />
               <Detail label="Secteur" value={fmtId(wan.sector_id)} />
               <Detail label="TAC" value={fmtId(wan.tac)} />
-              <Detail label={`Changements de cellule · ${fenetre}`} value={sauts === null ? null : fmtInt(sauts)} />
+              <Detail label="Changements de cellule" value={sauts === null ? null : fmtInt(sauts)} />
             </div>
 
             <span className="section-label">Le lien</span>
@@ -426,7 +430,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
                 <Detail label="Débit montant" value={fmtThroughput(wan.tx_kbps)} />
               )}
               <OutboundPriority priority={wan.priority} />
-              <Detail label={`Coupures · ${fenetre}`} value={coupures === null ? null : fmtInt(coupures)} />
+              <Detail label="Coupures" value={coupures === null ? null : fmtInt(coupures)} />
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
               <Detail label="État" value={wan.status_message ?? '—'} />
               {/* Une MTU hétérogène entre liens agrégés est une cause classique

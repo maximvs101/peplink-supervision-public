@@ -319,7 +319,8 @@ _SessionId = Path(..., ge=1, le=_ROWID_MAX, description="Identifiant de session"
 #
 # « À partager » par défaut : ce qu'on remet à un tiers — client, opérateur —
 # pour prouver une intervention. L'opérateur y est nommé par son code réseau,
-# le Wi-Fi n'y laisse ni SSID ni BSSID, la position est arrondie à ~100 m.
+# le Wi-Fi n'y laisse ni SSID ni BSSID, et la position n'y figure pas — arrondie
+# à ~100 m, elle désignait encore le lieu d'intervention (A-12).
 # `complet` ajoute le reste, pour un usage interne. Le nom des WAN (numéros de
 # ligne, ICCID) n'est jamais en base : il ne peut pas fuir d'ici.
 #
@@ -336,9 +337,11 @@ _EXPORT_COLONNES = (
     ("paquets_montants", "packets_up"), ("paquets_descendants", "packets_down"),
     ("latence_lien_ms", "path_latency_ms"), ("bond_montant_kbps", "tunnel_tx_kbps"),
     ("bond_descendant_kbps", "tunnel_rx_kbps"), ("message", None), ("uptime_s", "uptime_s"),
-    ("latitude", None), ("longitude", None),
 )
-_EXPORT_COMPLET = (("operateur_modem", "operator"), ("ssid", "ssid"), ("bssid", "bssid"))
+_EXPORT_COMPLET = (
+    ("operateur_modem", "operator"), ("ssid", "ssid"), ("bssid", "bssid"),
+    ("latitude", "site_lat"), ("longitude", "site_lon"),
+)
 
 
 def _cellule(valeur) -> str:
@@ -392,11 +395,7 @@ def _mettre_en_forme(releves: list[dict], colonnes: list, reseau, complet: bool)
         operateur = nom_du_reseau(r["operator"], reseau(r))
         if wifi and not complet:
             operateur = None
-        position = [r["site_lat"], r["site_lon"]]
-        if not complet:
-            position = [None if v is None else round(float(v), 3) for v in position]
-        calcule = {"operateur": operateur, "message": message,
-                   "latitude": position[0], "longitude": position[1]}
+        calcule = {"operateur": operateur, "message": message}
         lignes.append([_cellule(calcule[nom] if champ is None else r[champ]) for nom, champ in colonnes])
     tampon = io.StringIO()
     csv.writer(tampon, delimiter=";", lineterminator="\n").writerows(lignes)

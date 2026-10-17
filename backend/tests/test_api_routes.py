@@ -523,7 +523,7 @@ async def test_the_sheet_counts_the_filled_radio_points_and_says_how_many(client
 
 async def test_the_session_exports_as_a_csv_shareable_by_default(client):
     """R-3.7 : emporter une session. « À partager » par défaut : opérateur nommé
-    par son code réseau, ni SSID ni BSSID, position arrondie à ~100 m ; le
+    par son code réseau, ni SSID ni BSSID, aucune position (A-12) ; le
     complet ajoute ce qu'un tiers n'a pas à voir. Séparateur « ; » et virgule
     décimale, marque d'encodage : Excel en français l'ouvre tel quel."""
     t0 = datetime(2026, 9, 11, 20, 0, 0, tzinfo=timezone.utc)
@@ -553,11 +553,12 @@ async def test_the_session_exports_as_a_csv_shareable_by_default(client):
     lignes = texte.lstrip("﻿").splitlines()
     entete = lignes[0].split(";")
     assert entete[:3] == ["instant", "wan", "connecte"]
-    assert not {"ssid", "bssid", "operateur_modem"} & set(entete)
+    # Aucune position dans la version à partager, pas même arrondie (A-12).
+    assert not {"ssid", "bssid", "operateur_modem", "latitude", "longitude"} & set(entete)
     sim3 = dict(zip(entete, next(l for l in lignes[1:] if ";3;" in l).split(";"), strict=True))
     assert sim3["operateur"] == "SFR" and sim3["plmn"] == "208-10"
     assert sim3["rsrp"] == "-97,5"
-    assert (sim3["latitude"], sim3["longitude"]) == ("48,857", "2,352")
+    assert "48,857" not in r.text and "2,352" not in r.text
     for trace in ("MonReseau", "02:00:00:00:00:09", "Mobile S Mobile", "89330000", "0600000000"):
         assert trace not in texte
     # Une absence reste une cellule vide, jamais un zéro.
@@ -565,7 +566,7 @@ async def test_the_session_exports_as_a_csv_shareable_by_default(client):
 
     complet = (await client.get(f"/api/sessions/{sid}/export.csv?complet=true")).content.decode("utf-8")
     entete = complet.lstrip("﻿").splitlines()[0].split(";")
-    assert {"ssid", "bssid", "operateur_modem"} <= set(entete)
+    assert {"ssid", "bssid", "operateur_modem", "latitude", "longitude"} <= set(entete)
     assert "48,856614" in complet and "Mobile S Mobile" in complet
     # Le nom du WAN n'est jamais dans la base : il ne peut pas fuir.
     assert "89330000" not in complet

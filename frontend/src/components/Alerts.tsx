@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Alert } from '../types'
 import { fmtClock, fmtUptime } from '../lib/format'
 import { Notes } from './Note'
+import { titreAlerte } from '../lib/alertes'
 
 /**
  * Ce qui demande une décision, et qui n'est pas passé tout seul.
@@ -23,15 +24,13 @@ import { Notes } from './Note'
  *  Le genre vient du serveur sous forme de mot-clé ; l'écran le traduit ici et
  *  nulle part ailleurs. Un genre inconnu — le jour où une quatrième règle
  *  naîtra — s'affiche tel quel plutôt que de disparaître en silence. */
-const LIBELLE: Record<string, { titre: (a: Alert) => string; suite: string }> = {
+const LIBELLE: Record<string, { suite: string }> = {
   'hors du bond': {
-    titre: (a) => `Lien ${a.wan_id} hors du bond`,
     suite:
       'Ce lien est debout et ne porte plus rien. La cause entre parenthèses est ' +
       'le mot du routeur, pas une déduction.',
   },
   'liaison sur un seul lien': {
-    titre: () => 'La liaison ne tient plus que sur un lien',
     suite:
       'L’agrégation ne protège plus de rien : la prochaine perte est une coupure. ' +
       'Cette règle ne s’est jamais déclenchée sur les relevés de référence — elle ' +
@@ -43,14 +42,12 @@ const LIBELLE: Record<string, { titre: (a: Alert) => string; suite: string }> = 
     // sous un bandeau qui disait « portent le trafic en direct » — les deux
     // étaient vrais et se contredisaient, parce que le premier employait le
     // mot de l'autre. Le tunnel ne porte plus rien ; la liaison, peut-être si.
-    titre: () => 'Plus aucun lien dans le bond',
     suite:
       'Tous les liens regardés sont hors du bond : le tunnel ne transporte plus rien, ' +
       'et l’agrégation ne protège plus de rien. Si le trafic sort en direct par les ' +
       'interfaces, la liaison tient — c’est le bandeau qui le dit, pas cette alerte.',
   },
   'connexions admin refusées': {
-    titre: () => 'Connexions admin refusées',
     suite:
       'Le journal du routeur compte des refus de connexion à son interface. Cinq en cinq ' +
       'minutes suspendent l’accès admin pendant cinq minutes — la supervision comprise. ' +
@@ -59,7 +56,6 @@ const LIBELLE: Record<string, { titre: (a: Alert) => string; suite: string }> = 
   'horloge du routeur décalée': {
     // L'écart se mesure contre ce POSTE : le titre ne désigne pas le fautif,
     // le détail le fait quand tous les équipements s'accordent (C-32).
-    titre: () => 'Horloges du routeur et du poste en désaccord',
     suite:
       'L’heure du routeur s’écarte de plus d’une minute de celle de ce poste : l’historique '
       + 'qu’il garde ne peut plus combler les trous, et les faits de son journal ne seraient '
@@ -68,7 +64,6 @@ const LIBELLE: Record<string, { titre: (a: Alert) => string; suite: string }> = 
       + 'pu régler la sienne : vérifier son serveur de temps (NTP) dans son interface.',
   },
   'supervision interrompue': {
-    titre: () => 'La supervision s’est interrompue',
     suite:
       'Pendant ce temps, le routeur a continué de fonctionner sans témoin : ce qui ' +
       's’y est passé n’est ni mesuré ni récupérable. La bande de la fenêtre montre ' +
@@ -171,7 +166,7 @@ function Ligne({ alerte }: { alerte: Alert }) {
   return (
     <li className={close ? 'alerte is-close' : 'alerte'}>
       <b>
-        {mots ? mots.titre(alerte) : alerte.kind}
+        {titreAlerte(alerte)}
         {alerte.detail !== null && <span className="tag is-mono"> {alerte.detail}</span>}
       </b>
       <span className="alerte-quand">

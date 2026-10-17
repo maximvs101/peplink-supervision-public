@@ -17,7 +17,7 @@ from .api.security import HoteDeConfianceMiddleware
 from .config import get_settings
 from .devices.registry import DeviceRegistry
 from .fleet import load_fleet
-from .pairing.service import reconnecter_retenus
+from .pairing.service import Reconnexion
 from .poller import Poller
 from .storage.db import SampleRepository
 
@@ -70,7 +70,11 @@ async def lifespan(app: FastAPI):
     await poller.start()
     # En tâche de fond : un équipement absent du réseau coûte un délai de
     # connexion, qui ne doit pas retarder l'ouverture de l'écran.
-    reconnexion = asyncio.create_task(reconnecter_retenus(registry, repo, poller))
+    # Puis en veille : un équipement retenu qui s'allume APRÈS l'outil est
+    # repris sans clic (A-1).
+    reconnexion = asyncio.create_task(
+        Reconnexion(registry, repo, poller, cadence=settings.poll_interval_seconds).boucle()
+    )
 
     app.state.settings = settings
     app.state.repo = repo

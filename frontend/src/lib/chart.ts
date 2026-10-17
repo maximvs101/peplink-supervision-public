@@ -401,3 +401,60 @@ export function changementsDeTechno(
   }
   return sortie
 }
+
+/** Les trous de supervision qu'une courbe complète laisse vides (A-4), tels
+ *  que `withGaps` les a marqués : du dernier point avant la coupure au premier
+ *  après. La courbe s'interrompait sans dire pourquoi — un redémarrage du
+ *  superviseur et une panne se ressemblaient. */
+export function trousDeSupervision(points: Point[]): { de: number; a: number }[] {
+  const trous: { de: number; a: number }[] = []
+  points.forEach((p, i) => {
+    if (p.value !== null || (p.comble ?? null) !== null) return
+    const avant = points[i - 1]
+    const apres = points[i + 1]
+    if (avant && apres) trous.push({ de: avant.t, a: apres.t })
+  })
+  return trous
+}
+
+/** Les épisodes du journal à poser sur la courbe d'UN lien (A-4) : les
+ *  transitions de connexion, et une désactivation fermée par son retour. Les
+ *  signalements et ce qui sort de la fenêtre tracée restent au journal. */
+export function reperesDuJournal(
+  episodes: { kind: string; wan_id: string | null; at: string }[],
+  wanId: string,
+  [debut, fin]: [number, number],
+): { genre: string; de: number; a: number | null }[] {
+  const GENRES = new Set(['coupure', 'micro-coupure', 'retour', 'désactivation'])
+  const duLien = episodes
+    .filter((e) => e.wan_id === wanId && GENRES.has(e.kind))
+    .map((e) => ({ genre: e.kind, de: new Date(e.at).getTime() }))
+    .filter((e) => e.de >= debut && e.de <= fin)
+    .sort((a, b) => a.de - b.de)
+  return duLien.map((e) => {
+    if (e.genre !== 'désactivation') return { ...e, a: null }
+    const retour = duLien.find((r) => r.genre === 'retour' && r.de > e.de)
+    return { ...e, a: retour ? retour.de : null }
+  })
+}
+
+/** Les trous qu'on DIT (A-4, relu en service le 17/10) : onze trous annoncés
+ *  pour trois heures, dont trois pendant une désactivation qui les explique et
+ *  deux d'un même redémarrage. Ceux qu'une désactivation couvre sont tus ; ceux
+ *  que moins d'une minute sépare n'en font qu'un. */
+export function trousLisibles(
+  trous: { de: number; a: number }[],
+  expliques: { de: number; a: number | null }[],
+  fusion = 60_000,
+): { de: number; a: number }[] {
+  const restants = trous
+    .filter((t) => !expliques.some((e) => t.de >= e.de - fusion && t.a <= (e.a ?? Number.POSITIVE_INFINITY) + fusion))
+    .sort((x, y) => x.de - y.de)
+  const sortie: { de: number; a: number }[] = []
+  for (const t of restants) {
+    const dernier = sortie[sortie.length - 1]
+    if (dernier && t.de - dernier.a <= fusion) dernier.a = Math.max(dernier.a, t.a)
+    else sortie.push({ ...t })
+  }
+  return sortie
+}

@@ -87,6 +87,7 @@ export function WanDetail() {
           wanName={titreCourt}
           kind={sample.wan.kind}
           hasTunnel={hasTunnel}
+          episodes={events?.episodes ?? []}
         />
       </Suspense>
       </ChartBoundary>

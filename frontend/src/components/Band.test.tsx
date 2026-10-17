@@ -144,3 +144,12 @@ describe('le fond d’une tranche', () => {
       .toEqual({ fond: QUALITY_COLOR.moyen, tombe: false })
   })
 })
+
+describe('un lien jamais raccordé (A-6)', () => {
+  it('reste neutre : un câble absent depuis l’allumage est un état, pas une panne', () => {
+    // Vu le 17/10 : le WAN 2 d'un HD2, sans câble depuis l'allumage, peint en
+    // rouge sur toute la session — le papier peint qu'on finit par ignorer.
+    expect(fondDeTranche(tranche({ up: 0 }), 'bon', true))
+      .toEqual({ fond: QUALITY_COLOR.inconnu, tombe: false })
+  })
+})

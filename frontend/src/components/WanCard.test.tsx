@@ -76,8 +76,8 @@ describe('carte d’un lien filaire', () => {
   it('affiche ce qu’un lien filaire porte vraiment', () => {
     render(<WanCard sample={sample(WIRED)} />)
     expect(screen.getByText('10.231.114.2')).toBeInTheDocument()
-    expect(screen.getByText('194.3')).toBeInTheDocument()   // Mbit/s descendants
-    expect(screen.getByText('12.9')).toBeInTheDocument()    // Mbit/s montants
+    expect(screen.getByText('194,3')).toBeInTheDocument()   // Mbit/s descendants
+    expect(screen.getByText('12,9')).toBeInTheDocument()    // Mbit/s montants
     expect(screen.getByText('Connected')).toBeInTheDocument()
   })
 
@@ -231,7 +231,7 @@ describe('perte dans le tunnel, avec son dénominateur', () => {
 
   it('publie le taux quand l’intervalle porte assez de paquets', () => {
     const { container } = withTunnel({ loss_percent_up: 1.25, packets_up: 900 })
-    expect(detailValue(container, 'Perte montante')).toBe('1.25 % · 900 paquets')
+    expect(detailValue(container, 'Perte montante')).toBe('1,25 % · 900 paquets')
   })
 
   it('refuse le taux sous le seuil, et dit sur quoi il aurait porté', () => {
@@ -255,7 +255,7 @@ describe('perte dans le tunnel, avec son dénominateur', () => {
       loss_percent_up: 2, packets_up: 940,
       loss_percent_down: 0, packets_down: 5,
     })
-    expect(detailValue(container, 'Perte montante')).toBe('2.00 % · 940 paquets')
+    expect(detailValue(container, 'Perte montante')).toBe('2,00 % · 940 paquets')
     expect(detailValue(container, 'Perte descendante')).toBe('— · 5 paquets')
   })
 
@@ -354,5 +354,21 @@ describe('un lien désactivé par l’exploitant (C-20)', () => {
     expect(container.textContent).not.toContain('Modem déconnecté')
     const pastille = container.querySelector('.dot') as HTMLElement
     expect(pastille.style.background).toBe('var(--q-inconnu)')
+  })
+})
+
+describe('la fenêtre des comptes, dite une fois (A-9)', () => {
+  it('ne se répète pas dans chaque libellé', () => {
+    // Vu le 17/10 : « Coupures · depuis 12:51 — sous tension depuis 09:52 »
+    // et « Changements de cellule · … » serraient la grille au point de
+    // chevaucher le libellé voisin.
+    const fenetre = 'Depuis 12:51 — sous tension depuis 09:52'
+    const { container } = render(
+      <WanCard sample={sample(WIRED)} windowLabel={fenetre}
+               churn={{ wan_id: '1', link_kind: 'ethernet', stations: 0, cellules: 0, avec_cellule: 0, coupures: 0 } as never} />,
+    )
+    const texte = container.textContent ?? ''
+    expect(texte.split('depuis 12:51').length - 1).toBe(1)
+    expect(screen.getByText('Coupures')).toBeInTheDocument()
   })
 })

@@ -3,15 +3,20 @@ import { Link } from 'react-router-dom'
 
 import type { RadioSample } from '../types'
 import type { KeyFigures } from '../lib/dashboard'
-import { couleurDuLien } from '../lib/quality'
+import { QUALITY_COLOR, couleurDuLien } from '../lib/quality'
 import { accord, ecarteDuBond } from '../lib/verdict'
 import type { Redundancy } from '../lib/redundancy'
 import { porteLeFlux, type BondRole } from '../lib/bondRole'
-import { etiquetteSupport, fini, fmtId, fmtInt, fmtNumber, fmtUptime } from '../lib/format'
+import { decimal, etiquetteSupport, fini, fmtId, fmtInt, fmtNumber, fmtUptime } from '../lib/format'
 import { lienWan } from '../lib/routes'
 import { Note, Notes, Absent } from './Note'
 
 interface Props {
+  /** Volume échangé depuis le premier relevé du stationnement (A-5), et
+   *  l'heure de ce relevé. Absent tant que la fiche n'est pas lue. */
+  volume?: { up: number | null; down: number | null; depuis: string } | null
+  /** Liens jamais raccordés depuis l'allumage : rail neutre, pas rouge (A-6). */
+  neverConnected?: string[]
   samples: RadioSample[]
   figures: KeyFigures
   /** Ce que la redondance du bond dépense — et ce que son silence établit. */
@@ -104,6 +109,7 @@ function thickness(kbps: number | null, top: number): number {
 export function BondPlan({
   samples, figures, redundancy, cells, sites, located, attached, role, grievances,
   tunnelUptimeS, throughputLimitMbps, routerId, cellGroups, tunnelAttendu = null,
+  neverConnected = [], volume = null,
 }: Props) {
   // Le bond porte-t-il le trafic ? Deux témoins, établis par `DeviceShell` :
   // ce que le pair ANNONCE, et ce qui TRANSITE. Le premier seul ne suffisait
@@ -275,7 +281,9 @@ export function BondPlan({
           {samples.map((s, i) => {
             const y = PAD + ROW * i + ROW / 2
             const dessin = trace(y)
-            const colour = couleurDuLien(s.wan)
+            const colour = neverConnected.includes(s.wan.wan_id) && !s.wan.connected
+              ? QUALITY_COLOR.inconnu
+              : couleurDuLien(s.wan)
             // Un état de tunnel NUL veut dire inconnu : on n'accuse pas le lien
             // d'être hors du bond sur une absence de mesure.
             const rejoint = rejoints[i]
@@ -419,6 +427,21 @@ export function BondPlan({
           <span className="v"><Pair up={figures.txKbps} down={figures.rxKbps} /></span>
           <span className="lbl">Mbit/s ↑ / ↓ · interface</span>
         </div>
+
+        {/* Le débit dit l'instant ; le volume dit le stationnement. Seul, le
+            premier affichait « 0,0 » pendant qu'un rapport comptait 1,5 Go
+            descendus sur la même session (A-5). Un volume non mesuré — le
+            Dome ne publie aucun débit par WAN — n'est pas un volume nul. */}
+        {volume && (volume.up !== null || volume.down !== null) && (
+          <div className="tot">
+            <span className="v">
+              {volume.up === null ? <Absent /> : decimal(volume.up, volume.up < 100 ? 1 : 0)}
+              <small> / </small>
+              {volume.down === null ? <Absent /> : decimal(volume.down, volume.down < 100 ? 1 : 0)}
+            </span>
+            <span className="lbl">Mo ↑ / ↓ · depuis {volume.depuis}</span>
+          </div>
+        )}
 
         {/* Le bond à côté, et non à la place : leur ÉCART est l'information.
             Un tunnel monté qui ne transporte rien se lit d'un coup d'œil quand

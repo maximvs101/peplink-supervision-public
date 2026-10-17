@@ -502,7 +502,12 @@ export function Discovery() {
                         {new Date(d.last_seen).toLocaleString('fr-FR')}
                       </td>
                       <td>
-                        {d.host && d.credentials_stored && !supervisedHosts.has(hoteCanonique(d.host)) ? (
+                        {/* Supervisé d'abord : un équipement reconnecté au lancement
+                            restait « Reconnecter » parce que la recherche le voyait
+                            aussi, et un clic relançait une connexion inutile (A-11). */}
+                        {d.host && supervisedHosts.has(hoteCanonique(d.host)) ? (
+                          <span className="sub-note">déjà supervisé</span>
+                        ) : d.host && d.credentials_stored ? (
                           <button
                             className="is-quiet"
                             disabled={reconnexion !== null}
@@ -515,11 +520,7 @@ export function Discovery() {
                             Reconnecter
                           </button>
                         ) : (
-                          <span className="sub-note">
-                            {supervisedHosts.has(hoteCanonique(d.host))
-                              ? 'déjà supervisé'
-                              : 'absent du réseau'}
-                          </span>
+                          <span className="sub-note">absent du réseau</span>
                         )}
                       </td>
                     </tr>

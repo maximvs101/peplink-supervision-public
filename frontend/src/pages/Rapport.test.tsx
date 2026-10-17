@@ -81,11 +81,11 @@ describe('rapport de session, à partager par défaut', () => {
     // client) : la version à partager le tait, sous « position arrondie ».
     expect(container.textContent).not.toContain('Parking nord')
     expect(container.textContent).toContain('8.5.1 build 5714')
-    for (const trace of ['DOME-CLIENT-X', '0000-0000-0042', 'MonReseau', '48.85661']) {
+    // Aucune position, pas même arrondie (A-12) : à ~100 m, elle désignait encore
+    // le lieu d'intervention, et ce rapport sort du poste.
+    for (const trace of ['DOME-CLIENT-X', '0000-0000-0042', 'MonReseau', '48.85661', '48.857', '2.352']) {
       expect(container.textContent).not.toContain(trace)
     }
-    // Position arrondie à ~100 m.
-    expect(container.textContent).toContain('48.857, 2.352')
   })
 
   it('porte la fiche, le journal et une courbe par lien', async () => {

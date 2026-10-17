@@ -19,8 +19,15 @@ import type { Id } from '../types'
 export const fini = (value: number | null | undefined): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
+/** Un nombre décimal à la française : virgule décimale, espace des milliers —
+ *  comme les entiers de `fmtInt`. L'écran écrivait « 0.2 dB » et « 87.7 Mo » à
+ *  côté de « 1 428 o » : deux conventions sur une même page (A-8). Les
+ *  coordonnées GPS gardent le point : « 48,85661, 2,35222 » serait ambigu. */
+export const decimal = (value: number, digits = 1): string =>
+  value.toLocaleString('fr-FR', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+
 export const fmtNumber = (value: number | null | undefined, digits = 1, unit = ''): string =>
-  fini(value) ? `${value.toFixed(digits)}${unit ? ' ' + unit : ''}` : '—'
+  fini(value) ? `${decimal(value, digits)}${unit ? ' ' + unit : ''}` : '—'
 
 export const fmtInt = (value: number | null | undefined): string =>
   fini(value) ? value.toLocaleString('fr-FR') : '—'
@@ -48,8 +55,8 @@ export const fmtId = (value: Id | null | undefined): string => value || '—'
 export function fmtThroughput(kbps: number | null | undefined): string {
   if (!fini(kbps)) return '—'
   return Math.round(kbps) >= 1000
-    ? `${(kbps / 1000).toFixed(1)} Mbit/s`
-    : `${kbps.toFixed(0)} kbit/s`
+    ? `${decimal(kbps / 1000, 1)} Mbit/s`
+    : `${decimal(kbps, 0)} kbit/s`
 }
 
 /** Une durée en secondes -> "2 h 18 min".

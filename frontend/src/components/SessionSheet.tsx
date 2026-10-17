@@ -1,5 +1,5 @@
 import type { SessionSummary } from '../types'
-import { etiquetteSupport, fmtId, fmtInt } from '../lib/format'
+import { decimal, etiquetteSupport, fmtId, fmtInt } from '../lib/format'
 import { Notes } from './Note'
 
 /**
@@ -9,7 +9,7 @@ import { Notes } from './Note'
  * divergent.
  */
 
-const volume = (mo: number | null) => (mo === null ? '—' : mo.toFixed(1))
+const volume = (mo: number | null) => (mo === null ? '—' : decimal(mo, 1))
 
 /** La durée que couvrent `n` points de l'historique du routeur, à 10 s l'un. */
 /** « sur N cycles » : le dénominateur propre à une part de diversité. Tu
@@ -34,11 +34,13 @@ export function SessionSheet({
 }: {
   fiche: SessionSummary
   periodSeconds?: number | null
-  /** « À partager » (rapport, R-3.7) : position arrondie à ~100 m, et pas
-   *  d'opérateur pour un lien Wi-Fi — l'outil y range le SSID. */
+  /** « À partager » (rapport, R-3.7) : aucune position — arrondie à ~100 m,
+   *  elle désignait encore le lieu d'intervention (A-12) —, et pas d'opérateur
+   *  pour un lien Wi-Fi : l'outil y range le SSID. */
   partager?: boolean
 }) {
-  const decimales = partager ? 3 : 5
+  const aBond = fiche.links.some((l) => l.rtt_p50_ms !== null && l.rtt_p50_ms !== undefined)
+  const aRadio = fiche.links.some((l) => l.kind === 'cellular')
   return (
     <>
       <div className="session-sheet-head">
@@ -65,19 +67,15 @@ export function SessionSheet({
             {fiche.sites === 1 ? 'une seule station' : `${fiche.sites} stations`}
           </span>
         )}
-        {fiche.lat !== null && (
+        {fiche.lat !== null && !partager && (
           <span className="badge">
-            {fiche.lat.toFixed(decimales)}, {fiche.lon?.toFixed(decimales)}
-            {/* Arrondie, la position ne porte plus sa dispersion : la dire
-                à ± 12 m laisserait croire à une précision qu'elle n'a plus. */}
-            {partager
-              ? ' · arrondie à ~100 m'
-              : fiche.radius_m !== null && ` ± ${Math.round(fiche.radius_m)} m`}
+            {fiche.lat.toFixed(5)}, {fiche.lon?.toFixed(5)}
+            {fiche.radius_m !== null && ` ± ${Math.round(fiche.radius_m)} m`}
           </span>
         )}
       </div>
       <div className="scroll">
-        <table>
+        <table className="session-table">
           <thead>
             <tr>
               <th>Lien</th><th>Mo ↑</th><th>Mo ↓</th>
@@ -85,19 +83,22 @@ export function SessionSheet({
                   (aller-retour vers le concentrateur) et celle du LIEN,
                   hors tunnel — la seule d'un équipement dont le tunnel ne
                   tient pas (R-3.3). Elles ne visent pas la même cible. */}
-              <th>Bond médian</th><th>Bond p90</th><th>Bond max</th>
+              {/* Sans tunnel mesuré, trois colonnes vides : elles serraient le
+                  rapport au point de coller les volumes (A-7). */}
+              {aBond && <><th>Bond médian</th><th>Bond p90</th><th>Bond max</th></>}
               <th>Lien médian</th><th>Lien p90</th><th>Lien max</th>
               {/* Calculé par `sessions.py`, déclaré dans les types, et
                   rendu nulle part : la colonne manquait, pas la mesure.
                   C'est elle qui distingue un lien faible d'un lien
                   seulement lent — et la médiane, non la moyenne, pour la
                   même raison que le RTT. */}
-              <th>RSRP médian</th>
-              <th>Coupures</th><th>Cellules</th>
+              {aRadio && <th>RSRP médian</th>}
+              <th>Coupures</th>
+              {aRadio && <th>Cellules</th>}
               {/* La colonne du TAUX de brassage n'avait pas d'en-tête : un
                   nombre sans nom en bout de ligne (revue, R-3.8). Même mot
                   qu'au tableau de bord. */}
-              <th>Sauts de cellule / h</th>
+              {aRadio && <th>Sauts de cellule / h</th>}
             </tr>
           </thead>
           <tbody>
@@ -113,11 +114,13 @@ export function SessionSheet({
                 </td>
                 <td className="num">{volume(l.mb_up)}</td>
                 <td className="num">{volume(l.mb_down)}</td>
-                <td className="num">
-                  {l.rtt_p50_ms ?? '—'}<Compte n={l.rtt_samples} />
-                </td>
-                <td className="num">{l.rtt_p90_ms ?? '—'}</td>
-                <td className="num">{l.rtt_max_ms ?? '—'}</td>
+                {aBond && <>
+                  <td className="num">
+                    {l.rtt_p50_ms ?? '—'}<Compte n={l.rtt_samples} />
+                  </td>
+                  <td className="num">{l.rtt_p90_ms ?? '—'}</td>
+                  <td className="num">{l.rtt_max_ms ?? '—'}</td>
+                </>}
                 {/* Le compte voyage avec les percentiles, pour qu'un p90
                     sur trois points ne se lise pas comme un p90 sur trois
                     heures. Sans cadence annoncée : un point / 10 s depuis
@@ -131,7 +134,7 @@ export function SessionSheet({
                 </td>
                 <td className="num">{l.path_latency_p90_ms ?? '—'}</td>
                 <td className="num">{l.path_latency_max_ms ?? '—'}</td>
-                <td className="num">
+                {aRadio && <td className="num">
                   {l.rsrp_median ?? '—'}
                   {/* La médiane couvre toute la session : nos relevés, et
                       l'heure du routeur dans les trous (R-3.1). Elle dit ce
@@ -144,7 +147,7 @@ export function SessionSheet({
                       {' '}dont {dureeComblee(l.rsrp_filled_samples)} comblées
                     </small>
                   )}
-                </td>
+                </td>}
                 <td className="num">
                   {l.outages}
                   {(l.maneuvers ?? 0) > 0 && (
@@ -157,19 +160,19 @@ export function SessionSheet({
                     absence de relevé d'identité — un lien filaire n'en a
                     pas, un modem muet n'en a jamais publié. Les coupures,
                     elles, se comptent vraiment à partir de zéro. */}
-                <td className="num">{l.cells > 0 ? l.cells : '—'}</td>
+                {aRadio && <td className="num">{l.cells > 0 ? l.cells : '—'}</td>}
                 {/* Le TAUX, pas le compte : c'est lui qui se compare d'un
                     lien à l'autre et d'une session à l'autre. Absent sur
                     un lien sans cellule — un filaire ne peut pas en
                     changer, et zéro s'y lirait comme une stabilité. */}
-                <td className="num">
+                {aRadio && <td className="num">
                   {l.cell_changes_per_hour ?? '—'}
                   {l.cell_changes_per_hour !== null && l.cell_changes_per_hour !== undefined && (
                     <small className="sub-note">
                       {' '}· {fmtInt(l.cell_changes)} saut{l.cell_changes > 1 ? 's' : ''}
                     </small>
                   )}
-                </td>
+                </td>}
               </tr>
             ))}
           </tbody>
@@ -313,7 +316,7 @@ export function SessionSheet({
         une mesure
         {periodSeconds === null
           ? ' à la cadence de scrutation'
-          : ` toutes les ${periodSeconds.toFixed(1)} s`}
+          : ` toutes les ${decimal(periodSeconds, 1)} s`}
         , un pic plus court passe entre les mailles — c’est un ordre de grandeur.
       </p>
     </>

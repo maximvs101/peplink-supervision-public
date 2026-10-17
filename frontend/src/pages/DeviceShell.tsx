@@ -3,13 +3,16 @@ import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { Outlet, useLocation, useOutletContext, useParams } from 'react-router-dom'
 
 import {
-  fetchEvents, fetchRouter, fetchSessions, fetchTimeline,
+  fetchEvents, fetchRouter, fetchSessionSummary, fetchSessions, fetchTimeline,
   httpStatus, openLiveSocket, type LiveClosure,
 } from '../api/client'
 import type {
-  DeviceLinkStatus, EventLog, Health, RadioSample, RouterSummary, Session, Timeline,
+  DeviceLinkStatus, EventLog, Health, RadioSample, RouterSummary, Session, SessionSummary,
+  Timeline,
 } from '../types'
 import type { FrameContext } from '../App'
+import { EVENEMENT_PREVENIR } from '../components/PrevenirToggle'
+import { type ModePrevenir, Veilleur, modeMemorise } from '../lib/prevenir'
 import { EcranBoundary } from '../components/EcranBoundary'
 import { Masthead } from '../components/Masthead'
 import { compareWanIds } from '../lib/wanOrder'
@@ -61,6 +64,10 @@ export interface DeviceContext {
   role: BondRole
   /** Ce qui s'est passé pendant cette fenêtre, daté. */
   events: EventLog | null
+  /** La fiche du stationnement en cours : le VOLUME échangé depuis le premier
+   *  relevé. L'écran ne donnait que le débit de l'instant — « 0,0 Mbit/s » à
+   *  côté d'un rapport qui comptait 1,5 Go descendus (A-5). */
+  resume: SessionSummary | null
   /** L'état de santé du serveur, pour ce qui relève du diagnostic et non de
    *  l'exploitation — la décomposition de la cadence, notamment. */
   health: Health | null
@@ -129,6 +136,7 @@ export function DeviceShell() {
   const retire = useRef(false)
   const [timeline, setTimeline] = useState<Timeline | null>(null)
   const [events, setEvents] = useState<EventLog | null>(null)
+  const [resume, setResume] = useState<SessionSummary | null>(null)
 
   const onStatus = useCallback((connected: boolean) => setLive(connected), [])
   const onClosed = useCallback((closure: LiveClosure) => {
@@ -277,6 +285,7 @@ export function DeviceShell() {
     setSession(null)
     setTimeline(null)
     setEvents(null)
+    setResume(null)
 
     // Jeton de séquence, comme sur le flux principal. `cancelled` protège du
     // démontage, pas du DOUBLAGE : cette relecture enchaîne trois requêtes et se
@@ -324,6 +333,14 @@ export function DeviceShell() {
         if (!depasse()) setEvents(journal)
       } catch {
         if (!depasse()) setEvents(null)
+      }
+      // Même cadence que le journal, et même coût (~100 ms sur 4 h 30) ; un
+      // échec ne prive que la tuile du volume.
+      try {
+        const fiche = courante ? await fetchSessionSummary(courante.id) : null
+        if (!depasse()) setResume(fiche)
+      } catch {
+        if (!depasse()) setResume(null)
       }
     }
 
@@ -379,6 +396,25 @@ export function DeviceShell() {
   }, [snapshot, clock])
 
   const router = snapshot?.summary ?? null
+
+  // Le veilleur d'alertes (A-2) : un par équipement ouvert, pour que l'état
+  // d'ouverture serve de référence — ce qui y figure se voit déjà.
+  const veilleur = useRef<Veilleur | null>(null)
+  useEffect(() => {
+    const v = new Veilleur(modeMemorise(), routerId)
+    veilleur.current = v
+    const changer = (e: Event) => v.changerMode((e as CustomEvent<ModePrevenir>).detail)
+    window.addEventListener(EVENEMENT_PREVENIR, changer)
+    return () => {
+      window.removeEventListener(EVENEMENT_PREVENIR, changer)
+      veilleur.current = null
+    }
+  }, [routerId])
+  const nomEquipement = router?.name ?? routerId
+  useEffect(() => {
+    if (router) veilleur.current?.renommer(nomEquipement)
+    if (router) veilleur.current?.observer(router.alerts ?? [])
+  }, [router, nomEquipement])
 
   // Le `Frame` publie l'état de santé du serveur ; on n'en retient que la
   // période de scrutation, dont le seuil de péremption se déduit.
@@ -438,6 +474,7 @@ export function DeviceShell() {
     windowLabel: session ? libelleFenetre(session) : 'Trois dernières heures',
     role,
     events,
+    resume,
     health,
   }
 

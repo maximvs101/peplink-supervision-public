@@ -215,8 +215,11 @@ describe('fiche de session', () => {
     const valeur = (nom: string) => cellules[entetes.indexOf(nom)]
     // Le compte s'écrit à côté de la médiane : un `title` ne s'imprime pas,
     // et c'est là que ce test le cherchait (C-12).
-    expect([valeur('Bond médian'), valeur('Lien médian'), valeur('Lien p90'), valeur('Lien max')])
-      .toEqual(['—', '28 sur 179', '33', '61'])
+    // Sans tunnel mesuré, la colonne du bond n'existe pas (A-7) : trois « — »
+    // ne disaient rien et serraient le reste.
+    expect(entetes).not.toContain('Bond médian')
+    expect([valeur('Lien médian'), valeur('Lien p90'), valeur('Lien max')])
+      .toEqual(['28 sur 179', '33', '61'])
   })
 
   it('dit ce que la médiane de RSRP doit à l’historique du routeur (R-3.1)', async () => {
@@ -446,5 +449,30 @@ describe('ce qui est choisi se voit (C-19)', () => {
   it('la feuille de style met en évidence exactement cette classe', async () => {
     const css = (await import('../index.css?raw')).default as string
     expect(css).toMatch(/\.segmented button\.is-active/)
+  })
+})
+
+describe('la courbe explique ses creux (A-4)', () => {
+  it('dit le trou de supervision et la désactivation qu’elle traverse', async () => {
+    // Vu le 17/10 : la courbe SINR de la SIM 4 s'interrompait à 13:44, 13:51,
+    // 13:58 sans dire qu'il s'agissait de redémarrages du superviseur et d'une
+    // désactivation par l'exploitant.
+    const t = (s: number) => new Date(T0 + s * 1000).toISOString()
+    vi.mocked(fetchHistory).mockResolvedValue({
+      router_id: 'mbx', wan_id: '4', metric: 'sinr', available: 8,
+      points: [0, 6, 12, 18, 138, 144, 150, 156].map((s) => ({ ts: t(s), value: 5 })),
+    })
+    render(chart({
+      episodes: [
+        { kind: 'désactivation', wan_id: '4', link_kind: 'cellular', at: t(140), until: null,
+          samples: 1, peak_ms: null, detail: 'désactivé', after_handover_s: null },
+        { kind: 'retour', wan_id: '4', link_kind: 'cellular', at: t(150), until: null,
+          samples: 1, peak_ms: null, detail: null, after_handover_s: null },
+      ],
+    }))
+    await waitFor(() => expect(screen.getByText(/Sur la courbe/)).toBeInTheDocument())
+    const note = screen.getByText(/Sur la courbe/).textContent ?? ''
+    expect(note).toMatch(/1 trou de supervision/)
+    expect(note).toMatch(/désactivé par l’exploitant/)
   })
 })

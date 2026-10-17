@@ -17,6 +17,7 @@ du réseau où l'on se branche, et le nom est modifiable depuis l'administration
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -223,22 +224,77 @@ async def reconnecter(registry: DeviceRegistry, repo, connu: dict, *, poller=Non
     return record
 
 
-async def reconnecter_retenus(registry: DeviceRegistry, repo, poller) -> None:
-    """Au lancement : une tentative pour chaque équipement dont le trousseau
-    garde les identifiants, et rien d'autre.
+class Reconnexion:
+    """La veille des équipements retenus : au lancement, puis dès qu'ils
+    apparaissent sur le réseau (A-1).
 
-    Ce n'est pas une relance : c'est la tentative que l'exploitant faisait à la
-    main à chaque démarrage, et elle n'est jamais répétée. Un équipement absent
-    du réseau ou qui refuse reste à reconnecter depuis l'écran des équipements.
+    Une seule tentative au lancement ne suffisait pas : le véhicule arrive
+    souvent après l'ouverture de l'outil, le routeur s'allume alors, et il
+    fallait cliquer « Reconnecter ». Chaque équipement retenu mais pas encore
+    supervisé est donc retenté, avec le recul de la scrutation — la cadence,
+    doublée à chaque échec, jusqu'à `_RECUL_MAX_S` — pour qu'un équipement
+    absent ne coûte pas un délai de connexion à chaque tour.
+
+    Un refus d'identifiants arrête tout pour cet équipement : cinq échecs
+    suspendent l'accès admin cinq minutes, et une veille qui insiste
+    verrouillerait le routeur. Elle ne reprend que si le trousseau garde
+    d'AUTRES identifiants — ce qu'une ressaisie y range.
     """
-    from .. import coffre
 
-    for connu in await repo.known_devices():
-        if not connu.get("host") or registry.find_by_serial(connu.get("serial")) is not None:
-            continue
-        if coffre.lire(connu["serial"]) is None:
-            continue
-        try:
-            await reconnecter(registry, repo, connu, poller=poller)
-        except PairingError as exc:
-            logger.info("Reconnexion de %s au lancement : %s", connu.get("name") or connu["serial"], exc)
+    def __init__(self, registry: DeviceRegistry, repo, poller, *, cadence: float) -> None:
+        self._registry, self._repo, self._poller = registry, repo, poller
+        self._cadence = cadence
+        self._prochain: dict[str, float] = {}
+        self._pause: dict[str, float] = {}
+        self._refuses: dict[str, object] = {}
+
+    async def tour(self, maintenant: float) -> None:
+        from .. import coffre
+        from ..poller import _RECUL_MAX_S
+
+        for connu in await self._repo.known_devices():
+            serie = connu.get("serial")
+            if not serie or not connu.get("host"):
+                continue
+            if self._registry.find_by_serial(serie) is not None:
+                self._prochain.pop(serie, None)
+                self._pause.pop(serie, None)
+                continue
+            if maintenant < self._prochain.get(serie, 0.0):
+                continue
+            ident = coffre.lire(serie)
+            if ident is None or self._refuses.get(serie) == ident:
+                continue
+            self._refuses.pop(serie, None)
+            try:
+                await reconnecter(self._registry, self._repo, connu, poller=self._poller)
+            except PairingError as exc:
+                if exc.credentials:
+                    self._refuses[serie] = ident
+                    logger.warning(
+                        "Reconnexion de %s refusée : plus de tentative tant que les identifiants "
+                        "retenus ne changent pas", connu.get("name") or serie,
+                    )
+                else:
+                    pause = min(_RECUL_MAX_S, self._pause.get(serie, self._cadence / 2) * 2)
+                    self._pause[serie] = pause
+                    self._prochain[serie] = maintenant + pause
+                    logger.debug("Reconnexion de %s : %s — prochain essai dans %.0f s",
+                                 connu.get("name") or serie, exc, pause)
+            else:
+                self._pause.pop(serie, None)
+                self._prochain.pop(serie, None)
+                logger.info("Équipement retenu reconnecté : %s", connu.get("name") or serie)
+
+    async def boucle(self) -> None:
+        """Un tour par cadence, pour toujours ; une erreur coûte un tour."""
+        import time
+
+        while True:
+            try:
+                await self.tour(time.monotonic())
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Veille de reconnexion : tour ignoré")
+            await asyncio.sleep(self._cadence)

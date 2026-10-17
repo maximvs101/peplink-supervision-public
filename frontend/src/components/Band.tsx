@@ -22,8 +22,14 @@ export function tranchePorte(tr: TimelineSlice): boolean | null {
  *  relevés tombés sont des désactivations (C-20) n'est pas une panne : le WAN a
  *  été éteint par l'exploitant, et son relevé d'adieu, `connected = 0`, ne se
  *  peint pas du rouge d'une défaillance. */
-export function fondDeTranche(tr: TimelineSlice, q: Quality): { fond: string; tombe: boolean } {
+export function fondDeTranche(
+  tr: TimelineSlice, q: Quality,
+  /** Lien jamais raccordé depuis l'allumage : un état, pas une panne (A-6). Un
+   *  WAN filaire sans câble était peint en rouge sur toute la session. */
+  jamais = false,
+): { fond: string; tombe: boolean } {
   if (tr.up > 0) return { fond: QUALITY_COLOR[q], tombe: false }
+  if (jamais) return { fond: QUALITY_COLOR.inconnu, tombe: false }
   const tombes = tr.samples - tr.disabled
   return tombes > 0
     ? { fond: QUALITY_COLOR.faible, tombe: true }
@@ -47,11 +53,13 @@ export function fondDeTranche(tr: TimelineSlice, q: Quality): { fond: string; to
  * ne regardait pas. Les combler referait le mensonge que tout ce projet combat.
  */
 export function LinkBand({
-  sample, slices, total,
+  sample, slices, total, jamais = false,
 }: {
   sample: RadioSample
   slices: TimelineSlice[]
   total: number
+  /** Jamais raccordé depuis l'allumage : tranches neutres (A-6). */
+  jamais?: boolean
 }) {
   const isWifi = sample.wan.kind === 'wifi'
   const isWired = sample.wan.kind === 'ethernet'
@@ -65,7 +73,7 @@ export function LinkBand({
         // courant : sur un lien cellulaire c'est `pire(tr)` qui note. Pour les
         // autres supports, la règle commune — et un filaire n'a rien à noter.
         const q: Quality = isWired || isWifi ? linkQuality(sample.wan) : pire(tr)
-        const { fond, tombe } = fondDeTranche(tr, q)
+        const { fond, tombe } = fondDeTranche(tr, q, jamais)
         // Le tunnel n'était pas lisible : on ne dessine pas de ruban plutôt que
         // d'affirmer que le lien était écarté.
         const sondee = tranchePorte(tr)

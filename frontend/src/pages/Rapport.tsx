@@ -18,7 +18,7 @@ import type { EventLog as Log, HistorySeries, RouterSummary, SessionLink, Sessio
  * le PDF sort de l'impression du navigateur, sans bibliothèque de plus.
  *
  * « À partager » par défaut : l'équipement par son modèle, sans son nom ni sa
- * série ; la position arrondie à ~100 m ; aucun SSID. `?complet=1` rend le
+ * série ; aucune position (A-12) ; aucun SSID. `?complet=1` rend le
  * reste, pour un usage interne. Les règles de lecture sont celles de l'écran :
  * « — » est une absence, un taux voyage avec son compte.
  */
@@ -129,15 +129,19 @@ export function Rapport() {
         </p>
         {!complet && (
           <p className="disclaimer">
-            Version à partager : l’équipement est désigné par son modèle, la position est
-            arrondie à ~100 m, le nom de la session et les noms de réseau Wi-Fi sont retirés.
+            Version à partager : l’équipement est désigné par son modèle ; la position, le
+            nom de la session et les noms de réseau Wi-Fi sont retirés.
           </p>
         )}
       </header>
 
       <section className="rapport-section">
         <h2>Synthèse</h2>
-        <SessionSheet fiche={fiche} partager={!complet} />
+        {/* Dans son conteneur de fiche : sans lui, la table perdait ses styles —
+            colonnes serrées, chiffres collés, « WAN 1 » coupé (A-10). */}
+        <div className="session-sheet">
+          <SessionSheet fiche={fiche} partager={!complet} />
+        </div>
       </section>
 
       <section className="rapport-section">

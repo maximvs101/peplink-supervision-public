@@ -657,9 +657,11 @@ adresse le reconnaît au lieu d'en créer un doublon.
 Les mots de passe ne sont **jamais** écrits en clair sur le disque. Cochée à l'appairage
 (elle l'est par défaut), « Retenir sur ce poste » les confie au trousseau du système —
 Trousseau sur macOS, Gestionnaire d'identification sur Windows (`app/coffre.py`, paquet
-`keyring`) — sous le service `peplink-supervision`. Au démarrage, chaque équipement retenu
-reçoit **une** tentative de connexion, en tâche de fond ; un refus est affiché et n'est pas
-réessayé. Décochée, l'entrée est effacée ; retirer l'équipement de la supervision l'efface
+`keyring`) — sous le service `peplink-supervision`. Une veille, en tâche de fond, reconnecte
+chaque équipement retenu au démarrage **et dès qu'il apparaît** sur le réseau : tant qu'il ne
+répond pas, elle recule comme la scrutation (3, 6, 12, 24 s, puis toutes les 30 s). Un refus
+d'identifiants l'arrête pour cet équipement — jamais d'essai répété, cinq échecs suspendent
+l'accès admin — jusqu'à ce que le trousseau garde d'autres identifiants. Décochée, l'entrée est effacée ; retirer l'équipement de la supervision l'efface
 aussi. `/api/health` publie le trousseau employé (`coffre`), ou `null` : sans trousseau, les
 identifiants sont à ressaisir à chaque démarrage, comme avant.
 

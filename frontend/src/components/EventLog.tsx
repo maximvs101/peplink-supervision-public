@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import type { EventLog as Log, Episode } from '../types'
 import { QUALITY_COLOR } from '../lib/quality'
+import { regrouperGestes } from '../lib/journal'
 import { fmtInt, fmtNumber, fmtUptime, etiquetteSupport } from '../lib/format'
 import { Note, Notes, Absent } from './Note'
 
@@ -151,6 +152,9 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
   // `?? []` : un journal d'une version antérieure du serveur peut ne pas
   // porter ces listes, et chacune emportait l'écran entier.
   const episodes = log.episodes ?? []
+  // Un geste de l'exploitant en une ligne (A-3). La durée se lit toujours sur
+  // la liste COMPLÈTE : le retour absorbé porte la fin de la désactivation.
+  const { lignes, absorbes } = regrouperGestes(episodes)
   const churn = log.churn ?? []
   const vide = episodes.length === 0 && churn.length === 0
   // Le message du routeur n'existe que sur les transitions — coupure, retour.
@@ -176,17 +180,17 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
           {log.capped && ' · dernières 24 h seulement'}
         </span>
         <span className="spacer" />
-        {episodes.length > 0 && (
+        {lignes.length > 0 && (
           <span className="tag">
-            {episodes.length === 1 ? 'un épisode' : `${episodes.length} épisodes`}
+            {lignes.length === 1 ? 'un épisode' : `${lignes.length} épisodes`}
           </span>
         )}
         {/* Rien n'est masqué en silence : le bouton dit combien restent. */}
-        {episodes.length > PREMIERS && !complet && (
+        {lignes.length > PREMIERS && !complet && (
           <button className="is-quiet" onClick={() => setTout(!tout)}>
             {tout
               ? `Ne montrer que les ${PREMIERS} derniers`
-              : `Voir les ${episodes.length - PREMIERS} autres`}
+              : `Voir les ${lignes.length - PREMIERS} autres`}
           </button>
         )}
       </div>
@@ -200,7 +204,7 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
         </div>
       ) : (
         <>
-          {episodes.length > 0 && (
+          {lignes.length > 0 && (
             <div className="ltable-scroll">
               <table className="ltable">
                 <thead>
@@ -214,10 +218,11 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {(tout ? episodes : episodes.slice(0, PREMIERS)).map((e) => (
+                  {(tout ? lignes : lignes.slice(0, PREMIERS)).map((e) => (
                     <Ligne
                       key={`${e.kind}-${e.wan_id}-${e.at}`}
                       episode={e}
+                      regroupe={absorbes.get(e) ?? []}
                       avecCause={avecCause}
                       // Mesurée entre deux horodatages du SERVEUR — le début
                       // de l'épisode et sa clôture, ou la fin de la fenêtre
@@ -281,9 +286,11 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
 }
 
 function Ligne({
-  episode, avecCause, fin: bout,
+  episode, avecCause, fin: bout, regroupe = [],
 }: {
   episode: Episode
+  /** Ce que cette ligne a absorbé : les étapes d'un geste de l'exploitant. */
+  regroupe?: Episode[]
   avecCause: boolean
   /** Clôture de la transition, quand le genre en admet une. */
   fin: { at: string; enCours: boolean } | null
@@ -311,7 +318,19 @@ function Ligne({
           </b>
         </span>
       </td>
-      <td className="l">{genre.label}</td>
+      <td className="l">
+        {regroupe.some((e) => e.kind === 'retour') ? `${genre.label}, puis reconnecté` : genre.label}
+        {regroupe.length > 0 && (
+          <small
+            className="sub-note"
+            title={regroupe
+              .map((e) => `${new Date(e.at).toLocaleTimeString('fr-FR')} · ${(GENRES[e.kind] ?? { label: e.kind }).label}${e.detail ? ` — ${e.detail}` : ''}`)
+              .join('\n')}
+          >
+            {' '}· {regroupe.length} étape{regroupe.length > 1 ? 's' : ''} regroupée{regroupe.length > 1 ? 's' : ''}
+          </small>
+        )}
+      </td>
       <td className="num">
         {/* Trois cas, et non deux. Un épisode CLOS porte sa durée. Un épisode
             qui dure encore porte le temps écoulé et le dit — sans quoi une

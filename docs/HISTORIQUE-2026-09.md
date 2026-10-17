@@ -988,3 +988,13 @@ coupures. Relu en service après redémarrage : la ligne de 13:51:23 est grise,
 la SIM 4 compte 0 coupure. Reste dit tel quel : la tranche « Connecting... »
 de la réactivation, quelques secondes, est peinte comme un lien tombé — le
 lien ne l'est pas encore revenu.
+
+### 2026-10-17 — Douze améliorations, suivies dans AMELIORATIONS-2026-10-17.md
+
+Tour de l'outil sur le HD2 réel, douze propositions acceptées en bloc et faites
+dans l'ordre A-11, A-12, A-6, A-8, A-7, A-9, A-10, A-5, A-2, A-1, A-3, A-4 —
+le détail, la relecture en service et ce qui n'est tenu que par les tests sont
+dans `docs/AMELIORATIONS-2026-10-17.md`. Deux points restent à voir en vrai :
+une notification du système (A-2) et un équipement qui s'allume après l'outil
+(A-1). Relu en service, A-4 annonçait onze trous dont trois expliqués par la
+désactivation et deux d'un même redémarrage : fusionnés et tus, il en reste six.

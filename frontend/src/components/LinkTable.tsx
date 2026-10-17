@@ -24,6 +24,9 @@ const heure = (iso: string) =>
   new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
 interface Props {
+  /** Liens jamais raccordés depuis l'allumage, tels que le serveur les publie :
+   *  rail, étiquette et bande neutres — un état, pas une panne (A-6). */
+  neverConnected?: string[]
   routerId: string
   samples: RadioSample[]
   showThroughput: boolean
@@ -83,7 +86,7 @@ const PLAGES: Record<string, [number, number]> = {
  */
 export function LinkTable({
   routerId, samples, showThroughput, hasTunnel, sameCell, timeline, windowLabel, churn,
-  latencyThresholdMs, radioGrievances, tunnelAttendu = null,
+  latencyThresholdMs, radioGrievances, tunnelAttendu = null, neverConnected = [],
 }: Props) {
   // Le seuil publié fait foi ; le repli n'est là que le temps que la fiche
   // arrive.
@@ -172,7 +175,7 @@ export function LinkTable({
                   ne se lit pas, et sa seule utilité — savoir si deux modems
                   partagent une cellule — est déjà portée par le marqueur. Ce qui
                   se lit, c'est combien de fois il a changé. */}
-              {cellules && <th scope="col">Sauts de cellule</th>}
+              {cellules && <th scope="col" className="se-replie">Sauts de cellule</th>}
               <th scope="col">Coupures</th>
             </tr>
           </thead>
@@ -194,6 +197,7 @@ export function LinkTable({
                 latencesLien={aLatenceLien ? latencesLien : null}
                 seuilMs={seuilMs}
                 churn={parChurn.get(s.wan.wan_id) ?? null}
+                jamais={neverConnected.includes(s.wan.wan_id) && !s.wan.connected}
               />
             ))}
           </tbody>
@@ -311,8 +315,9 @@ export function LinkTable({
 
 function Row({
   routerId, sample, showThroughput, hasTunnel, cellulaire, wifi, cellules, shares,
-  slices, tranches, latences, latencesLien, churn, seuilMs,
+  slices, tranches, latences, latencesLien, churn, seuilMs, jamais,
 }: {
+  jamais: boolean
   routerId: string
   sample: RadioSample
   showThroughput: boolean
@@ -333,7 +338,7 @@ function Row({
   const { wan } = sample
   const isWifi = wan.kind === 'wifi'
   const isWired = wan.kind === 'ethernet'
-  const colour = couleurDuLien(wan)
+  const colour = jamais ? QUALITY_COLOR.inconnu : couleurDuLien(wan)
   const label = etiquetteSupport(wan.kind)
   // Un état de tunnel nul veut dire INCONNU : on n'accuse pas le lien d'être
   // hors du bond sur une absence de mesure.
@@ -348,7 +353,7 @@ function Row({
       : (wan.operator_name ?? '—')
 
   return (
-    <tr className={wan.connected || wan.disabled ? undefined : 'is-down'}>
+    <tr className={wan.connected || wan.disabled || jamais ? undefined : 'is-down'}>
       {/* `<th scope="row">` et non `<td>` : c'est la cellule qui NOMME la ligne.
           Un lecteur d'écran annonce alors « SIM 4, SINR, 14,2 dB » en parcourant
           la rangée ; avec un `<td>`, il ne dit que « SINR, 14,2 dB » et
@@ -369,12 +374,13 @@ function Row({
         </Link>
       </th>
 
-      <td className="l">
+      <td className="l rattachement">
         {wan.disabled ? (
           // Une décision de l'exploitant, dite sans alarme.
           <span className="tag">désactivé</span>
         ) : !wan.connected ? (
-          <span className="tag is-off">{wan.status_message ?? 'hors service'}</span>
+          // Jamais raccordé : le mot du routeur, sans l'alarme d'une chute (A-6).
+          <span className={jamais ? 'tag' : 'tag is-off'}>{wan.status_message ?? 'hors service'}</span>
         ) : (
           <>
             {wan.rat && <span className="tag">{wan.rat}</span>}{' '}
@@ -415,7 +421,7 @@ function Row({
 
       {slices !== null && (
         <td className="l is-band">
-          <LinkBand sample={sample} slices={slices} total={tranches} />
+          <LinkBand sample={sample} slices={slices} total={tranches} jamais={jamais} />
         </td>
       )}
 

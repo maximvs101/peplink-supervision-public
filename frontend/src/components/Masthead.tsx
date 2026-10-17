@@ -1,3 +1,4 @@
+import { PrevenirToggle } from './PrevenirToggle'
 import { ThemeToggle } from './ThemeToggle'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -80,6 +81,7 @@ export function Masthead({
       />
 
       <div className="mast-tools">
+        <PrevenirToggle />
         <ThemeToggle />
         {/* Le mode n'est PAS global : il est propre à chaque équipement. Un
             routeur réel appairé à chaud s'affichait sous un badge

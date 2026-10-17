@@ -11,6 +11,9 @@ import {
   outOfFrameNote,
   verticalDomain,
   withGaps,
+  trousDeSupervision,
+  trousLisibles,
+  reperesDuJournal,
   type Metric,
 } from './chart'
 
@@ -364,5 +367,44 @@ describe('changements de technologie', () => {
     expect(vus[0].t).toBe(Date.UTC(2026, 8, 24, 16, 12, 15))
     // Sans technologie (débit, tunnel) : aucun repère.
     expect(changementsDeTechno([p(0, null), p(5, null)])).toEqual([])
+  })
+})
+
+describe('ce que la courbe doit expliquer (A-4)', () => {
+  const T = Date.parse('2026-10-17T11:40:00Z')
+  const ep = (kind: string, minutes: number, wan_id: string | null = '4') => ({
+    kind, wan_id, link_kind: 'cellular', at: new Date(T + minutes * 60_000).toISOString(),
+    until: null, samples: 1, peak_ms: null, detail: null, after_handover_s: null,
+  })
+
+  it('situe les trous de supervision que la courbe laisse vides', () => {
+    // Cadence de 6 s, puis un trou de 2 min : le seul trou à dire.
+    const pts = [0, 6, 12, 18, 138, 144, 150].map((s) => ({ t: T + s * 1000, value: 1 }))
+    expect(trousDeSupervision(withGaps(pts))).toEqual([{ de: T + 18_000, a: T + 138_000 }])
+  })
+
+  it('retient les épisodes du lien et de la fenêtre, désactivation fermée par son retour', () => {
+    const reperes = reperesDuJournal([
+      ep('retour', 12), ep('désactivation', 11), ep('coupure', 5, '5'), ep('signalement', 8),
+      ep('coupure', 60),
+    ] as never, '4', [T, T + 30 * 60_000])
+    expect(reperes).toEqual([
+      { genre: 'désactivation', de: T + 11 * 60_000, a: T + 12 * 60_000 },
+      { genre: 'retour', de: T + 12 * 60_000, a: null },
+    ])
+  })
+})
+
+describe('des trous lisibles (A-4, relu en service)', () => {
+  it('fusionne les trous rapprochés et tait ceux qu’une désactivation explique', () => {
+    const m = 60_000
+    const trous = [
+      { de: 0, a: 20_000 }, { de: 50_000, a: 70_000 },        // deux redémarrages en 1 min
+      { de: 10 * m, a: 11 * m },                               // pendant la désactivation
+      { de: 30 * m, a: 31 * m },
+    ]
+    expect(trousLisibles(trous, [{ de: 9 * m, a: 12 * m }])).toEqual([
+      { de: 0, a: 70_000 }, { de: 30 * m, a: 31 * m },
+    ])
   })
 })

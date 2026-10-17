@@ -151,3 +151,20 @@ describe('reconnecter avec les identifiants retenus', () => {
     expect(reconnectKnownDevice).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('un équipement déjà vu et déjà supervisé (A-11)', () => {
+  it('ne propose pas de le reconnecter', async () => {
+    // Vu le 17/10 : le HD2 reconnecté seul au lancement restait « Reconnecter »
+    // dans « Déjà vus » — la condition testait « détecté » avant « supervisé ».
+    vi.mocked(fetchDevices).mockResolvedValue([supervise()])
+    vi.mocked(fetchDiscovery).mockResolvedValue([detecte()])
+    vi.mocked(fetchKnownDevices).mockResolvedValue([{
+      serial: '0000-0000-0063', device_id: '0000-0000-0063', name: 'HD2-ESSAI', host: 'http://10.10.1.1',
+      model: 'MAX HD2', firmware: '8.5.4', first_seen: '2026-09-19T10:00:00Z',
+      last_seen: '2026-10-17T12:00:00Z', credentials_stored: true,
+    }])
+    monter()
+    await screen.findByText('déjà supervisé', { selector: '.sub-note' })
+    expect(screen.queryByRole('button', { name: 'Reconnecter' })).toBeNull()
+  })
+})

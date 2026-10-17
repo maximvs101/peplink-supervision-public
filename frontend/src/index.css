@@ -590,7 +590,7 @@ body {
 
 /* La colonne qui la porte prend la largeur disponible ; les colonnes de mesure
    gardent la leur, puisqu'elles ne portent que des nombres. */
-.ltable th.is-band, .ltable td.is-band { width: 34%; min-width: 220px; }
+.ltable th.is-band, .ltable td.is-band { width: 34%; min-width: 150px; }
 .ltable td.is-band { padding-top: 8px; padding-bottom: 8px; }
 
 .track {
@@ -649,6 +649,14 @@ body {
 }
 
 .ltable thead th.l, .ltable td.l { text-align: left; }
+/* Les en-têtes longs passent à la ligne : la fenêtre de la bande (« Depuis 12:51
+   — sous tension depuis 09:52 ») et « Sauts de cellule » faisaient déborder la
+   table à 1 024 px, la dernière colonne coupée (A-7). */
+.ltable thead th.is-band, .ltable thead th.se-replie { white-space: normal; }
+/* Le mot du routeur d'un lien hors service (« No Cable Detected ») tenait seul
+   la colonne du rattachement à 127 px : il se replie, les autres étiquettes non. */
+.ltable td.rattachement { white-space: normal; }
+.ltable td.rattachement .tag { white-space: normal; display: inline-block; max-width: 9em; }
 
 .ltable tbody td {
   padding: 6px var(--s3);
@@ -1043,6 +1051,7 @@ button.link { background: none; border: 0; padding: 0; color: var(--ink);
   text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
 
 .pairing { margin-top: var(--s3); }
+.card-window { margin: 0; padding: 0 var(--s4) var(--s2); font-size: var(--t-micro); color: var(--ink-3); }
 .pairing-fields { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s3); }
 .pairing-fields label { display: flex; flex-direction: column; gap: var(--s1); }
 .field-label { font-size: var(--t-micro); letter-spacing: 0.14em; text-transform: uppercase;
@@ -1094,7 +1103,9 @@ button.link { background: none; border: 0; padding: 0; color: var(--ink);
    PDF sort de l'impression du navigateur. On redéfinit les JETONS plutôt que
    chaque bloc : fiche, journal et courbes suivent d'eux-mêmes. */
 .rapport {
-  max-width: 760px;
+  /* 760 px coupait la fiche à neuf colonnes ; l'impression, elle, prend la
+     largeur de la page (A-10). */
+  max-width: 960px;
   margin: 0 auto;
   padding-block: 24px;
   padding-inline: 16px;

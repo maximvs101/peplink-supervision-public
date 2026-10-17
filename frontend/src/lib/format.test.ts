@@ -36,7 +36,7 @@ describe('une valeur non finie n’est pas une valeur', () => {
 
   it('n’altère pas une vraie mesure, zéro compris', () => {
     // Le garde ne doit pas avaler le zéro : zéro paquet perdu est une mesure.
-    expect(fmtNumber(0, 2, '%')).toBe('0.00 %')
+    expect(fmtNumber(0, 2, '%')).toBe('0,00 %')
     expect(fmtInt(0)).toBe('0')
     expect(fmtThroughput(0)).toBe('0 kbit/s')
     expect(fmtUptime(0)).toBe('0 s')
@@ -47,8 +47,8 @@ describe('une valeur non finie n’est pas une valeur', () => {
 describe('fmtThroughput', () => {
   it('bascule en Mbit/s à partir de mille', () => {
     expect(fmtThroughput(999)).toBe('999 kbit/s')
-    expect(fmtThroughput(1000)).toBe('1.0 Mbit/s')
-    expect(fmtThroughput(1169)).toBe('1.2 Mbit/s')
+    expect(fmtThroughput(1000)).toBe('1,0 Mbit/s')
+    expect(fmtThroughput(1169)).toBe('1,2 Mbit/s')
   })
 })
 
@@ -125,9 +125,9 @@ describe('les deux seuils qui se lisaient de travers', () => {
     // La comparaison se faisait avant l'arrondi : 999,6 restait sous le seuil,
     // puis `toFixed(0)` rendait « 1000 kbit/s » — une unité de trop, sur une
     // échelle qui n'existe pas.
-    expect(fmtThroughput(999.6)).toBe('1.0 Mbit/s')
+    expect(fmtThroughput(999.6)).toBe('1,0 Mbit/s')
     expect(fmtThroughput(999.4)).toBe('999 kbit/s')
-    expect(fmtThroughput(1000)).toBe('1.0 Mbit/s')
+    expect(fmtThroughput(1000)).toBe('1,0 Mbit/s')
   })
 
   it('refuse l’île nulle', () => {
@@ -158,5 +158,18 @@ describe('fmtId', () => {
     expect(fmtId(null)).toBe('—')
     expect(fmtId(undefined)).toBe('—')
     expect(fmtId('')).toBe('—')
+  })
+})
+
+describe('la virgule décimale (A-8)', () => {
+  it('écrit les décimales comme les entiers : à la française', () => {
+    // « 0.2 dB » et « 87.7 Mo » côtoyaient « 1 428 o » sur la même page.
+    expect(fmtNumber(0.2, 1, 'dB')).toBe('0,2 dB')
+    expect(fmtNumber(1549.9, 1)).toBe('1\u202f549,9')
+    expect(fmtNumber(-88, 1)).toBe('-88,0')
+  })
+
+  it('laisse le point aux coordonnées, où la virgule serait ambiguë', () => {
+    expect(fmtPosition(48.85641, 2.35234)).toBe('48.85641, 2.35234')
   })
 })

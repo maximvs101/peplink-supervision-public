@@ -82,3 +82,31 @@ describe('la disponibilité dit sur quoi elle porte', () => {
     expect(container.textContent).toContain('tous observés')
   })
 })
+
+describe('les colonnes sans objet (A-7)', () => {
+  const entetes = (c: HTMLElement) => [...c.querySelectorAll('thead th')].map((t) => t.textContent)
+
+  it('tait le bond quand aucun lien n’en a de mesure', () => {
+    // Vu le 17/10 sur un HD2 sans tunnel : trois colonnes « Bond » vides, et
+    // un rapport si serré que « 87.2 » et « 1549.9 » se touchaient.
+    const sansBond = { ...lien, rtt_samples: 0, rtt_p50_ms: null, rtt_p90_ms: null, rtt_max_ms: null }
+    const { container } = render(<SessionSheet fiche={{ ...fiche(null), links: [sansBond] }} />)
+    expect(entetes(container).some((t) => /Bond/.test(t ?? ''))).toBe(false)
+    expect(entetes(container)).toContain('Lien médian')
+  })
+
+  it('tait la radio quand aucun lien n’est cellulaire', () => {
+    const filaire = { ...lien, kind: 'ethernet', rsrp_median: null, cells: 0, cell_changes: 0,
+                      cell_changes_per_hour: null }
+    const { container } = render(<SessionSheet fiche={{ ...fiche(null), links: [filaire] }} />)
+    for (const absente of ['RSRP médian', 'Cellules', 'Sauts de cellule / h']) {
+      expect(entetes(container)).not.toContain(absente)
+    }
+    expect(entetes(container)).toContain('Coupures')
+  })
+
+  it('garde tout quand les mesures existent', () => {
+    const { container } = render(<SessionSheet fiche={fiche(null)} />)
+    expect(entetes(container)).toEqual(expect.arrayContaining(['Bond médian', 'RSRP médian', 'Cellules']))
+  })
+})

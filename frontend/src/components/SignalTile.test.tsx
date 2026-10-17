@@ -20,13 +20,13 @@ describe('tuile de mesure', () => {
     // Un débit de 0 Mbit/s sur un lien au repos est normal, pas excellent.
     render(<SignalTile label="Débit descendant" value={0} unit="Mbit/s" />)
     expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
-    expect(screen.getByText('0.0')).toBeInTheDocument()
+    expect(screen.getByText('0,0')).toBeInTheDocument()
   })
 
   it('note une grandeur qui a des seuils', () => {
     render(<SignalTile label="RSRP" value={-88} unit="dBm" quality="bon" />)
     expect(screen.getByText('Bon')).toBeInTheDocument()
-    expect(screen.getByText('-88.0')).toBeInTheDocument()
+    expect(screen.getByText('-88,0')).toBeInTheDocument()
   })
 
   it('masque l’unité quand il n’y a pas de valeur', () => {

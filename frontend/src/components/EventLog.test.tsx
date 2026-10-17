@@ -323,11 +323,52 @@ describe('un lien désactivé par l’exploitant (C-20)', () => {
         windowLabel="Depuis la mise sous tension"
       />,
     )
-    expect(screen.getByText('Désactivé par l’exploitant')).toBeInTheDocument()
+    expect(screen.getByText(/Désactivé par l’exploitant/)).toBeInTheDocument()
     expect(screen.queryByText('Coupure')).not.toBeInTheDocument()
     expect(screen.getByText(/1 min/)).toBeInTheDocument()
+    // Le retour est absorbé dans la ligne du geste (A-3) : une ligne, grise.
     const rails = [...container.querySelectorAll('tbody .rail')]
       .map((r) => (r as HTMLElement).style.getPropertyValue('--q'))
-    expect(rails[1]).toBe(QUALITY_COLOR.inconnu)
+    expect(rails).toEqual([QUALITY_COLOR.inconnu])
+  })
+})
+
+describe('un geste de l’exploitant, en une ligne (A-3)', () => {
+  it('regroupe désactivation, signalements, retour et réévaluations du routeur', () => {
+    // Les six lignes réelles du 17/10 pour UNE désactivation de la SIM 4.
+    const { container } = render(
+      <EventLog
+        log={journal([
+          episode({ kind: 'retour', at: '2026-10-17T11:52:34Z', peak_ms: null, detail: 'Connected to Bouygues' }),
+          episode({ kind: 'signalement', at: '2026-10-17T11:52:29Z', peak_ms: null,
+                    detail: 'Connecting... → Obtaining IP Address...' }),
+          episode({ kind: 'signalement', at: '2026-10-17T11:52:14Z', peak_ms: null, detail: 'désactivé → Connecting...' }),
+          episode({ kind: 'priorités modifiées', at: '2026-10-17T11:52:06Z', peak_ms: null, wan_id: null }),
+          episode({ kind: 'désactivation', at: '2026-10-17T11:51:23Z', peak_ms: null, detail: 'désactivé' }),
+          episode({ kind: 'priorités modifiées', at: '2026-10-17T11:51:11Z', peak_ms: null, wan_id: null }),
+        ])}
+        windowLabel="Depuis la mise sous tension"
+      />,
+    )
+    const lignes = container.querySelectorAll('tbody tr')
+    expect(lignes).toHaveLength(1)
+    expect(lignes[0].textContent).toMatch(/Désactivé par l’exploitant, puis reconnecté/)
+    expect(lignes[0].textContent).toMatch(/1 min/)
+    expect(lignes[0].textContent).toMatch(/5 étapes regroupées/)
+  })
+
+  it('laisse une coupure voisine, d’un autre lien, à sa place', () => {
+    const { container } = render(
+      <EventLog
+        log={journal([
+          episode({ kind: 'retour', at: '2026-10-17T11:52:34Z', peak_ms: null }),
+          episode({ kind: 'coupure', at: '2026-10-17T11:52:00Z', peak_ms: null, wan_id: '5' }),
+          episode({ kind: 'désactivation', at: '2026-10-17T11:51:23Z', peak_ms: null, detail: 'désactivé' }),
+        ])}
+        windowLabel="Depuis la mise sous tension"
+      />,
+    )
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(container.textContent).toMatch(/Coupure/)
   })
 })

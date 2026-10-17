@@ -38,6 +38,20 @@ Mêmes fichiers, même usage. Ce qui change pour l'exploitant :
   par l'exploitant, et la table comme la fiche de session la comptaient
   parmi les coupures. Elle s'écrit « Désactivé par l'exploitant », en gris,
   et ne compte plus.
+- **Lisibilité.** Virgule décimale partout ; un lien jamais raccordé n'est
+  plus peint en rouge ; les colonnes sans objet (bond sans tunnel, radio sans
+  modem) disparaissent ; la table des liens tient à 1 024 px ; la fiche d'un
+  lien dit sa fenêtre une fois ; le rapport est mis en page et ne porte plus
+  aucune position dans sa version à partager, CSV compris.
+- **Le volume du stationnement** s'affiche à côté du débit de l'instant.
+- **Prévenir d'une alerte.** « Alertes : muet · Notifier · Notifier + son »
+  dans le bandeau : une notification du système quand une alerte s'ouvre et
+  que l'onglet est caché.
+- **Un équipement retenu est repris dès qu'il apparaît**, et non plus
+  seulement au lancement ; un refus d'identifiants arrête la veille.
+- **Le journal et la courbe s'expliquent.** Un geste de l'exploitant tient en
+  une ligne ; la courbe d'un lien grise les trous de supervision et marque
+  désactivations et coupures.
 - **Le journal dit l'état d'ouverture.** Un lien déjà hors du bond au premier
   relevé y entre, daté, avec la cause donnée par le routeur.
 - **Icône d'onglet.**
