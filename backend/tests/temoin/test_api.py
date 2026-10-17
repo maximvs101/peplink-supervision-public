@@ -33,8 +33,13 @@ class FauxClient:
     def __init__(self):
         self.radio = [wan("1", "FIBRE-SITE"), wan("2", "ADSL-SITE")]
         self.ferme = False
+        self.lectures = 0
+        self.erreur: Exception | None = None
 
     async def get_radio_status(self, echeance=None):
+        self.lectures += 1
+        if self.erreur is not None:
+            raise self.erreur
         return list(self.radio)
 
     async def get_device_info(self):
@@ -56,6 +61,8 @@ class Reseau:
         self.connexions: list = []
         self.refus: Exception | None = None
         self.clients: list[FauxClient] = []
+        self.radio = None  # WAN publiés par le prochain client
+        self.erreur_liens: Exception | None = None
 
     async def chercher(self, *, depot=None):
         self.recherches += 1
@@ -67,6 +74,9 @@ class Reseau:
             raise self.refus
         await depot.memoriser_equipement(hote, SERIE, MODELE)
         client = FauxClient()
+        if self.radio is not None:
+            client.radio = list(self.radio)
+        client.erreur = self.erreur_liens
         self.clients.append(client)
         return client, DeviceInfo(model=MODELE, serial=SERIE, firmware="8.9.9 build 1")
 
@@ -179,7 +189,11 @@ async def test_le_parcours_va_de_la_recherche_a_la_mesure(api, reseau, depot, te
         "phase": "choix_lien",
         "liens": [{"wan_id": "1", "connecte": True}, {"wan_id": "2", "connecte": True}],
         "modele": MODELE,
+        "lien_retenu": None,
     }
+    # Les liens sont lus une fois, à la connexion : le sondage ne relit pas le routeur.
+    await lire("GET", "/api/etat")
+    assert reseau.clients[0].lectures == 1
 
     r = await lire("POST", "/api/lien", json={"wan_id": "9"})
     assert r.status_code == 422
@@ -448,3 +462,91 @@ async def test_sans_dossier_d_interface_l_api_repond(depot, tmp_path, reseau, te
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
         assert (await c.get("/api/sante")).status_code == 200
+
+
+async def test_le_lien_choisi_est_propose_a_la_connexion_suivante(api, reseau, depot):
+    await api.post("/api/connexion", json={"hote": HOTE})
+    await api.post("/api/lien", json={"wan_id": "2"})
+    await laisser_tourner()
+    assert await depot.lien_de(SERIE) == "2"
+
+    await api.post("/api/connexion", json={"hote": HOTE})
+    etat = (await api.get("/api/etat")).json()
+    # Proposé, pas démarré : c'est l'écran qui décide.
+    assert etat["phase"] == "choix_lien" and etat["lien_retenu"] == "2"
+
+
+async def test_un_lien_retenu_qui_n_est_plus_offert_n_est_pas_propose(api, reseau, depot):
+    await depot.memoriser_lien(SERIE, "3")
+    await api.post("/api/connexion", json={"hote": HOTE})
+    assert (await api.get("/api/etat")).json()["lien_retenu"] is None
+
+
+async def test_un_seul_lien_offert_est_preselectionne(api, reseau):
+    reseau.radio = [wan("4", "FIBRE-SITE")]
+    await api.post("/api/connexion", json={"hote": HOTE})
+    assert (await api.get("/api/etat")).json()["lien_retenu"] == "4"
+
+
+async def test_une_panne_a_la_lecture_des_liens_rend_502_sans_500_ensuite(api, reseau):
+    reseau.erreur_liens = httpx.ConnectError("panne")
+    r = await api.post("/api/connexion", json={"hote": HOTE})
+    assert r.status_code == 502
+    assert reseau.clients[0].ferme is True
+    r = await api.get("/api/etat")
+    assert r.status_code == 200 and r.json()["phase"] == "recherche"
+
+
+async def test_un_refus_a_la_lecture_des_liens_redemande_les_identifiants(api, reseau):
+    reseau.erreur_liens = CredentialsRefusedError("refus")
+    r = await api.post("/api/connexion", json={"hote": HOTE})
+    assert r.status_code == 401
+    assert reseau.clients[0].ferme is True
+    assert (await api.get("/api/etat")).json() == {"phase": "identifiants", "hote": HOTE}
+    assert len(reseau.connexions) == 1
+
+
+async def test_un_echec_de_connexion_efface_la_demande_d_identifiants(api, reseau):
+    reseau.refus = RefusIdentifiants("identifiants requis")
+    await api.post("/api/connexion", json={"hote": HOTE})
+    reseau.refus = Injoignable("Équipement injoignable.")
+    await api.post("/api/connexion", json={"hote": "192.0.2.11"})
+    assert (await api.get("/api/etat")).json()["phase"] == "recherche"
+
+
+async def test_l_observation_dit_lien_introuvable_et_horloge_decalee(
+    depot, interface, reseau, temps
+):
+    class CollecteInquiete(CollecteRefusee):
+        def __init__(self, *a, **kw):
+            self.etat_lien = "introuvable"
+            self.horloge_decalee = True
+
+        async def boucle(self):
+            await asyncio.Event().wait()
+
+    app = fabriquer(depot, interface, reseau, temps, fabrique_collecte=CollecteInquiete)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as c:
+            await c.post("/api/connexion", json={"hote": HOTE})
+            await c.post("/api/lien", json={"wan_id": "1"})
+            await laisser_tourner()
+            corps = (await c.get("/api/observation")).json()
+            assert corps["etat_lien"] == "introuvable" and corps["horloge_decalee"] is True
+
+
+async def test_une_page_tierce_ne_choisit_ni_lien_ni_observation(api, reseau):
+    await api.post("/api/connexion", json={"hote": HOTE})
+    tiers = {"Origin": "https://attaquant.example", "Sec-Fetch-Site": "cross-site"}
+    r = await api.post("/api/lien", json={"wan_id": "1"}, headers=tiers)
+    assert r.status_code == 403
+    assert (await api.get("/api/etat")).json()["phase"] == "choix_lien"
+
+    await api.post("/api/lien", json={"wan_id": "1"})
+    await laisser_tourner()
+    obs = (await api.get("/api/etat")).json()["observation"]
+    r = await api.post("/api/observations/nouvelle", headers=tiers)
+    assert r.status_code == 403
+    assert (await api.get("/api/etat")).json()["observation"] == obs
+

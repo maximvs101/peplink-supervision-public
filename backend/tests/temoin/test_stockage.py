@@ -105,3 +105,35 @@ async def test_l_adresse_retrouve_la_serie(depot):
     assert await depot.serie_de("192.0.2.10") == SERIE
     await depot.memoriser_equipement("192.0.2.10", "SERIE-TEST-2", "Modèle Y")
     assert await depot.serie_de("192.0.2.10") == "SERIE-TEST-2"
+
+
+async def test_le_lien_choisi_se_rappelle_par_equipement(depot):
+    assert await depot.lien_de(SERIE) is None
+    await depot.memoriser_lien(SERIE, "2")
+    await depot.memoriser_lien("SERIE-TEST-2", "1")
+    assert await depot.lien_de(SERIE) == "2"
+    await depot.memoriser_lien(SERIE, "3")
+    assert await depot.lien_de(SERIE) == "3"
+    assert await depot.lien_de("SERIE-TEST-2") == "1"
+
+
+async def test_une_base_d_avant_les_liens_retenus_s_ouvre(tmp_path):
+    import aiosqlite
+
+    chemin = str(tmp_path / "ancienne.db")
+    async with aiosqlite.connect(chemin) as db:
+        await db.executescript(
+            "CREATE TABLE equipements (hote TEXT PRIMARY KEY, serie TEXT NOT NULL,"
+            " modele TEXT);"
+            "INSERT INTO equipements VALUES ('192.0.2.10', 'SERIE-TEST-1', 'Modèle X');"
+        )
+        await db.commit()
+    d = Depot(chemin)
+    await d.connect()
+    try:
+        assert await d.serie_de("192.0.2.10") == SERIE
+        await d.memoriser_lien(SERIE, "1")
+        assert await d.lien_de(SERIE) == "1"
+    finally:
+        await d.close()
+

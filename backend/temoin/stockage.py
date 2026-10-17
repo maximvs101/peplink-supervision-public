@@ -51,6 +51,12 @@ CREATE TABLE IF NOT EXISTS faits (
     UNIQUE (observation, ts, genre, detail)
 );
 CREATE INDEX IF NOT EXISTS idx_faits_obs_ts ON faits (observation, ts);
+-- Table à part (et non une colonne d'`equipements`) : une base déjà créée la
+-- reçoit par CREATE IF NOT EXISTS, sans migration.
+CREATE TABLE IF NOT EXISTS liens_retenus (
+    serie  TEXT PRIMARY KEY,
+    wan_id TEXT NOT NULL
+);
 """
 
 
@@ -221,3 +227,19 @@ class Depot:
         ) as cur:
             ligne = await cur.fetchone()
         return None if ligne is None else ligne["serie"]
+
+    async def memoriser_lien(self, serie: str, wan_id: str) -> None:
+        """Le lien choisi pour cet équipement, proposé à la connexion suivante."""
+        await self._db.execute(
+            "INSERT INTO liens_retenus (serie, wan_id) VALUES (?, ?)"
+            " ON CONFLICT(serie) DO UPDATE SET wan_id = excluded.wan_id",
+            (serie, wan_id),
+        )
+        await self._db.commit()
+
+    async def lien_de(self, serie: str) -> str | None:
+        async with self._db.execute(
+            "SELECT wan_id FROM liens_retenus WHERE serie = ?", (serie,)
+        ) as cur:
+            ligne = await cur.fetchone()
+        return None if ligne is None else ligne["wan_id"]

@@ -102,6 +102,15 @@ class DemandeLien(BaseModel):
     wan_id: str = Field(min_length=1, max_length=16)
 
 
+async def _fermer_client(client) -> None:
+    if client is None:
+        return
+    try:
+        await client.aclose()
+    except Exception:
+        log.exception("Fermeture du client du routeur en échec")
+
+
 class _Session:
     """L'état en mémoire : un routeur, un lien, une collecte au plus."""
 
@@ -122,6 +131,10 @@ class _Session:
         self.wan_id: str | None = None
         self.observation: int | None = None
         self.collecte = None
+        # Les liens lus UNE fois à la connexion : le sondage de l'écran ne
+        # réinterroge pas le routeur.
+        self.liens_proposes: list[dict] = []
+        self.wan_retenu: str | None = None  # le dernier lien choisi pour cet équipement
         self._tache: asyncio.Task | None = None
         self._recherche: tuple[datetime, list[dict]] | None = None
 
@@ -137,12 +150,36 @@ class _Session:
 
     async def connecter(self, hote: str, ident: Identifiants | None, retenir: bool) -> None:
         await self.fermer()
+        self.hote_a_identifier = None
         try:
-            self.client, self.info = await self._connecter(hote, ident, retenir, self.depot)
+            client, info = await self._connecter(hote, ident, retenir, self.depot)
         except connexion.RefusIdentifiants:
             self.hote_a_identifier = hote
             raise
-        self.hote, self.hote_a_identifier = hote, None
+        try:
+            proposes = await self.liens(client)
+        except CredentialsRefusedError:
+            await _fermer_client(client)
+            self.hote_a_identifier = hote
+            raise connexion.RefusIdentifiants(
+                "Identifiants refusés à la lecture des liens."
+            ) from None
+        except Exception as exc:
+            await _fermer_client(client)
+            raise connexion.Injoignable(
+                f"Lecture des liens impossible ({type(exc).__name__})."
+            ) from None
+        self.client, self.info, self.hote = client, info, hote
+        self.liens_proposes = proposes
+        self.wan_retenu = await self.depot.lien_de(info.serial)
+
+    def lien_retenu(self) -> str | None:
+        """Le lien à présélectionner : le dernier choisi s'il est encore offert,
+        sinon le seul offert. L'écran décide ; rien ne démarre ici."""
+        offerts = [str(lien["wan_id"]) for lien in self.liens_proposes]
+        if self.wan_retenu in offerts:
+            return self.wan_retenu
+        return offerts[0] if len(offerts) == 1 else None
 
     async def mesurer(self, wan_id: str, observation: int) -> None:
         await self._arreter_collecte()
@@ -151,18 +188,25 @@ class _Session:
 
     async def _veiller(self) -> None:
         """Fait tourner la collecte ; ne meurt jamais en silence."""
+        moi = asyncio.current_task()
+        client, observation, wan_id = self.client, self.observation, self.wan_id
         while True:
-            self.collecte = self._fabrique(self.client, self.depot, self.observation, self.wan_id)
             try:
+                self.collecte = self._fabrique(client, self.depot, observation, wan_id)
                 await self.collecte.boucle()
                 return
             except CredentialsRefusedError:
                 # Jamais de relance : on redemande les identifiants.
                 log.warning("Identifiants refusés pendant la collecte ; arrêt de la mesure.")
-                self._tache = None
-                hote = self.hote
-                await self.fermer()
-                self.hote_a_identifier = hote
+                async with self.verrou:
+                    # Une connexion ou une mesure plus récente a pu prendre la
+                    # place : on ne touche alors à rien.
+                    if self._tache is not moi or self.client is not client:
+                        return
+                    self._tache = None
+                    hote = self.hote
+                    await self.fermer()
+                    self.hote_a_identifier = hote
                 return
             except Exception:
                 log.exception("Collecte interrompue ; reprise dans %.0f s", RELANCE_S)
@@ -184,12 +228,9 @@ class _Session:
     async def fermer(self) -> None:
         await self._arreter_collecte()
         client, self.client = self.client, None
-        self.info = self.hote = None
-        if client is not None:
-            try:
-                await client.aclose()
-            except Exception:
-                log.exception("Fermeture du client du routeur en échec")
+        self.info = self.hote = self.wan_retenu = None
+        self.liens_proposes = []
+        await _fermer_client(client)
 
     def modele(self) -> str | None:
         return self.info.model if self.info is not None else None
@@ -199,8 +240,8 @@ class _Session:
             return {"phase": "mesure", "observation": self.observation,
                     "lien": _lien(self.wan_id), "modele": self.modele()}
         if self.client is not None:
-            return {"phase": "choix_lien", "liens": await self.liens(self.client),
-                    "modele": self.modele()}
+            return {"phase": "choix_lien", "liens": self.liens_proposes,
+                    "modele": self.modele(), "lien_retenu": self.lien_retenu()}
         if self.hote_a_identifier is not None:
             return {"phase": "identifiants", "hote": self.hote_a_identifier}
         return {"phase": "recherche", "equipements": await self.equipements()}
@@ -271,24 +312,29 @@ def creer_app(
     @app.post("/api/lien", dependencies=[Depends(_meme_poste)])
     async def poster_lien(demande: DemandeLien) -> dict:
         async with session.verrou:
-            if session.client is None:
+            client, info = session.client, session.info
+            if client is None or info is None:
                 raise HTTPException(409, "Aucun équipement connecté.")
-            proposes = {str(lien["wan_id"]) for lien in await session.liens(session.client)}
+            proposes = {str(lien["wan_id"]) for lien in session.liens_proposes}
             if demande.wan_id not in proposes:
                 raise HTTPException(422, "Ce lien n'est pas un WAN Ethernet de l'équipement.")
-            obs = await depot.observation_courante(
-                session.info.serial, demande.wan_id, horloge()
-            )
+            obs = await depot.observation_courante(info.serial, demande.wan_id, horloge())
+            await depot.memoriser_lien(info.serial, demande.wan_id)
+            if session.client is not client:
+                raise HTTPException(409, "La connexion à l'équipement a changé.")
+            session.wan_retenu = demande.wan_id
             await session.mesurer(demande.wan_id, obs)
             return {"observation": obs, "lien": _lien(demande.wan_id)}
 
     @app.post("/api/observations/nouvelle", dependencies=[Depends(_meme_poste)])
     async def nouvelle() -> dict:
         async with session.verrou:
-            if session.client is None or session.observation is None:
+            client, info, wan_id = session.client, session.info, session.wan_id
+            if client is None or info is None or session.observation is None:
                 raise HTTPException(409, "Aucune mesure en cours.")
-            wan_id = session.wan_id
-            obs = await depot.nouvelle_observation(session.info.serial, wan_id, horloge())
+            obs = await depot.nouvelle_observation(info.serial, wan_id, horloge())
+            if session.client is not client:
+                raise HTTPException(409, "La connexion à l'équipement a changé.")
             await session.mesurer(wan_id, obs)
             return {"observation": obs, "lien": _lien(wan_id)}
 
