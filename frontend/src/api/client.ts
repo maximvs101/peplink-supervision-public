@@ -60,13 +60,18 @@ export async function pairDevice(body: PairRequest): Promise<DeviceStatus> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null)
-    const error = new Error(detail?.detail ?? `Échec de l'appairage (${response.status})`)
-    ;(error as Error & { credentials?: boolean }).credentials = response.status === 401
-    throw error
-  }
+  if (!response.ok) throw await erreurAppairage(response)
   return (await response.json()) as DeviceStatus
+}
+
+/** L'erreur d'un appairage, avec `credentials` pour un refus d'identifiants
+ *  (401) — l'écran décide ainsi s'il faut corriger un mot de passe ou un câble,
+ *  et `status` pour le cas « rien de retenu » (409) de la reconnexion. */
+async function erreurAppairage(response: Response): Promise<Error> {
+  const detail = await response.json().catch(() => null)
+  const error = new Error(detail?.detail ?? `Échec de l'appairage (${response.status})`)
+  Object.assign(error, { credentials: response.status === 401, status: response.status })
+  return error
 }
 
 /**
@@ -104,11 +109,20 @@ export async function unpairDevice(deviceId: string): Promise<void> {
 export const fetchRouter = (routerId: string) =>
   getJson<RouterSummary>(`/api/routers/${encodeURIComponent(routerId)}`)
 
-/** Équipements déjà appairés depuis cette machine. Le mot de passe n'y est pas :
- *  tant qu'aucun coffre chiffré n'existe, le garder en clair serait pire que de
- *  le redemander. */
+/** Équipements déjà appairés depuis cette machine. Le mot de passe n'y est
+ *  jamais : `credentials_stored` dit seulement si le trousseau le garde. */
 export const fetchKnownDevices = () =>
   getJson<KnownDevice[]>('/api/devices/known')
+
+/** Reconnecte un équipement déjà vu avec les identifiants du trousseau. Une
+ *  tentative, comme l'appairage ; l'erreur porte `credentials` pour un refus. */
+export async function reconnectKnownDevice(serial: string): Promise<DeviceStatus> {
+  const response = await fetch(`/api/devices/known/${encodeURIComponent(serial)}/reconnect`, {
+    method: 'POST',
+  })
+  if (!response.ok) throw await erreurAppairage(response)
+  return response.json()
+}
 
 /** Ce que chaque lien a fait pendant la fenêtre, en tranches de temps égales.
  *

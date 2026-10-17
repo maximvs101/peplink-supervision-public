@@ -11,7 +11,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..discovery.probe import discover
-from ..pairing.service import PairingError, pair
+from .. import coffre
+from ..pairing.service import PairingError, pair, reconnecter
 from ..peplink.router_api import (
     CredentialsRefusedError, EndpointRefusedError, hote_canonique, parse_peers, redact,
 )
@@ -221,6 +222,9 @@ async def health(request: Request) -> dict:
     return {
         "status": "ok",
         "mode": state.settings.peplink_mode,
+        # Le trousseau du système qui retient les identifiants, ou null : sans
+        # lui, ils sont à ressaisir à chaque lancement (`app/coffre.py`).
+        "coffre": coffre.nom_du_trousseau(),
         "routers": len(state.poller.fleet),
         # La CONSIGNE : la pause entre deux cycles, telle qu'elle est configurée.
         "poll_interval_seconds": state.settings.poll_interval_seconds,
@@ -270,10 +274,14 @@ async def known_devices(request: Request) -> list[dict]:
     La table était écrite à chaque appairage et lue une seule fois, pour une ligne
     de journal au démarrage. L'exploitant qui rallume au matin ne voyait donc
     nulle part « GC-MBX-EXT8-F634, vu hier à 15 h 53 » : il devait relancer une
-    découverte et tout retaper. Le mot de passe, lui, reste à ressaisir — tant
-    qu'aucun coffre chiffré n'existe, le garder en clair serait pire.
+    découverte et tout retaper. Le mot de passe n'est jamais en base : il est
+    au trousseau du système quand l'exploitant l'a voulu, à ressaisir sinon.
     """
-    return await request.app.state.repo.known_devices()
+    # Ce que le trousseau garde se dit par un booléen, jamais par son contenu.
+    return [
+        {**c, "credentials_stored": coffre.lire(c["serial"]) is not None}
+        for c in await request.app.state.repo.known_devices()
+    ]
 
 
 @router.get("/routers/{router_id}/sessions", response_model=list[Session])
@@ -834,6 +842,9 @@ class PairRequest(BaseModel):
     client_id: str | None = None
     client_secret: str | None = None
     verify_ssl: bool = False
+    # Retenir les identifiants dans le trousseau du système (`app/coffre.py`).
+    # Faux par défaut : seul un choix explicite écrit quelque part.
+    remember: bool = False
 
 
 # Ce qu'une capture a le droit de lire, et rien d'autre. La famille `config.*`
@@ -978,8 +989,8 @@ async def pair_device(body: PairRequest, request: Request) -> DeviceStatus:
     l'équipement pendant cinq minutes, y compris avec les bons identifiants.
 
     Les identifiants restent en mémoire pour la durée de la session. Ils ne sont
-    pas écrits sur le disque tant qu'un coffre chiffré n'existe pas — les garder
-    en clair serait pire que de les redemander.
+    jamais écrits en clair : `remember` les confie au trousseau du système
+    (`app/coffre.py`), et son absence efface ce qu'il gardait.
     """
     state = request.app.state
     try:
@@ -1001,11 +1012,49 @@ async def pair_device(body: PairRequest, request: Request) -> DeviceStatus:
             serial=record.info.serial, device_id=record.id, name=record.config.name,
             host=record.config.host, model=record.info.model, firmware=record.info.firmware,
         )
+        # Décoché, c'est aussi un choix : l'entrée d'un appairage précédent est
+        # effacée plutôt que laissée à une valeur que l'exploitant croit oubliée.
+        if body.remember:
+            coffre.retenir(record.info.serial, coffre.Identifiants(
+                username=body.username, password=body.password,
+                client_id=body.client_id, client_secret=body.client_secret,
+            ))
+        else:
+            coffre.oublier(record.info.serial)
+    return _statut(record)
+
+
+def _statut(record) -> DeviceStatus:
     return DeviceStatus(
         id=record.id, name=record.config.name, host=record.config.host,
         serial=record.config.serial, mode="router", source=record.config.source,
         status=record.status, error=record.error, device=record.info,
     )
+
+
+@router.post(
+    "/devices/known/{serial}/reconnect",
+    response_model=DeviceStatus,
+    dependencies=[Depends(require_loopback)],
+)
+async def reconnect_known_device(serial: str, request: Request) -> DeviceStatus:
+    """Réappaire un équipement déjà vu avec les identifiants du trousseau.
+
+    Une tentative, comme l'appairage : 401 pour un refus, 502 pour un
+    équipement injoignable, 409 quand rien n'est retenu — l'interface ouvre
+    alors le formulaire.
+    """
+    state = request.app.state
+    connu = next((c for c in await state.repo.known_devices() if c["serial"] == serial), None)
+    if connu is None or not connu.get("host"):
+        raise HTTPException(status_code=404, detail="Équipement inconnu de ce poste.")
+    if coffre.lire(serial) is None:
+        raise HTTPException(status_code=409, detail="Aucun identifiant retenu pour cet équipement.")
+    try:
+        record = await reconnecter(state.registry, state.repo, connu, poller=state.poller)
+    except PairingError as exc:
+        raise HTTPException(status_code=401 if exc.credentials else 502, detail=str(exc)) from exc
+    return _statut(record)
 
 
 @router.post("/devices/{device_id}/reauth", dependencies=[Depends(require_loopback)])
@@ -1053,4 +1102,5 @@ async def unpair_device(device_id: str, request: Request) -> dict:
     state.poller.forget(device_id)
     if serial:
         await state.repo.forget_device(serial)
+        coffre.oublier(serial)
     return {"removed": device_id}

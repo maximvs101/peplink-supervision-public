@@ -931,3 +931,30 @@ ne se masque jamais : elle demande une décision. Une alerte nouvelle n'a pas
 été vue et se montre. Le choix tient pour la session du navigateur
 (`sessionStorage`), pour qu'un retour depuis le détail d'un lien ne le
 défasse pas ; un stockage refusé ne casse rien.
+
+### 2026-10-17 — v0.1.2 : identifiants au trousseau, état d'ouverture au journal
+
+- **Coffre** (`app/coffre.py`, paquet `keyring`) : les identifiants vont au
+  trousseau du système quand « Retenir sur ce poste » est coché (par défaut),
+  une entrée par numéro de série, sous le service `peplink-supervision`. Ils
+  ne sortent ni par l'API — `/api/devices/known` ne publie qu'un booléen
+  `credentials_stored` — ni par un journal. Au lancement, une tentative par
+  équipement retenu, en tâche de fond ; `POST /api/devices/known/{serie}/reconnect`
+  pour l'écran (401 refus, 502 injoignable, 409 rien de retenu). Décoché ou
+  équipement retiré : entrée effacée. Trousseau absent : comportement d'avant.
+  `/api/health` publie le trousseau employé (`coffre`) ; l'exécutable embarque
+  les backends de `keyring` (points d'entrée et métadonnées) et le vérificateur
+  exige un trousseau vu sur macOS et Windows. Les tests imposent le backend
+  `fail` : ils ne touchent jamais le trousseau du poste.
+- **Journal** : un lien debout et hors du bond au PREMIER relevé de la fenêtre
+  n'avait pas de bascule, donc pas d'épisode — l'alerte le disait, le journal
+  non (vu le 30/09). Il entre désormais, daté du premier relevé, avec
+  « <mot du routeur> · dès le premier relevé ». Lu sur la connexion du journal
+  (C-31). La fixture rejouée du HD2 (pair injoignable) en gagne trois lignes.
+- **httpx2** : le client de test de Starlette 1.7 l'attend ; l'application
+  parle toujours aux routeurs avec `httpx`. Plus d'avertissement.
+- **Cases à cocher du formulaire d'appairage** : `.pairing input` leur donnait
+  les 190 px d'un champ de saisie, la coche flottait loin de son libellé —
+  vu sur « Retenir sur ce poste », et déjà vrai pour « Vérifier le certificat
+  TLS ». Éprouvé en service : identifiants retenus à l'appairage, puis le HD2
+  reconnecté seul 5 s après le redémarrage du serveur, sans saisie.

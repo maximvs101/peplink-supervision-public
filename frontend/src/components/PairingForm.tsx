@@ -32,6 +32,9 @@ export function PairingForm({ host, onPaired, onCancel }: Props) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [verifierCert, setVerifierCert] = useState(false)
+  // Cochée par défaut : le trousseau du système est le coffre chiffré qu'on
+  // attendait pour ne plus tout ressaisir à chaque lancement (octobre 2026).
+  const [retenir, setRetenir] = useState(true)
   const [error, setError] = useState<{ message: string; credentials: boolean } | null>(null)
 
   // Le mode CLIENT était inatteignable : le formulaire affichait ses deux
@@ -68,8 +71,9 @@ export function PairingForm({ host, onPaired, onCancel }: Props) {
     pairDevice(
       mode === 'client'
         ? { host, client_id: clientId, client_secret: clientSecret,
-            name: name || undefined, verify_ssl: verifierCert }
-        : { host, username, password, name: name || undefined, verify_ssl: verifierCert },
+            name: name || undefined, verify_ssl: verifierCert, remember: retenir }
+        : { host, username, password, name: name || undefined, verify_ssl: verifierCert,
+            remember: retenir },
     )
       .then(onPaired)
       .catch((err: Error & { credentials?: boolean }) =>
@@ -175,6 +179,19 @@ export function PairingForm({ host, onPaired, onCancel }: Props) {
           <span>Vérifier le certificat TLS de l’équipement</span>
         </label>
       )}
+
+      <label className="pairing-check">
+        <input
+          type="checkbox"
+          checked={retenir}
+          onChange={(e) => setRetenir(e.target.checked)}
+          disabled={busy}
+        />
+        <span>
+          Retenir sur ce poste, dans le trousseau chiffré du système. Décoché, ce qui
+          était retenu est effacé.
+        </span>
+      </label>
 
       {error && (
         <div className={`notice ${error.credentials ? 'error' : 'warn'}`}>

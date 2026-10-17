@@ -195,3 +195,50 @@ async def _identifier_puis_enregistrer(
         "Équipement appairé : %s · %s · série %s", config.name, info.model or "?", info.serial
     )
     return record
+
+
+async def reconnecter(registry: DeviceRegistry, repo, connu: dict, *, poller=None) -> DeviceRecord:
+    """Réappaire un équipement déjà vu, avec les identifiants du trousseau.
+
+    La même règle que l'appairage : UNE tentative, et un refus remonte tel quel.
+    Une entrée refusée n'est pas effacée — l'exploitant corrige en ressaisissant,
+    et le formulaire la remplace.
+    """
+    from .. import coffre
+
+    ident = coffre.lire(connu["serial"])
+    if ident is None:
+        raise PairingError("Aucun identifiant retenu pour cet équipement.", credentials=True)
+    record = await pair(
+        registry, connu["host"],
+        username=ident.username, password=ident.password,
+        client_id=ident.client_id, client_secret=ident.client_secret,
+        name=connu.get("name"), poller=poller,
+    )
+    if record.info and record.info.serial:
+        await repo.remember_device(
+            serial=record.info.serial, device_id=record.id, name=record.config.name,
+            host=record.config.host, model=record.info.model, firmware=record.info.firmware,
+        )
+    return record
+
+
+async def reconnecter_retenus(registry: DeviceRegistry, repo, poller) -> None:
+    """Au lancement : une tentative pour chaque équipement dont le trousseau
+    garde les identifiants, et rien d'autre.
+
+    Ce n'est pas une relance : c'est la tentative que l'exploitant faisait à la
+    main à chaque démarrage, et elle n'est jamais répétée. Un équipement absent
+    du réseau ou qui refuse reste à reconnecter depuis l'écran des équipements.
+    """
+    from .. import coffre
+
+    for connu in await repo.known_devices():
+        if not connu.get("host") or registry.find_by_serial(connu.get("serial")) is not None:
+            continue
+        if coffre.lire(connu["serial"]) is None:
+            continue
+        try:
+            await reconnecter(registry, repo, connu, poller=poller)
+        except PairingError as exc:
+            logger.info("Reconnexion de %s au lancement : %s", connu.get("name") or connu["serial"], exc)

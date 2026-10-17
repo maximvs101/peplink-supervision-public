@@ -498,7 +498,41 @@
   "started_at": "2026-09-19T11:01:27Z",
   "ended_at": "2026-09-19T11:01:37Z",
   "capped": false,
-  "episodes": [],
+  "episodes": [
+   {
+    "kind": "hors du bond",
+    "after_handover_s": null,
+    "wan_id": "1",
+    "link_kind": "ethernet",
+    "at": "2026-09-19T11:01:27Z",
+    "until": null,
+    "samples": 1,
+    "peak_ms": null,
+    "detail": "PEER_DOWN · dès le premier relevé"
+   },
+   {
+    "kind": "hors du bond",
+    "after_handover_s": null,
+    "wan_id": "4",
+    "link_kind": "cellular",
+    "at": "2026-09-19T11:01:27Z",
+    "until": null,
+    "samples": 1,
+    "peak_ms": null,
+    "detail": "PEER_DOWN · dès le premier relevé"
+   },
+   {
+    "kind": "hors du bond",
+    "after_handover_s": null,
+    "wan_id": "5",
+    "link_kind": "cellular",
+    "at": "2026-09-19T11:01:27Z",
+    "until": null,
+    "samples": 1,
+    "peak_ms": null,
+    "detail": "PEER_DOWN · dès le premier relevé"
+   }
+  ],
   "churn": [
    {
     "wan_id": "1",

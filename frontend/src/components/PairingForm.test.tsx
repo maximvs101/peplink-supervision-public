@@ -35,8 +35,20 @@ describe('appairage par compte admin', () => {
 
     expect(pairDevice).toHaveBeenCalledWith({
       host: '192.0.2.1', username: 'admin', password: 'secret', name: undefined,
-      verify_ssl: false,
+      verify_ssl: false, remember: true,
     })
+  })
+})
+
+describe('retenir les identifiants sur ce poste', () => {
+  it('est proposé, coché par défaut, et se décoche', () => {
+    render(<PairingForm host="192.0.2.1" onPaired={() => {}} onCancel={() => {}} />)
+    const caseRetenir = screen.getByRole('checkbox', { name: /Retenir sur ce poste/ })
+    expect(caseRetenir).toBeChecked()
+    fireEvent.click(caseRetenir)
+    saisir('Mot de passe', 'secret')
+    fireEvent.click(bouton())
+    expect(vi.mocked(pairDevice).mock.calls[0][0]).toMatchObject({ remember: false })
   })
 })
 
@@ -62,7 +74,7 @@ describe('appairage par client API', () => {
 
     expect(pairDevice).toHaveBeenCalledWith({
       host: '192.0.2.1', client_id: 'lecture-seule', client_secret: 'jeton', name: undefined,
-      verify_ssl: false,
+      verify_ssl: false, remember: true,
     })
     const envoye = vi.mocked(pairDevice).mock.calls[0][0] as unknown as Record<string, unknown>
     expect(envoye.username).toBeUndefined()

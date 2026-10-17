@@ -4,6 +4,37 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
+## v0.1.2 — Recette face à un MAX HD2 réel
+
+Mêmes fichiers, même usage. Ce qui change pour l'exploitant :
+
+- **La bande ne s'invente plus de trous.** Sur un routeur en HTTP, la cadence
+  de scrutation varie du simple au double ; une tranche de bande plus fine que
+  l'écart réel entre deux relevés restait vide, et chaque vide coupait un état
+  immobile en épisodes — « redondance réduite 24 fois » en vingt minutes. Les
+  tranches valent désormais au moins deux périodes de scrutation.
+- **Un équipement éteint reste lisible.** Ses stationnements enregistrés sont
+  listés, vers leur rapport ; le bandeau ne renvoie plus à des « valeurs
+  affichées » qui n'existent pas, et ne dit plus « jamais mesuré » d'un
+  équipement dont la base garde l'historique. Le détail d'un lien ne promet
+  plus de « première mesure » à un équipement injoignable.
+- **L'ouverture mène à l'équipement qui répond**, plus au premier du fichier
+  de flotte quand il est éteint.
+- **Alertes.** « 5 seul sur 3 » devient « lien 5 seul, sur 3 liens » ; les
+  alertes résolues se masquent d'un bouton, le temps de la session du
+  navigateur — une alerte en cours, jamais.
+- **Les identifiants se retiennent.** « Retenir sur ce poste », coché par
+  défaut à l'appairage, les range dans le trousseau du système — Trousseau sur
+  macOS, Gestionnaire d'identification sur Windows —, jamais en clair sur le
+  disque. Au lancement, chaque équipement retenu reçoit une tentative de
+  connexion ; « Reconnecter » se fait sans formulaire. Décocher, ou retirer
+  l'équipement, efface ce qui était retenu.
+- **Le journal dit l'état d'ouverture.** Un lien déjà hors du bond au premier
+  relevé y entre, daté, avec la cause donnée par le routeur.
+- **Icône d'onglet.**
+
+Détail : `docs/HISTORIQUE-2026-09.md`, entrées du 30/09 et du 17/10.
+
 ## v0.1.1 — Revue d'exploitation, relecture complète, Windows rétabli
 
 Mêmes fichiers, même usage que la version précédente. Ce qui change pour l'exploitant :

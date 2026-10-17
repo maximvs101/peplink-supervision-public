@@ -1697,6 +1697,40 @@ async def test_a_link_can_leave_the_bond_while_staying_connected(tmp_path):
     await repo.close()
 
 
+async def test_a_link_already_out_of_the_bond_at_the_first_reading_is_listed(tmp_path):
+    """Vu le 30/09 sur un MAX HD2 : la SIM 4, debout mais hors du bond dès le
+    premier relevé, faisait lever l'alerte « Lien 4 hors du bond » — et le
+    journal n'en disait rien, faute de bascule observée. Relu plus tard, le
+    stationnement ne montrait pas un lien sorti du bond avant le début de la
+    supervision. L'état d'ouverture est un fait, daté du premier relevé.
+    """
+    from datetime import datetime, timedelta
+
+    repo = SampleRepository(str(tmp_path / "s.db"))
+    await repo.connect()
+    t0 = datetime.fromisoformat("2026-09-30T14:49:00+00:00")
+    lignes = []
+    for i in range(4):
+        ts = (t0 + timedelta(seconds=6 * i)).isoformat()
+        lignes += [("4", ts, 1, "FAILURE"), ("5", ts, 1, "ACTIVE"),
+                   # Un filaire sans câble ni tunnel : ni debout, ni concerné.
+                   ("1", ts, 0, None)]
+    await repo._conn.executemany(
+        "INSERT INTO samples (router_id, wan_id, ts, connected, kind, tunnel_state) "
+        "VALUES ('r1', ?, ?, ?, 'cellular', ?)", lignes,
+    )
+    await repo._conn.commit()
+
+    episodes, _ = await repo.events("r1", t0, t0 + timedelta(minutes=5), 1000.0)
+    bond = [e for e in episodes if "bond" in e["genre"]]
+    assert [(e["genre"], e["wan_id"], e["ts"]) for e in bond] == [
+        ("hors du bond", "4", t0.isoformat())
+    ]
+    # La cause reste le mot du routeur, et la ligne dit qu'elle n'est pas une bascule.
+    assert bond[0]["status_message"] == "FAILURE · dès le premier relevé"
+    await repo.close()
+
+
 async def test_a_bond_exit_that_comes_with_a_disconnection_is_not_listed_twice(tmp_path):
     """`bascule_bond` sans `connected = connecte_avant` ne faisait tomber aucun
     test : une coupure emportait aussi un « hors du bond », et le retour un

@@ -672,6 +672,9 @@ export interface PairRequest {
    *  révoque sans changer de mot de passe. */
   client_id?: string
   client_secret?: string
+  /** Confier les identifiants au trousseau du système ; faux efface ce qu'il
+   *  gardait. */
+  remember?: boolean
 }
 
 /** Une mise sous tension de l'équipement, d'un bout à l'autre.
@@ -699,8 +702,8 @@ export interface Session {
 
 /** Un équipement déjà appairé depuis cette machine.
  *
- *  Sans mot de passe : tant qu'aucun coffre chiffré n'existe, le conserver en
- *  clair serait pire que de le redemander. Ce qui est gardé permet de reconnaître
+ *  Sans mot de passe : il est au trousseau du système quand l'exploitant l'a
+ *  voulu (`credentials_stored`), jamais ici. Ce qui est gardé permet de reconnaître
  *  l'équipement et de le proposer à nouveau. */
 export interface KnownDevice {
   serial: string
@@ -711,6 +714,9 @@ export interface KnownDevice {
   firmware: string | null
   first_seen: string
   last_seen: string
+  /** Le trousseau du système garde ses identifiants : « Reconnecter » se fait
+   *  sans formulaire. Un booléen — le contenu ne quitte jamais le serveur. */
+  credentials_stored: boolean
 }
 
 /** Ce qu'un lien a fait pendant une session. */

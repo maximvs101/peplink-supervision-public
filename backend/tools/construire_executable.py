@@ -47,6 +47,12 @@ def main() -> int:
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "aiosqlite",
         "--hidden-import", "websockets",
+        # Le trousseau du système (`app/coffre.py`) : `keyring` trouve ses
+        # backends par points d'entrée, que l'analyse statique ne suit pas, et
+        # lit ces points d'entrée dans les MÉTADONNÉES du paquet. Sans les
+        # deux, l'exécutable se croit sans trousseau et redemande tout.
+        "--collect-submodules", "keyring",
+        "--copy-metadata", "keyring",
         str(RACINE / "lancer.py"),
     ]
     print(" ".join(commande))

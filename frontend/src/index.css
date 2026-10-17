@@ -1048,6 +1048,10 @@ button.link { background: none; border: 0; padding: 0; color: var(--ink);
 .field-label { font-size: var(--t-micro); letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ink-3); font-weight: 500; }
 .pairing input { min-width: 190px; }
+/* Les cases à cocher héritaient des 190 px d'un champ de saisie : la coche
+   flottait au milieu d'une boîte vide, loin de son libellé (vu le 17/10). */
+.pairing-check { display: flex; align-items: baseline; gap: var(--s2); margin-top: var(--s3); }
+.pairing .pairing-check input { min-width: 0; flex: none; }
 .pairing-actions { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; }
 
 /* ==========================================================================

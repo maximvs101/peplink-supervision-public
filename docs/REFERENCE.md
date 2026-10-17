@@ -652,11 +652,16 @@ adresse le reconnaît au lieu d'en créer un doublon.
 |---|---|
 | En base (`devices`) | série, nom, adresse, modèle, firmware, dates |
 | En mémoire, pour la session | **les identifiants** |
+| Au trousseau du système, si « Retenir sur ce poste » est coché | **les identifiants**, une entrée par numéro de série |
 
-Les mots de passe ne sont **pas** écrits sur le disque tant qu'un coffre chiffré n'existe
-pas : les garder en clair serait pire que de les redemander au prochain démarrage. Un
-équipement appairé lors d'une session précédente est signalé au démarrage comme connu, avec
-ses identifiants à ressaisir.
+Les mots de passe ne sont **jamais** écrits en clair sur le disque. Cochée à l'appairage
+(elle l'est par défaut), « Retenir sur ce poste » les confie au trousseau du système —
+Trousseau sur macOS, Gestionnaire d'identification sur Windows (`app/coffre.py`, paquet
+`keyring`) — sous le service `peplink-supervision`. Au démarrage, chaque équipement retenu
+reçoit **une** tentative de connexion, en tâche de fond ; un refus est affiché et n'est pas
+réessayé. Décochée, l'entrée est effacée ; retirer l'équipement de la supervision l'efface
+aussi. `/api/health` publie le trousseau employé (`coffre`), ou `null` : sans trousseau, les
+identifiants sont à ressaisir à chaque démarrage, comme avant.
 
 ### État de chaque équipement
 

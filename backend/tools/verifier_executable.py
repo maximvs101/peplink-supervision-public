@@ -82,6 +82,10 @@ def main(chemin: str) -> int:
             sante = json.loads(corps)
             if sante.get("status") != "ok":
                 fautes.append(f"/api/health : {sante}")
+            # Le NOM du trousseau, jamais son contenu : un exécutable qui n'en
+            # voit aucun fait tout ressaisir à chaque lancement, en silence.
+            if sys.platform in ("darwin", "win32") and not sante.get("coffre"):
+                fautes.append("aucun trousseau du système vu par l'exécutable (keyring non embarqué ?)")
             code, page = lire(f"http://127.0.0.1:{port}/")
             if code != 200 or b"<script" not in page:
                 fautes.append(f"l'interface n'est pas servie : HTTP {code}, {len(page)} o")
@@ -90,7 +94,8 @@ def main(chemin: str) -> int:
                 fautes.append(f"/api/devices : HTTP {code}")
             if not (dossier / "data" / "samples.db").exists():
                 fautes.append("data/samples.db n'a pas été créée à côté de l'exécutable")
-            print(f"prêt en {pret:.1f} s · {executable.stat().st_size / 1048576:.1f} Mo · interface servie · base créée")
+            print(f"prêt en {pret:.1f} s · {executable.stat().st_size / 1048576:.1f} Mo · interface servie · base créée"
+                  f" · trousseau : {sante.get('coffre') or 'aucun'}")
     finally:
         # Un exécutable « un fichier » est une amorce PLUS un processus enfant :
         # sous Windows, TerminateProcess ne se propage pas et le serveur

@@ -6,6 +6,11 @@ pydantic-settings>=2.3
 httpx>=0.27
 aiosqlite>=0.20
 pyyaml>=6.0
+# Le trousseau du système (Trousseau macOS, Gestionnaire d'identification Windows).
+keyring>=25
 pytest>=8
+# Le client de test de Starlette (1.7+) ; l'application, elle, parle aux
+# routeurs avec `httpx`.
+httpx2>=2.0
 pytest-asyncio>=0.23
 ruff>=0.16

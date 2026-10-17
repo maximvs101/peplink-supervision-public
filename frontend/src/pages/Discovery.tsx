@@ -2,7 +2,9 @@ import { ThemeToggle } from '../components/ThemeToggle'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { fetchDevices, fetchDiscovery, fetchKnownDevices, unpairDevice } from '../api/client'
+import {
+  fetchDevices, fetchDiscovery, fetchKnownDevices, reconnectKnownDevice, unpairDevice,
+} from '../api/client'
 import { PairingForm } from '../components/PairingForm'
 import type { DeviceStatus, DiscoveredDevice, KnownDevice } from '../types'
 import { QUALITY_COLOR } from '../lib/quality'
@@ -48,6 +50,9 @@ export function Discovery() {
   const [devices, setDevices] = useState<DiscoveredDevice[] | null>(null)
   const [supervised, setSupervised] = useState<DeviceStatus[]>([])
   const [connus, setConnus] = useState<KnownDevice[]>([])
+  // La reconnexion par le trousseau en vol (série), et son dernier échec.
+  const [reconnexion, setReconnexion] = useState<string | null>(null)
+  const [reconnexionEchec, setReconnexionEchec] = useState<{ serie: string; message: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Le retrait a son propre état : son échec s'affichait à la place de la
   // liste des DÉTECTÉS, deux panneaux plus bas, et effaçait ce qui n'avait
@@ -103,6 +108,34 @@ export function Discovery() {
   // proposer « Reconnecter » sur un équipement que la recherche ne voit pas
   // ouvrirait un formulaire invisible, et le bouton ne ferait rien du tout.
   const detectes = new Set((devices ?? []).map((d) => hoteCanonique(d.host)))
+
+  // Le formulaire, ouvert sur l'hôte tel que la DÉTECTION l'écrit, pas sur
+  // celui que la mémoire a gardé : il s'ouvre sur `pairing === device.host`, et
+  // une comparaison sur l'hôte brut pouvait n'ouvrir aucun formulaire
+  // (`10.10.1.1` retenu, `http://10.10.1.1` détecté).
+  const ouvrirFormulaire = (host: string) => setPairing(
+    (devices ?? []).find((x) => hoteCanonique(x.host) === hoteCanonique(host))?.host ?? host,
+  )
+
+  // Avec des identifiants retenus : UNE tentative, sans formulaire. Un refus
+  // ouvre le formulaire pour corriger — ce qui y sera saisi remplacera l'entrée.
+  const reconnecter = (d: KnownDevice) => {
+    if (reconnexion !== null) return
+    setReconnexion(d.serial)
+    setReconnexionEchec(null)
+    reconnectKnownDevice(d.serial)
+      .then((paire) => {
+        refresh()
+        navigate(`/e/${encodeURIComponent(paire.id)}`)
+      })
+      .catch((err: Error & { credentials?: boolean; status?: number }) => {
+        setReconnexionEchec({ serie: d.serial, message: err.message })
+        if ((err.credentials || err.status === 409) && d.host && detectes.has(hoteCanonique(d.host))) {
+          ouvrirFormulaire(d.host)
+        }
+      })
+      .finally(() => setReconnexion(null))
+  }
 
   return (
     <>
@@ -253,9 +286,9 @@ export function Discovery() {
 
 <Notes>
           <p className="panel-note">
-            Les identifiants restent en mémoire pour la durée de la session. Ils ne sont
-            pas écrits sur le disque tant qu’un coffre chiffré n’existe pas — les garder
-            en clair serait pire que de les redemander au prochain démarrage.
+            Les identifiants ne sont jamais écrits en clair. Avec « Retenir sur ce
+            poste », ils vont au trousseau chiffré du système, et l’équipement se
+            reconnecte au prochain démarrage ; sinon, ils sont à ressaisir.
           </p>
 </Notes>
         </section>
@@ -429,6 +462,13 @@ export function Discovery() {
               <h2>Déjà vus depuis ce poste</h2>
               <span className="note">{connus.length}</span>
             </div>
+            {reconnexionEchec !== null && (
+              <div className="panel-body">
+                <div className="notice is-error" role="alert">
+                  Reconnexion impossible : {reconnexionEchec.message}
+                </div>
+              </div>
+            )}
             <div className="ltable-scroll">
               <table className="ltable">
                 <thead>
@@ -448,7 +488,9 @@ export function Discovery() {
                           <span className="rail" style={{ ['--q' as string]: 'var(--rule)' }} />
                           <span style={{ minWidth: 0 }}>
                             <b>{d.name ?? d.model ?? d.serial}</b>
-                            <span className="sub">{d.serial}</span>
+                            <span className="sub">
+                              {d.serial}{d.credentials_stored ? ' · identifiants retenus' : ''}
+                            </span>
                           </span>
                         </span>
                       </td>
@@ -460,20 +502,16 @@ export function Discovery() {
                         {new Date(d.last_seen).toLocaleString('fr-FR')}
                       </td>
                       <td>
-                        {d.host && detectes.has(hoteCanonique(d.host)) ? (
+                        {d.host && d.credentials_stored && !supervisedHosts.has(hoteCanonique(d.host)) ? (
                           <button
                             className="is-quiet"
-                            // Ouvert sur l'hôte tel que la DÉTECTION l'écrit, pas
-                            // sur celui que la mémoire a gardé : le formulaire
-                            // s'ouvre sur `pairing === device.host`, et une
-                            // quatrième comparaison sur l'hôte brut pouvait
-                            // n'ouvrir aucun formulaire (`10.10.1.1` retenu,
-                            // `http://10.10.1.1` détecté).
-                            onClick={() => setPairing(
-                              (devices ?? []).find((x) => hoteCanonique(x.host) === hoteCanonique(d.host!))?.host
-                                ?? d.host!,
-                            )}
+                            disabled={reconnexion !== null}
+                            onClick={() => reconnecter(d)}
                           >
+                            {reconnexion === d.serial ? 'Connexion…' : 'Reconnecter'}
+                          </button>
+                        ) : d.host && detectes.has(hoteCanonique(d.host)) ? (
+                          <button className="is-quiet" onClick={() => ouvrirFormulaire(d.host!)}>
                             Reconnecter
                           </button>
                         ) : (
@@ -491,10 +529,10 @@ export function Discovery() {
             </div>
 <Notes>
             <p className="panel-note">
-              Le mot de passe n’est pas conservé : tant qu’aucun coffre chiffré n’existe,
-              le garder en clair serait pire que de le redemander. Le reste est là, pour
-              que l’exploitant qui rallume au matin retrouve son équipement sans tout
-              retaper.
+              Le mot de passe n’est jamais dans cette liste : il est au trousseau chiffré
+              du système quand vous l’avez voulu (« identifiants retenus »), à ressaisir
+              sinon. Le reste est là, pour que l’exploitant qui rallume au matin retrouve
+              son équipement sans tout retaper.
             </p>
 </Notes>
           </section>

@@ -101,7 +101,7 @@ describe('le tableau de bord sur un équipement réel', () => {
 
       // Chaque lien a son rail dans le plan et sa ligne dans la table.
       expect(container.querySelectorAll('.plan-rail')).toHaveLength(reel.router.wans.length)
-      expect(container.querySelectorAll('.ltable tbody tr')).toHaveLength(reel.router.wans.length)
+      expect(container.querySelectorAll('[aria-label="Tableau des liens"] .ltable tbody tr')).toHaveLength(reel.router.wans.length)
       // La fiche d'identité est celle du châssis capté.
       expect(container.textContent).toContain(reel.router.device!.serial!)
       balayer(container, nom)

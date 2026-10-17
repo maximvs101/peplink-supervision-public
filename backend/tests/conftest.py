@@ -27,6 +27,11 @@ os.environ.setdefault("ENV_FILE", os.devnull)
 os.environ.setdefault(
     "DATABASE_PATH", os.path.join(tempfile.mkdtemp(prefix="peplink-tests-"), "samples.db")
 )
+# Ni le VRAI trousseau du poste : un test qui appaire écrirait dans le
+# Trousseau macOS ou le Gestionnaire d'identification Windows de l'exploitant.
+# Le backend `fail` rend le coffre indisponible ; les tests qui en ont besoin en
+# posent un en mémoire (`tests/test_coffre.py`).
+os.environ.setdefault("PYTHON_KEYRING_BACKEND", "keyring.backends.fail.Keyring")
 
 # Chaque connexion s'inscrit à sa naissance ; les références sont faibles, donc
 # une connexion fermée et oubliée disparaît d'elle-même. Un parcours de

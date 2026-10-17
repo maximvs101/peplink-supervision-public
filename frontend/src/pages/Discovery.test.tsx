@@ -8,11 +8,14 @@ vi.mock('../api/client', () => ({
   fetchKnownDevices: vi.fn(),
   forgetDevice: vi.fn(),
   pairDevice: vi.fn(),
+  reconnectKnownDevice: vi.fn(),
   unpairDevice: vi.fn(),
   httpStatus: () => null,
 }))
 
-import { fetchDevices, fetchDiscovery, fetchKnownDevices, unpairDevice } from '../api/client'
+import {
+  fetchDevices, fetchDiscovery, fetchKnownDevices, reconnectKnownDevice, unpairDevice,
+} from '../api/client'
 import type { DeviceStatus, DiscoveredDevice } from '../types'
 import { Discovery } from './Discovery'
 
@@ -43,6 +46,7 @@ const monter = () =>
 
 beforeEach(() => {
   vi.mocked(fetchKnownDevices).mockResolvedValue([])
+  vi.mocked(reconnectKnownDevice).mockReset()
 })
 
 describe('un équipement détecté déjà en supervision', () => {
@@ -103,10 +107,47 @@ describe('reconnecter un équipement déjà vu', () => {
     vi.mocked(fetchKnownDevices).mockResolvedValue([{
       serial: '0000-0000-0063', device_id: '0000-0000-0063', name: 'EQUIPEMENT-DEMO', host: '10.10.1.1',
       model: 'MAX HD2', firmware: '8.5.4', first_seen: '2026-09-19T10:00:00Z', last_seen: '2026-09-19T12:00:00Z',
+      credentials_stored: false,
     }])
     monter()
     const reconnecter = await screen.findByRole('button', { name: 'Reconnecter' })
     reconnecter.click()
     await screen.findByRole('button', { name: 'Fermer' })
+  })
+})
+
+describe('reconnecter avec les identifiants retenus', () => {
+  const connu = {
+    serial: '0000-0000-0063', device_id: '0000-0000-0063', name: 'EQUIPEMENT-DEMO', host: '10.10.1.1',
+    model: 'MAX HD2', firmware: '8.5.4', first_seen: '2026-09-19T10:00:00Z',
+    last_seen: '2026-09-19T12:00:00Z', credentials_stored: true,
+  }
+
+  it('reconnecte sans formulaire, et mène au tableau de bord', async () => {
+    vi.mocked(fetchDevices).mockResolvedValue([])
+    vi.mocked(fetchDiscovery).mockResolvedValue([])
+    vi.mocked(fetchKnownDevices).mockResolvedValue([connu])
+    vi.mocked(reconnectKnownDevice).mockResolvedValue(supervise())
+    monter()
+    // Même absent de la recherche : le trousseau suffit pour tenter.
+    ;(await screen.findByRole('button', { name: 'Reconnecter' })).click()
+    await waitFor(() => expect(screen.getByText('tableau de bord')).toBeInTheDocument())
+    expect(reconnectKnownDevice).toHaveBeenCalledTimes(1)
+    expect(reconnectKnownDevice).toHaveBeenCalledWith('0000-0000-0063')
+  })
+
+  it('dit un refus, et propose alors de ressaisir', async () => {
+    vi.mocked(fetchDevices).mockResolvedValue([])
+    vi.mocked(fetchDiscovery).mockResolvedValue([detecte({ already_configured: false })])
+    vi.mocked(fetchKnownDevices).mockResolvedValue([connu])
+    vi.mocked(reconnectKnownDevice).mockRejectedValue(
+      Object.assign(new Error('Identifiants refusés.'), { credentials: true, status: 401 }),
+    )
+    monter()
+    ;(await screen.findByRole('button', { name: 'Reconnecter' })).click()
+    expect(await screen.findByText(/Identifiants refusés/)).toBeInTheDocument()
+    // Le formulaire s'ouvre pour corriger : il remplacera l'entrée retenue.
+    await screen.findByRole('button', { name: 'Fermer' })
+    expect(reconnectKnownDevice).toHaveBeenCalledTimes(1)
   })
 })

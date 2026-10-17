@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -10,12 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__
+from . import __version__, coffre
 from .api import routes, ws
 from .api.security import HoteDeConfianceMiddleware
 from .config import get_settings
 from .devices.registry import DeviceRegistry
 from .fleet import load_fleet
+from .pairing.service import reconnecter_retenus
 from .poller import Poller
 from .storage.db import SampleRepository
 
@@ -52,18 +54,23 @@ async def lifespan(app: FastAPI):
     for router in fleet:
         await registry.add(router)
 
-    # Équipements appairés lors d'une session précédente. Leurs identifiants ne
-    # sont PAS conservés — ils sont à ressaisir. Les retenir quand même permet de
-    # les présenter comme connus plutôt que de les faire redécouvrir.
+    # Équipements appairés lors d'une session précédente. Ceux dont le trousseau
+    # du système garde les identifiants sont reconnectés juste après le
+    # démarrage ; les autres sont à ressaisir depuis l'écran des équipements.
     for known in await repo.known_devices():
         if registry.find_by_serial(known.get("serial")) is None:
+            retenu = coffre.lire(known.get("serial") or "") is not None
             logger.info(
-                "Équipement appairé connu : %s (%s) — identifiants à ressaisir",
+                "Équipement appairé connu : %s (%s) — %s",
                 known.get("name") or known.get("serial"), known.get("host"),
+                "identifiants retenus, reconnexion" if retenu else "identifiants à ressaisir",
             )
 
     poller = Poller(registry, repo, settings.poll_interval_seconds)
     await poller.start()
+    # En tâche de fond : un équipement absent du réseau coûte un délai de
+    # connexion, qui ne doit pas retarder l'ouverture de l'écran.
+    reconnexion = asyncio.create_task(reconnecter_retenus(registry, repo, poller))
 
     app.state.settings = settings
     app.state.repo = repo
@@ -73,6 +80,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        reconnexion.cancel()
         await poller.stop()
         await registry.close()
         await repo.close()

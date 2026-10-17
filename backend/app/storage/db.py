@@ -422,10 +422,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_router ON sessions (router_id, started_a
 """
 
 
-# Équipements appairés depuis l'interface. Les IDENTIFIANTS N'Y SONT PAS : tant
-# qu'un coffre chiffré n'existe pas, les conserver en clair serait pire que de
-# les redemander. On retient ce qui permet de reconnaître l'équipement et de le
-# proposer à nouveau.
+# Équipements appairés depuis l'interface. Les IDENTIFIANTS N'Y SONT PAS : les
+# conserver en clair serait pire que de les redemander. Quand l'exploitant le
+# demande, ils vont au trousseau du système (`app/coffre.py`), jamais ici. On
+# retient ce qui permet de reconnaître l'équipement et de le proposer à nouveau.
 _DEVICES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS devices (
     serial     TEXT PRIMARY KEY,
@@ -1651,6 +1651,31 @@ class SampleRepository:
                     # chercher un incident là où quelqu'un a simplement désactivé
                     # un WAN.
                     "status_message": None if actif else r["tunnel_state"],
+                })
+
+        # L'état d'OUVERTURE, que les bascules ne voient pas : un lien debout et
+        # déjà hors du bond au premier relevé de la fenêtre n'a pas de relevé
+        # précédent, donc pas de bascule. Vu le 30/09 sur un MAX HD2 : l'alerte
+        # « Lien 4 hors du bond » levée, et un journal muet sur ce lien.
+        async with lecteur.execute(
+            """
+            SELECT wan_id, kind, ts, tunnel_state
+            FROM (
+              SELECT wan_id, kind, ts, connected, tunnel_state,
+                     ROW_NUMBER() OVER (PARTITION BY wan_id ORDER BY ts) AS rang
+              FROM samples
+              WHERE router_id = ? AND ts >= ? AND ts <= ?
+            )
+            WHERE rang = 1 AND connected = 1
+              AND tunnel_state IS NOT NULL AND tunnel_state <> 'ACTIVE'
+            """,
+            bornes,
+        ) as cursor:
+            for r in await cursor.fetchall():
+                bond.append({
+                    "wan_id": r["wan_id"], "kind": r["kind"], "ts": r["ts"],
+                    "genre": "hors du bond",
+                    "status_message": f"{r['tunnel_state']} · dès le premier relevé",
                 })
 
         # --- îlots de latence : la règle du ROUTEUR, pas un seuil inventé ---
