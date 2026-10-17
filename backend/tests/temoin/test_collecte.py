@@ -411,3 +411,26 @@ async def test_le_releve_borne_les_complements_par_une_echeance(collecte, client
     [echeance] = client.echeances
     assert echeance is not None
     assert avant < echeance <= asyncio.get_running_loop().time() + 2.0
+
+
+async def test_un_tour_injoignable_efface_introuvable_et_l_anciennete(
+    collecte, client, temps
+):
+    r = await collecte.tour()
+    assert r.anciennete_routeur_s == 5000  # ancienneté lue
+    temps.avancer(3)
+    client.radio = [wan("2", "WAN-B")]
+    await collecte.tour()
+    assert collecte.etat_lien == "introuvable"
+    temps.avancer(3)
+    client.erreur_radio = OSError("hors ligne")
+    r = await collecte.tour()
+    assert not r.joignable and collecte.etat_lien == "ok"
+    # Le routeur revient (redémarré ?) mais sa fiche est illisible : son
+    # ancienneté est inconnue, pas l'ancienne extrapolée.
+    temps.avancer(60)
+    client.erreur_radio = None
+    client.radio = [wan("1")]
+    client.info = None
+    r = await collecte.tour()
+    assert r.joignable and r.anciennete_routeur_s is None

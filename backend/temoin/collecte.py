@@ -98,6 +98,12 @@ class Collecte:
         except _ECHECS as e:
             log.debug("lecture en échec : %s", type(e).__name__)
             self._relire_info = True
+            # Injoignable n'est pas introuvable : on ne sait plus rien du lien.
+            self.etat_lien = "ok"
+            # Le routeur a pu redémarrer : son ancienneté d'avant ne s'extrapole
+            # plus. Sans nouvelle lecture réussie, elle reste inconnue.
+            self._uptime_routeur = None
+            self._lu_a = None
             self._echecs_de_suite += 1
             rel = Releve(
                 ts=maintenant, joignable=False, connecte=None, message=None,
