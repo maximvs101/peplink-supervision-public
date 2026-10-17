@@ -104,11 +104,11 @@ def main() -> int:
             flux.reconfigure(encoding="utf-8", errors="replace")
     base, ecran = chemins()
     brut = (os.environ.get("PORT") or "").strip()
-    if not brut:
-        depart = PORT_DEFAUT
-    elif brut.isdigit() and 0 < int(brut) < 65536:
-        depart = int(brut)
-    else:
+    try:
+        depart = int(brut) if brut else PORT_DEFAUT
+    except ValueError:
+        depart = 0
+    if not 0 < depart < 65536:
         print(f"PORT={brut!r} n'est pas un numéro de port (1 à 65535) : "
               f"relancer sans PORT (port {PORT_DEFAUT}) ou avec PORT=8010 par exemple.", flush=True)
         return 2

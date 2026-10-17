@@ -115,7 +115,7 @@ async def test_la_base_est_fermee_a_l_arret_de_l_application(monkeypatch, tmp_pa
 def test_un_port_non_numerique_est_dit_sans_trace(monkeypatch, capsys):
     import pytest
 
-    for valeur in ("abc", "80 80", "0", "70000"):
+    for valeur in ("abc", "80 80", "0", "70000", "-5", "8.5"):
         monkeypatch.setenv("PORT", valeur)
         monkeypatch.setattr(lanceur, "choisir_port",
                             lambda depart: pytest.fail("aucun port ne doit être essayé"))
