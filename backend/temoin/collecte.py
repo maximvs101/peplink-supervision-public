@@ -24,6 +24,8 @@ RECUL_S = (3.0, 6.0, 12.0, 24.0, 30.0)
 PERIODE_JOURNAL_S = 60.0
 # Au-delà, l'horloge du routeur n'est plus comparable à celle du poste.
 DECALAGE_MAX_S = 60.0
+# Une lecture d'ancienneté ratée n'est retentée qu'après ce délai.
+RETENTE_INFO_S = 30.0
 
 # Échecs de lecture : un relevé « non joignable ». Un refus d'identifiants n'en
 # fait pas partie (voir `tour`).
@@ -77,6 +79,7 @@ class Collecte:
         self._lu_a: datetime | None = None  # heure de la dernière lecture d'ancienneté
         self._journal_a: datetime | None = None
         self._relire_info = True  # vrai au départ et après tout tour injoignable
+        self._tentative_a: datetime | None = None  # dernier échec de lecture d'ancienneté
         self._echecs_de_suite = 0
 
     async def tour(self) -> Releve | None:
@@ -137,20 +140,31 @@ class Collecte:
         )
         if not (echu or self._relire_info):
             return
+        if (
+            self._tentative_a is not None
+            and (maintenant - self._tentative_a).total_seconds() < RETENTE_INFO_S
+        ):
+            return
         try:
             info = await self._client.get_device_info()
         except CredentialsRefusedError:
             raise
         except _ECHECS as e:
             log.debug("ancienneté du routeur illisible : %s", type(e).__name__)
+            info = None
+        if info is None:
+            # Le client rend None quand il échoue : sans l'écart d'horloge, on ne
+            # sait pas si le journal est rapprochable. On retente plus tard.
+            self._relire_info = True
+            self._tentative_a = maintenant
             return
         self._relire_info = False
-        if info is not None:
-            if info.uptime_s is not None:
-                self._uptime_routeur = int(info.uptime_s)
-                self._lu_a = maintenant
-            if info.clock_offset_s is not None:
-                self.horloge_decalee = abs(info.clock_offset_s) > DECALAGE_MAX_S
+        self._tentative_a = None
+        if info.uptime_s is not None:
+            self._uptime_routeur = int(info.uptime_s)
+            self._lu_a = maintenant
+        if info.clock_offset_s is not None:
+            self.horloge_decalee = abs(info.clock_offset_s) > DECALAGE_MAX_S
         if echu:
             self._journal_a = maintenant
             await self._lire_journal()

@@ -319,3 +319,56 @@ async def test_l_anciennete_est_relue_au_premier_tour_apres_une_coupure_de_lectu
     r = await collecte.tour()
     assert client.appels_info == 2
     assert r.anciennete_routeur_s == 4
+
+
+async def test_ancienneté_illisible_ne_lit_pas_le_journal_et_retente_apres_30_s(
+    collecte, depot, client, temps
+):
+    client.info = None  # le vrai client rend None quand la lecture échoue
+    client.evenements = [evenement(1, "routeur démarré", wan_id=None)]
+    r = await collecte.tour()
+    assert r.joignable and r.anciennete_routeur_s is None
+    assert client.appels_info == 1 and client.appels_journal == 0
+    assert await depot.faits(1) == []
+    temps.avancer(3)
+    await collecte.tour()
+    assert client.appels_info == 1  # pas à chaque tour
+    temps.avancer(27)
+    client.info = DeviceInfo(uptime_s=800, clock_offset_s=0)
+    r = await collecte.tour()
+    assert client.appels_info == 2
+    assert r.anciennete_routeur_s == 800
+    assert client.appels_journal == 1
+    assert len(await depot.faits(1)) == 1
+
+
+async def test_ancienneté_en_exception_se_retente_apres_30_s(
+    collecte, client, temps
+):
+    client.erreur_info = RouterApiError("non")
+    await collecte.tour()
+    temps.avancer(10)
+    await collecte.tour()
+    assert client.appels_info == 1 and client.appels_journal == 0
+    temps.avancer(20)
+    await collecte.tour()
+    assert client.appels_info == 2
+
+
+async def test_un_refus_d_identifiants_du_journal_remonte(collecte, client):
+    client.erreur_journal = CredentialsRefusedError("refusé")
+    with pytest.raises(CredentialsRefusedError):
+        await collecte.tour()
+
+
+async def test_l_annulation_du_sommeil_remonte_de_la_boucle(client, depot, temps):
+    import asyncio
+
+    obs = await depot.nouvelle_observation(SERIE, "1", T0)
+
+    async def sommeil(_s):
+        raise asyncio.CancelledError
+
+    c = Collecte(client, depot, obs, "1", sommeil=sommeil, horloge=temps)
+    with pytest.raises(asyncio.CancelledError):
+        await c.boucle()
