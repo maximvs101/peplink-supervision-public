@@ -20,13 +20,16 @@
 # Les fichiers ne sont pas signés : un avertissement au premier lancement
 # (Gatekeeper, SmartScreen), qui se lève sans droits d'administrateur.
 #
-# Les actions sont prises par étiquette majeure (@v4, @v5, @v2) et les
-# dépendances Python en « >= » : chaque construction embarque les versions du
-# jour. Le risque est borné — les deux suites tournent dans le même job sur
-# ces versions, et chaque exécutable est lancé avant d'être livré. Reste
-# l'action de Release, sous `contents: write` : l'épingler par empreinte de
-# commit est le geste qui fermerait ce risque, à faire depuis une machine
-# qui peut vérifier l'empreinte.
+# Chaque action est épinglée par l'empreinte complète de son commit, la
+# majeure qu'elle représente en commentaire (`# v7`) : une étiquette se
+# déplace, une empreinte non. Empreintes relevées le 24/10/2026 par l'API
+# publique de GitHub (`git/ref/tags/vN`, étiquette annotée déréférencée
+# jusqu'au commit). Pour monter de version : relever la nouvelle empreinte
+# de la même façon, changer l'empreinte ET le commentaire — tests/test_ci.py
+# lit la majeure dans le commentaire. Les dépendances Python sont épinglées à
+# l'identique (`==`, backend/requirements*.txt), celles de l'interface par
+# package-lock.json (`npm ci`) : la construction ne prend plus « les versions
+# du jour ».
 
 name: Exécutable
 
@@ -43,7 +46,7 @@ on:
 
 # Lecture par défaut ; seul `publier` écrit. Posé ici, `contents: write`
 # armait aussi les jobs de construction, pendant `npm ci` et `pip install`
-# — des dépendances en `>=` (C-48).
+# — alors des dépendances en `>=` (C-48).
 permissions:
   contents: read
 
@@ -88,7 +91,7 @@ jobs:
         shell: bash
     steps:
       # Le jeton n'est pas gardé dans .git/config pendant les installations.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -98,19 +101,20 @@ jobs:
       # alors que `npm ci` passe en local depuis une copie vierge.
       # L'interface compilée ne sert que le superviseur : le témoin a un
       # écran statique.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         if: env.SUPERVISEUR == 'true'
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt
+            backend/requirements-dev.txt
             backend/requirements-build.txt
 
       - name: Interface — dépendances, types, tests, compilation
@@ -133,7 +137,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          python -m pip install -r requirements.txt -r requirements-build.txt
+          python -m pip install -r requirements-dev.txt -r requirements-build.txt
           python -m ruff check .
           python -m pytest -q --junitxml=rapport-pytest.xml
 
@@ -208,7 +212,7 @@ jobs:
           fi
           ls -la dist
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: env.SUPERVISEUR == 'true'
         with:
           name: ${{ matrix.livraison }}
@@ -216,7 +220,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: env.TEMOIN == 'true'
         with:
           name: ${{ matrix.temoin_livraison }}
@@ -236,22 +240,23 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: La section de CHANGELOG.md devient le texte de la Release
+      # Avant tout envoi : l'étiquette (sans « v »), la section du CHANGELOG
+      # qui la porte — la première numérotée, « ## À venir » au-dessus permise
+      # —, les deux paquets Python et package.json doivent dire le même
+      # numéro. Sinon le job échoue ici, et rien n'est publié : plus de texte
+      # de secours pour une étiquette sans section.
+      - name: Garde de version — la section de CHANGELOG.md devient le texte de la Release
         run: |
-          awk -v tag="${GITHUB_REF_NAME}" '
-            /^## / { dedans = index($0, "## " tag " ") == 1 || $0 == "## " tag; next }
-            dedans { print }
-          ' CHANGELOG.md > notes.md
-          test -s notes.md || echo "Superviseur Peplink et témoin Ethernet ${GITHUB_REF_NAME}." > notes.md
+          python3 .github/scripts/garde_version.py "${GITHUB_REF_NAME}" > notes.md
           cat notes.md
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: fichiers
           merge-multiple: true
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           name: Superviseur et témoin Ethernet ${{ github.ref_name }}
           body_path: notes.md

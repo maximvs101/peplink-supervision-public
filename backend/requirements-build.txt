@@ -1,1 +1,15 @@
-pyinstaller>=6.10
+# Construction de l'exécutable unique (tools/construire_executable.py) : les
+# dépendances d'exécution, qu'il embarque, plus PyInstaller.
+#
+#     .venv/bin/python -m pip install -r requirements-build.txt
+#
+# Versions exactes, relevées comme celles de requirements.txt. macholib
+# (macOS) et pefile, pywin32-ctypes (Windows) viennent avec PyInstaller sur
+# leur seul système : pip les résout là, ils ne sont pas épinglés ici.
+-r requirements.txt
+
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+altgraph==0.17.5
+packaging==26.3
+setuptools==84.0.0

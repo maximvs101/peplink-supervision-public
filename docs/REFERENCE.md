@@ -29,11 +29,16 @@ bas : un seul processus suffit.
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt      # Windows
-# source .venv/bin/activate && pip install -r requirements.txt   # Linux/macOS
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt      # Windows
+# source .venv/bin/activate && pip install -r requirements-dev.txt   # Linux/macOS
 
 .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000 --reload
 ```
+
+Trois listes, toutes en versions exactes (`==`) : `requirements.txt` pour l'exécution
+(ce que l'exécutable embarque, et ce qu'installe le PC de terrain),
+`requirements-dev.txt` qui y ajoute pytest et ruff, `requirements-build.txt` qui y ajoute
+PyInstaller.
 
 Lancé ainsi, directement, le serveur démarre en **mode simulateur** (`PEPLINK_MODE=mock`,
 le défaut de `config.py`) et **sans sauvegarde** de la base : c'est le mode du

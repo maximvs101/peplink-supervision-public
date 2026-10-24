@@ -1,0 +1,25 @@
+# Tests et lint, en plus de l'exécution — rien d'ici n'entre dans l'exécutable.
+#
+#     .venv/bin/python -m pip install -r requirements-dev.txt
+#
+# Versions exactes, relevées comme celles de requirements.txt.
+-r requirements.txt
+
+pytest==9.1.1
+iniconfig==2.3.1
+pluggy==1.7.0
+packaging==26.3
+Pygments==2.21.0
+pytest-asyncio==1.4.0
+ruff==0.17.1
+
+# Le client de test de Starlette (1.7+) ; l'application, elle, parle aux
+# routeurs avec `httpx`.
+httpx2==2.13.1
+httpcore2==2.13.1
+truststore==0.10.5
+
+# Windows n'a pas de base de fuseaux : zoneinfo la prend ici (tests du témoin).
+# Absente du venv macOS où les autres versions ont été relevées : dernière
+# publication au 24/10/2026 (2026.5, du 03/10).
+tzdata==2026.5; sys_platform == "win32"

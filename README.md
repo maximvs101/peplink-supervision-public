@@ -52,13 +52,14 @@ Python 3.12, Node 24.
 ```bash
 cd frontend && npm ci && npm run build
 cd ../backend && python -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python lancer.py          # le superviseur
 .venv/bin/python -m temoin          # le témoin
 ```
 
 Sous Windows, `.venv\Scripts\python.exe`. Sans routeur, `PEPLINK_MODE=mock` lance un
-simulateur.
+simulateur. `requirements-dev.txt` ajoute pytest et ruff à l'exécution
+(`requirements.txt`, seul suffisant pour lancer) ; toutes les versions sont épinglées.
 
 ## Vérifier
 
