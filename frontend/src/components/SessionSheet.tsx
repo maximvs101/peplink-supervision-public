@@ -77,7 +77,7 @@ export function SessionSheet({
             stations inconnues
           </span>
         ) : fiche.sites > 0 && (
-          <span className="badge" title="Stations de base distinctes vues sur la session — un fait radio, pas un déplacement">
+          <span className="badge" title="Stations de base distinctes vues sur la session">
             {fiche.sites === 1 ? 'une seule station' : `${fiche.sites} stations`}
           </span>
         )}
@@ -216,10 +216,8 @@ export function SessionSheet({
       {fiche.availability && fiche.availability.observed_cycles > 0
         && fiche.availability.cycles_in_bond === 0 && (
         <p className="panel-note">
-          <b>Le tunnel n’a porté aucun lien sur {fiche.partial ? 'la fenêtre relue' : 'cette session'}</b> — sur{' '}
-          {fmtInt(fiche.availability.observed_cycles)} cycles observés, aucun lien
-          n’a été dans le bond. La disponibilité « propre » se mesure sur le bond ;
-          elle est sans objet ici. Ce que la liaison a porté se lit dans les volumes.
+          <b>Le tunnel n’a porté aucun lien sur {fiche.partial ? 'la fenêtre relue' : 'cette session'}</b> —{' '}
+          {fmtInt(fiche.availability.observed_cycles)} cycles observés.
         </p>
       )}
       {fiche.availability && fiche.availability.observed_cycles > 0
@@ -231,18 +229,14 @@ export function SessionSheet({
           )}.
           {/* « Au moins deux » sur un châssis qui n'a qu'un lien est un
               zéro pour une question qu'on ne peut pas poser. */}
-          {' '}« Propre » veut dire : connecté, dans le bond, et sous{' '}
-          {fmtInt(fiche.availability.threshold_ms)} ms d’aller-retour — c’est un
-          choix, pas une norme.
+          {' '}« Propre » : connecté, dans le bond, sous{' '}
+          {fmtInt(fiche.availability.threshold_ms)} ms d’aller-retour.
           {' '}Mesuré sur {fmtInt(fiche.availability.observed_cycles)} cycles
           {fiche.availability.total_cycles > fiche.availability.observed_cycles && (
             <>
               {' '}sur {fmtInt(fiche.availability.total_cycles)} :{' '}
               {fmtInt(fiche.availability.total_cycles - fiche.availability.observed_cycles)}
-              {' '}n’ont porté aucune lecture de tunnel et sont EXCLUS du compte.
-              Les y inclure prendrait l’absence de regard pour une panne — sur une
-              halte de la base, cela faisait passer la disponibilité de 99,8 % à
-              63,8 %, soit une heure et demie de panne qui n’a pas eu lieu.
+              {' '}sans lecture de tunnel, exclus du compte.
             </>
           )}
           {fiche.availability.total_cycles === fiche.availability.observed_cycles && (
@@ -262,13 +256,7 @@ export function SessionSheet({
           {fiche.diversity.same_earfcn_pct === null
             ? 'fréquence inconnue'
             : `même fréquence ${fiche.diversity.same_earfcn_pct} %${surCycles(fiche.diversity.earfcn_cycles)}`}.
-          {fiche.diversity.operators === 1 && (
-            <> Un seul opérateur : une panne de son cœur de réseau emporterait
-            tous les liens à la fois, et aucune agrégation n’y changerait rien.</>
-          )}
-          {' '}Chaque part a son propre dénominateur : un cycle où l’un des liens
-          ne publie pas le champ n’est pas un cycle sans partage, c’est un cycle
-          qu’on ne sait pas juger.
+          {fiche.diversity.operators === 1 && <> Un seul opérateur.</>}
         </p>
       )}
       </Notes>
@@ -306,14 +294,7 @@ export function SessionSheet({
       <Notes>
       {fiche.cells.length > 0 && (
         <p className="panel-note">
-          La latence coupée par CELLULE, parce que la médiane d’un lien ne bouge
-          presque pas quand sa queue se multiplie par quatre. Mesuré sur une
-          cellule tenue huit heures : le signal varie de 1,4 dB, la médiane passe
-          de 31 à 40 ms — et le p90 de 119 à 435 ms. C’est la queue qui fait geler
-          une image. Seules les cellules ayant réuni au moins deux cents relevés
-          figurent ici ; en dessous, un p90 désigne l’avant-dernière valeur d’une
-          poignée de mesures. Et le routeur republie parfois la même mesure sur
-          deux cycles : le nombre de relevés surestime la solidité du chiffre.
+          Latence par cellule : cellules d’au moins 200 relevés.
         </p>
       )}
       </Notes>
@@ -322,22 +303,18 @@ export function SessionSheet({
           totaux. Une session de trois semaines ne se relit pas en entier. */}
       {fiche.partial && fiche.window_start && (
         <div className="notice is-warn">
-          Session trop longue pour être relue en entier : cette fiche ne porte que
-          sur la fenêtre du {new Date(fiche.window_start).toLocaleString('fr-FR')} au{' '}
-          {new Date(fiche.window_end ?? fiche.session.last_seen).toLocaleString('fr-FR')}.
-          Volumes, coupures et cellules ne comptent que cette fenêtre.
+          Fiche limitée à la fenêtre du {new Date(fiche.window_start).toLocaleString('fr-FR')} au{' '}
+          {new Date(fiche.window_end ?? fiche.session.last_seen).toLocaleString('fr-FR')}
+          (session trop longue).
         </div>
       )}
       <p className="disclaimer">
-        Volumes intégrés depuis les débits relevés : le routeur ne publie qu’un cumul
-        depuis son installation, qui ne borne aucune session. À {' '}
+        Volumes intégrés depuis les débits relevés :{' '}
         {Math.round((new Date(fiche.session.last_seen).getTime() -
-          new Date(fiche.session.started_at).getTime()) / 60000)} minutes de session et
-        une mesure
+          new Date(fiche.session.started_at).getTime()) / 60000)} min de session, une mesure
         {periodSeconds === null
           ? ' à la cadence de scrutation'
-          : ` toutes les ${decimal(periodSeconds, 1)} s`}
-        , un pic plus court passe entre les mailles — c’est un ordre de grandeur.
+          : ` toutes les ${decimal(periodSeconds, 1)} s`}.
       </p>
     </>
   )

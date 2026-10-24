@@ -62,7 +62,7 @@ describe('la disponibilité dit sur quoi elle porte', () => {
       ...base, observed_cycles: 800, total_cycles: 1000, cycles_in_bond: 800,
     })} />)
     expect(container.textContent).toMatch(/Mesuré sur 800 cycles\s+sur 1[\s\u202f]000/)
-    expect(container.textContent).toContain('EXCLUS du compte')
+    expect(container.textContent).toContain('exclus du compte')
   })
 
   it('ne parle pas de « propre » quand le tunnel n’a porté aucun lien (F7)', () => {

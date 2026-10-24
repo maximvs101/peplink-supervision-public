@@ -89,7 +89,7 @@ describe('ce qui reste caché ne l’est jamais en silence', () => {
 describe('une fenêtre sans incident', () => {
   it('le dit sans inventer de seuil', () => {
     render(<EventLog log={journal([])} windowLabel="Depuis la mise sous tension" />)
-    expect(screen.getByText(/Aucune coupure/)).toBeInTheDocument()
+    expect(screen.getByText(/Aucun épisode sur cette fenêtre/)).toBeInTheDocument()
     expect(document.querySelector('table')).toBeNull()
   })
 })
@@ -348,7 +348,7 @@ describe('un lien désactivé par l’exploitant (C-20)', () => {
         windowLabel="Depuis la mise sous tension"
       />,
     )
-    expect(screen.getByText(/Désactivé par l’exploitant/)).toBeInTheDocument()
+    expect(screen.getByText(/^Désactivé/)).toBeInTheDocument()
     expect(screen.queryByText('Coupure')).not.toBeInTheDocument()
     expect(screen.getByText(/1 min/)).toBeInTheDocument()
     // Le retour est absorbé dans la ligne du geste (A-3) : une ligne, grise.
@@ -377,7 +377,7 @@ describe('un geste de l’exploitant, en une ligne (A-3)', () => {
     )
     const lignes = container.querySelectorAll('tbody tr')
     expect(lignes).toHaveLength(1)
-    expect(lignes[0].textContent).toMatch(/Désactivé par l’exploitant, puis reconnecté/)
+    expect(lignes[0].textContent).toMatch(/Désactivé, puis reconnecté/)
     expect(lignes[0].textContent).toMatch(/1 min/)
     expect(lignes[0].textContent).toMatch(/5 étapes regroupées/)
   })

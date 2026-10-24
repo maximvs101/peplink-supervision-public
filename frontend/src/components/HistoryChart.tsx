@@ -436,7 +436,7 @@ export function HistoryChart({
           <div className="notice">
             {passee
               ? 'Aucune mesure de cette grandeur dans cette session.'
-              : 'Collecte en cours — les mesures apparaîtront d’ici quelques secondes.'}
+              : 'Collecte en cours.'}
           </div>
         ) : mesures === 0 ? (
           // Des relevés datés, mais aucun ne porte de valeur traçable — tous
@@ -587,9 +587,8 @@ export function HistoryChart({
         {horsCadre && <p className="disclaimer">{horsCadre}</p>}
         {combles > 0 && (
           <p className="disclaimer">
-            En pointillé, {fmtInt(combles)} point{combles > 1 ? 's' : ''} comblé{combles > 1 ? 's' : ''} par l’historique du
-            routeur (un point toutes les 10 s), là où cet outil n’a rien relevé — des mesures
-            passées, sans état de connexion.
+            En pointillé : {fmtInt(combles)} point{combles > 1 ? 's' : ''} comblé{combles > 1 ? 's' : ''} par l’historique du
+            routeur (pas de 10 s), sans état de connexion.
           </p>
         )}
         {(trous.length > 0 || reperes.length > 0) && (
@@ -600,9 +599,9 @@ export function HistoryChart({
                 ? `${trous.length} trou${trous.length > 1 ? 's' : ''} de supervision (`
                   + trous.slice(0, 6).map((t) => fmtClock(t.de)).join(', ')
                   + (trous.length > 6 ? ', …' : '')
-                  + ') — zones grisées, le superviseur ne relevait rien'
+                  + ') — zones grisées, aucun relevé'
                 : null,
-              ...desactivations.map((d) => `désactivé par l’exploitant de ${fmtClock(d.de)}`
+              ...desactivations.map((d) => `désactivé de ${fmtClock(d.de)}`
                 + (d.a ? ` à ${fmtClock(d.a)}` : ', toujours')),
               ...(() => {
                 const c = transitions.filter((r) => r.genre !== 'retour').length
@@ -614,9 +613,8 @@ export function HistoryChart({
         {technos.length > 0 && (
           <p className="disclaimer">
             Technologie changée {technos.length === 1 ? 'une fois' : `${technos.length} fois`} —{' '}
-            {technos.map((c) => `${c.de} → ${c.vers} à ${fmtClock(c.t)}`).join(', ')} : les valeurs
-            de part et d’autre d’un repère ne se mesurent pas sur la même porteuse et ne se
-            comparent pas.
+            {technos.map((c) => `${c.de} → ${c.vers} à ${fmtClock(c.t)}`).join(', ')} (porteuses
+            différentes de part et d’autre).
           </p>
         )}
         {retires > 0 && (
@@ -624,16 +622,14 @@ export function HistoryChart({
             {retires === 1
               ? 'Un point a été retiré de la courbe'
               : `${retires} points ont été retirés de la courbe`}{' '}
-            : moins de {LOSS_MIN_PACKETS} paquets comptés sur l’intervalle. Un unique paquet
-            manquant sur un keepalive affiche 33 % de perte sur un lien parfaitement sain —
-            ce n’est pas une mesure basse, c’est une absence de mesure.
+            : moins de {LOSS_MIN_PACKETS} paquets comptés sur l’intervalle.
           </p>
         )}
         {ficheErreur !== null && (
           <div className="notice is-warn" role="alert">
             Fiche de la session illisible : {ficheErreur}.
             {fiche && ficheLueA !== null
-              ? ` Celle affichée date de ${fmtClock(ficheLueA)}.`
+              ? ` Fiche affichée : ${fmtClock(ficheLueA)}.`
               : ''}
           </div>
         )}
@@ -687,8 +683,7 @@ export function HistoryChart({
             <button type="button" className="is-quiet" onClick={exporterCsv}>
               Exporter en CSV
             </button>{' '}
-            la courbe affichée : cette grandeur, cette fenêtre
-            {enveloppe ? ', en enveloppe (dit en tête du fichier)' : ''}.
+            la courbe affichée (grandeur et fenêtre{enveloppe ? ', en enveloppe' : ''}).
           </p>
         )}
 
@@ -696,16 +691,14 @@ export function HistoryChart({
           {libelleFenetre}{' '}
           ·{' '}
           {enveloppe
-            ? `${available} mesures, tracées en enveloppe — ${data.length} points, `
-              + 'minimum et maximum par tranche, aucun extrême perdu ; '
-              + 'les interruptions ne sont pas marquées, l’espacement des points '
-              + 'ne reflétant plus la cadence'
+            ? `${available} mesures en enveloppe (${data.length} points, minimum et maximum `
+              + 'par tranche ; interruptions non marquées)'
             : `${points.filter((p) => p.value !== null).length} `
               + `mesure${points.filter((p) => p.value !== null).length > 1 ? 's' : ''} tracée`
               + `${points.filter((p) => p.value !== null).length > 1 ? 's' : ''}`}{' '}
           {/* La rétention a regroupé les relevés anciens : la résolution
               perdue se dit, comme l'enveloppe. */}
-          {regroupee && '· relevés anciens regroupés à la minute, minimum et maximum de chacune '}
+          {regroupee && '· relevés anciens regroupés à la minute (minimum et maximum) '}
           · {passee ? 'session passée, courbe figée' : 'rafraîchi toutes les 15 s'}
         </p>
       </div>

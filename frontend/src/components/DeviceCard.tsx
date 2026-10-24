@@ -152,7 +152,7 @@ export function DeviceCard({
             tant que ce drapeau est levé ; l'écran doit donc dire qu'il attend,
             au lieu d'afficher une négation qu'il n'a pas mesurée. */}
         {capabilities?.provisional && (
-          <span className="badge" title="Toutes les sondes n’ont pas encore abouti : ce qui n’est pas affiché n’est pas pour autant absent.">
+          <span className="badge" title="Sondes en cours.">
             fiche en cours
           </span>
         )}
@@ -165,7 +165,7 @@ export function DeviceCard({
         {capabilities?.source === 'probed' && (
           <span
             className="badge"
-            title="`info.capability` n’est pas couvert par les droits de ce client API : l’inventaire a été reconstitué en sondant, et ne couvre que les WAN actifs."
+            title="`info.capability` hors des droits du client API : inventaire sondé, WAN actifs seuls."
           >
             fiche reconstituée
           </span>
@@ -179,25 +179,25 @@ export function DeviceCard({
         {device.care_plan_active === false && (
           <span
             className="badge"
-            title={`Contrat ${device.care_plan ?? 'de support'} expiré : plus de mise à jour ni d’assistance de l’éditeur.`}
+            title={`Contrat ${device.care_plan ?? 'de support'} expiré.`}
           >
             support expiré
           </span>
         )}
         {echeance?.etat === 'proche' && (
-          <span className="badge warn" title="La licence SpeedFusion Cloud arrive à échéance : le service s’arrêtera à cette date.">
+          <span className="badge warn" title="Échéance de la licence SpeedFusion Cloud.">
             SpeedFusion Cloud : échéance dans {echeance.jours} {echeance.jours > 1 ? 'jours' : 'jour'}
           </span>
         )}
         {echeance?.etat === 'echue' && (
-          <span className="badge warn" title="La licence SpeedFusion Cloud est échue : un profil SpeedFusion Cloud ne peut plus s’établir.">
+          <span className="badge warn" title="Licence SpeedFusion Cloud échue.">
             SpeedFusion Cloud échu
           </span>
         )}
         {capabilities?.sfc_licensed === true && capabilities.sfc_suspended === true && (
           <span
             className="badge warn"
-            title="Une licence SpeedFusion Cloud existe mais elle est SUSPENDUE : le service est indisponible malgré la licence."
+            title="Licence SpeedFusion Cloud suspendue."
           >
             licence SpeedFusion suspendue
           </span>
@@ -205,7 +205,7 @@ export function DeviceCard({
         {device.remote_assistance === true && (
           <span
             className="badge warn"
-            title="Un tunnel d’assistance est ouvert vers l’éditeur. C’est un fait de sécurité, pas une panne."
+            title="Tunnel d’assistance ouvert vers l’éditeur."
           >
             assistance distante ouverte
           </span>
@@ -213,7 +213,7 @@ export function DeviceCard({
         {device.config_activating && (
           <span
             className="badge"
-            title="Une configuration s’applique en ce moment : un transitoire n’est pas forcément une panne."
+            title="Configuration en cours d’application."
           >
             configuration en cours
           </span>
@@ -311,17 +311,15 @@ export function DeviceCard({
               <>
                 Port{capabilities.lan_repurposed.length > 1 ? 's' : ''} WAN{' '}
                 {capabilities.lan_repurposed.join(', ')} basculé
-                {capabilities.lan_repurposed.length > 1 ? 's' : ''} en LAN, donc indisponible
-                {capabilities.lan_repurposed.length > 1 ? 's' : ''} comme WAN.
+                {capabilities.lan_repurposed.length > 1 ? 's' : ''} en LAN.
               </>
             )}
             {capabilities.lan_repurposed.length > 0 && capabilities.usb_modem_slots > 0 && ' '}
             {capabilities.usb_modem_slots > 0 && (
               <>
                 {capabilities.usb_modem_slots} emplacement
-                {capabilities.usb_modem_slots > 1 ? 's' : ''} de modem USB, non supervisé
-                {capabilities.usb_modem_slots > 1 ? 's' : ''} tant qu’aucun périphérique n’y
-                est reconnu.
+                {capabilities.usb_modem_slots > 1 ? 's' : ''} de modem USB, sans périphérique
+                reconnu.
               </>
             )}
           </p>
@@ -338,7 +336,7 @@ export function DeviceCard({
             {unplugged.length > 0 && plugged.length < 2 && (
               <>
                 {' '}— {unplugged.map((s) => s.name).join(', ')} non raccordée
-                {unplugged.length > 1 ? 's' : ''}, donc pas de redondance d'alimentation.
+                {unplugged.length > 1 ? 's' : ''}.
               </>
             )}
           </p>
