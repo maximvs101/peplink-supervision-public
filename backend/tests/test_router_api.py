@@ -1533,3 +1533,28 @@ def test_a_carrier_without_a_label_is_not_published():
     charge["response"]["3"]["cellular"]["rat"][0]["band"].append(
         {"name": "LTE Band 3 (1800 MHz)", "signal": {"rsrp": -80}})
     assert [b.band for b in parse_wan_connection(charge)[0].bands] == ["B3"]
+
+
+async def test_an_unread_router_log_is_none_not_an_empty_log():
+    """Un journal qui n'a pas pu être lu rend None, jamais `[]`.
+
+    `[]` est un constat : « aucun fait dans le journal », que le poller note
+    comme une lecture aboutie et dont la fiche tire « 0 manœuvre ». Une panne
+    passagère, une échéance ou un refus retenu de `status.log` ne sont pas ce
+    constat.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/login":
+            return httpx.Response(200, json={"stat": "ok"})
+        if request.url.params.get("func") == "status.log" or "status.log" in str(request.url):
+            return httpx.Response(200, json={"stat": "fail", "code": 999, "message": "Unknown function"})
+        return httpx.Response(200, json={"stat": "ok", "response": {"timestamp": 1}})
+
+    client = await _client(handler)
+    try:
+        assert await client.get_router_events({}) is None
+        # Le refus est désormais retenu : la question n'est même plus posée,
+        # et la réponse reste « non lu ».
+        assert await client.get_router_events({}) is None
+    finally:
+        await client.aclose()

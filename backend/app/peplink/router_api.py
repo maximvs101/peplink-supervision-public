@@ -1217,29 +1217,33 @@ class RouterApiPeplinkClient:
             return None
 
     # --- lectures ---
-    async def get_router_events(self, noms: dict[str, str]) -> list[RouterEvent]:
+    async def get_router_events(self, noms: dict[str, str]) -> list[RouterEvent] | None:
         """Les faits reconnus du journal du routeur, datés par son horloge.
 
         Complément, comme le débit et le tunnel : un échec ne touche à rien, et
         un refus retenu (droits, endpoint inconnu) ne se redemande qu'à son
         échéance. `status.log` n'est pas documenté — c'est l'endpoint de
         l'interface web.
+
+        None quand le journal n'a pas été lu (panne, refus retenu, réponse
+        illisible) : `[]` est un constat, « aucun fait », que la fiche compte
+        comme zéro manœuvre.
         """
         # Le journal retenu, l'horloge n'a pas à être relue pour rien.
         if self._retenu("status.log") is not None:
-            return []
+            return None
         info = await self._lire_complement("Horloge du routeur", "status.system.info")
         if info is None:
-            return []
+            return None
         journal = await self._lire_complement("Journal du routeur", "status.log")
         if journal is None:
-            return []
+            return None
         horloge = horloge_routeur(info)
         try:
             return parse_router_log(journal, horloge, noms)
         except Exception:
             logger.warning("Journal du routeur inattendu sur %s", self.router_id, exc_info=True)
-            return []
+            return None
 
     async def get_radio_status(self, echeance: float | None = None) -> list[WanRadioStatus]:
         """Le relevé WAN, puis ses compléments tant que l'`echeance` le permet.

@@ -132,9 +132,9 @@ describe('les grandeurs s’écrivent avec leur unité, à la française', () =>
   })
 
   it('n’écrit une position que si latitude ET longitude sont connues', () => {
-    // `fiche.lon?.toFixed(5)` donnait « 45.12345, » quand lon manquait.
-    const { container } = render(<SessionSheet fiche={{ ...fiche(null), lat: 45.12345, lon: null }} />)
-    expect(container.textContent).not.toMatch(/45\.12345/)
+    // `fiche.lon?.toFixed(5)` donnait « 48.85661, » quand lon manquait.
+    const { container } = render(<SessionSheet fiche={{ ...fiche(null), lat: 48.85661, lon: null }} />)
+    expect(container.textContent).not.toMatch(/48\.85661/)
   })
 })
 

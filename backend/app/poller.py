@@ -369,11 +369,9 @@ class Poller:
             return
         # Une lecture ABOUTIE se note : sans elle, la fiche ne sait pas si
         # « aucune manœuvre » est un constat ou un journal jamais lu. Un client
-        # qui n'a pas pu le lire rend `None` ; un refus définitif du firmware
-        # éteint `_supports_log` et rend `[]` — ni l'un ni l'autre n'est une
-        # lecture. (Une panne passagère rend encore `[]` côté client : seul
-        # `None` permettrait de la distinguer.)
-        lu = faits is not None and getattr(record.client, "_supports_log", True) is not False
+        # qui n'a pas pu le lire — panne, refus retenu, réponse illisible — rend
+        # `None`, jamais `[]`.
+        lu = faits is not None
         faits = faits or []
         await self._repo.insert_router_events(record.id, faits)
         maintenant = utcnow()
