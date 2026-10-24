@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { HashRouter, Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
 
 import { fetchHealth, fetchRouters } from './api/client'
@@ -61,11 +61,35 @@ function Panne({ panne, premiere }: { panne: string | null; premiere: boolean })
   )
 }
 
-function Frame({ routers, health, panne }: { routers: RouterSummary[]; health: Health | null; panne: string | null }) {
+function Frame({ routers, health, panne, santePanne }: {
+  /** `null` tant que la flotte n'a jamais été lue. */
+  routers: RouterSummary[] | null
+  health: Health | null
+  panne: string | null
+  /** Échec de la dernière lecture de `/health`. */
+  santePanne: string | null
+}) {
   return (
     <>
-      <Panne panne={panne} premiere={false} />
-      <Outlet context={{ health, routers } satisfies FrameContext} />
+      {/* Le VRAI état : sur `#/decouverte`, la flotte peut n'avoir jamais été
+          lue. `premiere={false}` codé en dur y faisait dire « ce qui est
+          affiché date de la dernière réponse » — sans aucune réponse. */}
+      <Panne panne={panne} premiere={routers === null} />
+      {/* `/health` porte la période de scrutation du serveur, d'où se déduit
+          le seuil de péremption quand l'équipement ne publie pas la sienne.
+          Son échec était avalé et la période gardait sa dernière valeur sans
+          un mot. Tu quand le service entier ne répond pas : la panne le dit. */}
+      {panne === null && santePanne !== null && (
+        <div className="page is-narrow" style={{ paddingBottom: 0 }}>
+          <div className="notice is-warn" role="status">
+            <strong>État de santé du service illisible :</strong> {santePanne}.{' '}
+            {health !== null
+              ? 'La période de scrutation retenue date de la dernière lecture aboutie.'
+              : 'Aucune période de scrutation du service n’est connue.'}
+          </div>
+        </div>
+      )}
+      <Outlet context={{ health, routers: routers ?? [] } satisfies FrameContext} />
     </>
   )
 }
@@ -117,8 +141,17 @@ export default function App() {
   const [routers, setRouters] = useState<RouterSummary[] | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [santeErreur, setSanteErreur] = useState<string | null>(null)
+  // Jetons de séquence, comme dans `DeviceShell` : deux lectures peuvent se
+  // DOUBLER — une lente partie au tour N rendue après la rapide du tour N+1 —
+  // et la réponse périmée écrasait la récente (un équipement appairé entre
+  // les deux disparaissait du sélecteur pour quinze secondes). Une réponse
+  // dépassée est jetée, succès comme échec.
+  const rang = useRef({ flotte: 0, flotteRendue: 0, sante: 0, santeRendue: 0 })
 
   const load = useCallback(() => {
+    const r = rang.current
+    const mienne = ++r.flotte
     fetchRouters()
       // Le retour efface l'erreur. Elle n'était JAMAIS remise à nul : un
       // redémarrage du serveur, une sortie de veille, un hoquet Wi-Fi, et
@@ -126,9 +159,30 @@ export default function App() {
       // rechargement — alors que le rafraîchissement de quinze secondes avait
       // repris et réussissait. Prouvé : après un échec puis quatre cycles tous
       // réussis, le message était toujours là.
-      .then((liste) => { setRouters(liste); setError(null) })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Backend injoignable'))
-    fetchHealth().then(setHealth).catch(() => undefined)
+      .then((liste) => {
+        if (mienne < r.flotteRendue) return
+        r.flotteRendue = mienne
+        setRouters(liste)
+        setError(null)
+      })
+      .catch((err) => {
+        if (mienne < r.flotteRendue) return
+        r.flotteRendue = mienne
+        setError(err instanceof Error ? err.message : 'Backend injoignable')
+      })
+    const sienne = ++r.sante
+    fetchHealth()
+      .then((h) => {
+        if (sienne < r.santeRendue) return
+        r.santeRendue = sienne
+        setHealth(h)
+        setSanteErreur(null)
+      })
+      .catch((err) => {
+        if (sienne < r.santeRendue) return
+        r.santeRendue = sienne
+        setSanteErreur(err instanceof Error ? err.message : 'Lecture impossible')
+      })
   }, [])
 
   // La période observée n'existe qu'après deux cycles : un chargement unique la
@@ -148,7 +202,7 @@ export default function App() {
     // le bouton Précédent sans rien demander au serveur.
     <HashRouter>
       <Routes>
-        <Route element={<Frame routers={routers ?? []} health={health} panne={error} />}>
+        <Route element={<Frame routers={routers} health={health} panne={error} santePanne={santeErreur} />}>
           <Route path="/decouverte" element={<EcranBoundary titre="Découverte"><Discovery /></EcranBoundary>} />
           {/* `key` sur le paramètre : React Router ne remonte pas un élément
               quand seul le paramètre change, si bien qu'un rendu entier avait

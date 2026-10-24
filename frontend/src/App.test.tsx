@@ -136,4 +136,47 @@ describe('une panne du service', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     expect(vi.mocked(openLiveSocket).mock.calls.length).toBe(sockets)
   })
+
+  it('ne prétend pas avoir lu quoi que ce soit sur la découverte', async () => {
+    // `premiere={false}` codé en dur : sur `#/decouverte` sans aucune flotte
+    // lue, le bandeau disait « ce qui est affiché date de la dernière réponse ».
+    window.location.hash = '#/decouverte'
+    vi.mocked(fetchRouters).mockRejectedValue(new Error('ECONNREFUSED'))
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    const alerte = screen.getAllByRole('alert').find((a) => /ne répond pas/.test(a.textContent ?? ''))
+    expect(alerte?.textContent).toMatch(/rien n’a encore été lu/)
+    expect(alerte?.textContent).not.toMatch(/dernière réponse/)
+  })
+})
+
+describe('deux lectures de la flotte qui se doublent', () => {
+  it('ne laissent pas une réponse lente écraser une plus récente', async () => {
+    const dome = { ...mbx(), id: 'dome', name: 'DOME' }
+    const br1 = { ...mbx(), id: 'br1', name: 'BR1' }
+    vi.mocked(fetchRouters)
+      .mockResolvedValueOnce([mbx(), dome])
+      // Partie à 15 s, rendue à 35 s : après celle de 30 s.
+      .mockImplementationOnce(() => new Promise((r) => setTimeout(() => r([mbx(), dome]), 20_000)))
+      .mockResolvedValue([mbx(), dome, br1])
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('#/e/mbx')
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    const options = () => [...(screen.getByRole('combobox', { name: /Équipement supervisé/ }) as HTMLSelectElement).options]
+      .map((o) => o.value)
+    expect(options()).toEqual(['mbx', 'dome', 'br1'])
+    await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
+    expect(options()).toEqual(['mbx', 'dome', 'br1'])
+  })
+})
+
+describe('l’état de santé illisible', () => {
+  it('se dit, au lieu de garder en silence la dernière période', async () => {
+    vi.mocked(fetchRouters).mockResolvedValue([mbx()])
+    vi.mocked(fetchHealth).mockRejectedValue(new Error('délai dépassé'))
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(screen.getByRole('status').textContent).toMatch(/État de santé du service illisible : délai dépassé/)
+  })
 })
