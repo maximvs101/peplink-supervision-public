@@ -4,6 +4,20 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
+## À venir
+
+Correctifs pas encore étiquetés ; la section prendra le numéro de la prochaine version.
+
+- **Identifiant d'équipement opaque** dans l'API, et **série masquée** pour tout client qui
+  n'est pas le poste local.
+- **Une grandeur absente reste une absence** (« — », « inconnu »), plus jamais un zéro.
+- **Robustesse face aux firmwares** : réponses incomplètes ou inattendues tolérées.
+- **Garde de version à la publication** : l'étiquette, la section du CHANGELOG, les deux
+  paquets Python et l'interface doivent dire le même numéro, sinon rien n'est publié.
+- **Dépendances épinglées** : versions Python exactes, outils de test à part
+  (`requirements-dev.txt`), actions GitHub par empreinte de commit.
+- **Vite à jour** (8, un seul dans le verrou), `npm audit` sans faille.
+
 ## v0.2.0 — Témoin de lien Ethernet
 
 Un second exécutable, `temoin-ethernet-*`, à côté du superviseur et dans la même Release,
