@@ -178,7 +178,9 @@ export function DeviceShell() {
    *  flux principal, qui seul connaît le jeton de séquence et la minuterie. */
   const reessayerEtat = useRef<(() => void) | null>(null)
   /** La relance MANUELLE est en vol : le bouton le dit et ne la double pas. */
-  const [relanceEnVol, setRelanceEnVol] = useState(false)
+  // La relance manuelle : partie (« relance »), ou rattachée à une lecture
+  // déjà en vol (« deja »).
+  const [relanceEnVol, setRelanceEnVol] = useState<false | 'relance' | 'deja'>(false)
   /** Chaque « Réessayer » du flux temps réel le rouvre : la fermeture était
    *  définitive, et seul un geste de l'exploitant la lève — jamais une boucle,
    *  qui redemanderait toutes les deux secondes ce que le serveur refuse. */
@@ -294,13 +296,15 @@ export function DeviceShell() {
     // montage, sur un serveur qui vient de démarrer. Rend la promesse de SA
     // réponse, pour que la relance manuelle sache quand elle est retombée.
     // L'instant de départ de la plus récente, tant qu'elle n'a pas répondu.
+    // Sa promesse aussi : un clic pendant qu'elle vole attend SA réponse.
     let enVolDepuis: number | null = null
+    let enVol: Promise<void> | null = null
     const lire = (initial: boolean): Promise<void> => {
       const mien = ++rang
       const depart = performance.now()
       enVolDepuis = depart
-      const retombee = () => { if (enVolDepuis === depart) enVolDepuis = null }
-      return fetchRouter(routerId)
+      const retombee = () => { if (enVolDepuis === depart) { enVolDepuis = null; enVol = null } }
+      const promesse = fetchRouter(routerId)
         .then((summary) => {
           retombee()
           // Une réponse dépassée est jetée : elle décrit un instant que l'écran
@@ -313,6 +317,8 @@ export function DeviceShell() {
           retombee()
           if (!cancelled && mien >= dernierRendu) fail(err, initial)
         })
+      if (enVolDepuis === depart) enVol = promesse
+      return promesse
     }
 
     lire(true)
@@ -334,16 +340,23 @@ export function DeviceShell() {
     // repart d'une période entière derrière elle. Sans cela l'échéance
     // périodique pouvait tomber une seconde après la relance — deux requêtes
     // dos à dos pour une même question. Une lecture déjà en vol depuis moins
-    // d'une période n'est pas doublée : sa réponse est celle qu'on attend.
-    // Au-delà, elle est réputée pendue (le serveur a accepté la connexion et
-    // ne répond plus) et ne doit pas confisquer le bouton.
+    // d'une période n'est pas doublée : sa réponse est celle qu'on attend, et
+    // le bouton le DIT (« Lecture déjà en cours… ») — un clic qui ne faisait
+    // rien passait pour un bouton cassé. Au-delà, elle est réputée pendue (le
+    // serveur a accepté la connexion et ne répond plus) et ne doit pas
+    // confisquer le bouton. `getJson` l'abandonne de toute façon après son
+    // délai : aucune lecture ne tient le bouton indéfiniment.
     reessayerEtat.current = () => {
       if (cancelled || stopped) return
-      if (enVolDepuis !== null && performance.now() - enVolDepuis < REFRESH_MS) return
+      if (enVol !== null && enVolDepuis !== null && performance.now() - enVolDepuis < REFRESH_MS) {
+        setRelanceEnVol('deja')
+        enVol.finally(() => { if (!cancelled) setRelanceEnVol(false) })
+        return
+      }
       window.clearInterval(refresh)
       refresh = window.setInterval(periodique, REFRESH_MS)
       setClock(performance.now())
-      setRelanceEnVol(true)
+      setRelanceEnVol('relance')
       lire(false).finally(() => { if (!cancelled) setRelanceEnVol(false) })
     }
 
@@ -644,10 +657,12 @@ export function DeviceShell() {
     <button
       type="button"
       className="is-quiet reessayer"
-      disabled={relanceEnVol}
+      disabled={relanceEnVol !== false}
       onClick={() => reessayerEtat.current?.()}
     >
-      {relanceEnVol ? 'Lecture en cours…' : 'Réessayer maintenant'}
+      {relanceEnVol === 'deja'
+        ? 'Lecture déjà en cours…'
+        : relanceEnVol ? 'Lecture en cours…' : 'Réessayer maintenant'}
     </button>
   )
 

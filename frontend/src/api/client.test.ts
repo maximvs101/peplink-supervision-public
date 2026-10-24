@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { openLiveSocket, pairDevice } from './client'
+import { DELAI_LECTURE_MS, fetchRouter, openLiveSocket, pairDevice } from './client'
 
 /**
  * C-46 (F14 à F16) : `openLiveSocket` et `pairDevice` étaient moqués dans
@@ -103,5 +103,29 @@ describe('l’appairage', () => {
     repondre(200, { id: 'dome', status: 'en attente' })
     await expect(pairDevice({ host: '192.0.2.1', username: 'a', password: 'b' }))
       .resolves.toMatchObject({ id: 'dome' })
+  })
+})
+
+describe('une lecture sans réponse', () => {
+  it('abandonne au bout du délai, et le dit', async () => {
+    // Le serveur accepte la connexion et ne répond plus : `fetch` ne rejette
+    // jamais, et la relance manuelle restait « Lecture en cours… » pour
+    // toujours, bouton désactivé.
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise((_ok, ko) => {
+      init?.signal?.addEventListener('abort', () => ko(new DOMException('abandon', 'AbortError')))
+    })))
+    const issue = fetchRouter('mbx').then(() => 'répondu', (e: Error) => e.message)
+    await vi.advanceTimersByTimeAsync(DELAI_LECTURE_MS - 1)
+    let fini = false
+    void issue.then(() => { fini = true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fini).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await issue).toMatch(/pas de réponse du serveur en 20 s/)
+  })
+
+  it('laisse passer une réponse arrivée à temps', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'mbx' }), { status: 200 })))
+    await expect(fetchRouter('mbx')).resolves.toEqual({ id: 'mbx' })
   })
 })

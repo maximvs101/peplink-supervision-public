@@ -185,6 +185,25 @@ describe('réessayer maintenant', () => {
     expect(screen.queryByText(/non rafraîchi/)).toBeNull()
   })
 
+  it('dit qu’une lecture est déjà en cours au lieu de ne rien faire', async () => {
+    monter()
+    await avancer(0)
+    vi.mocked(fetchRouter).mockRejectedValue(new Error('délai dépassé'))
+    await avancer(10_000)
+    // La relecture périodique part, et reste en vol.
+    let repondre: (v: RouterSummary) => void = () => {}
+    vi.mocked(fetchRouter).mockImplementation(() => new Promise((r) => { repondre = r }))
+    await avancer(10_000)
+    const avant = vi.mocked(fetchRouter).mock.calls.length
+    await act(async () => { screen.getByRole('button', { name: 'Réessayer maintenant' }).click() })
+    // Le clic ne double pas la lecture, mais il le DIT.
+    expect(vi.mocked(fetchRouter).mock.calls.length).toBe(avant)
+    const bouton = screen.getByRole('button', { name: /Lecture déjà en cours/ })
+    expect(bouton).toBeDisabled()
+    await act(async () => { repondre(summary()) })
+    expect(screen.queryByText(/non rafraîchi/)).toBeNull()
+  })
+
   it('repousse la relecture périodique au lieu de la superposer', async () => {
     monter()
     await avancer(0)

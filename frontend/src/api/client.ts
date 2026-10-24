@@ -15,14 +15,35 @@ import type {
   EventLog,
 } from '../types'
 
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    const error = new Error(`${response.status} ${response.statusText} sur ${url}`)
-    ;(error as Error & { status?: number }).status = response.status
-    throw error
+/**
+ * Délai d'une lecture. Un serveur qui accepte la connexion puis ne répond
+ * plus ne fait jamais rejeter `fetch` : la relance manuelle restait « Lecture
+ * en cours… », bouton désactivé, pour toujours. Vingt secondes : deux périodes
+ * de l'état de l'équipement (10 s), moins qu'une de la bande et du journal
+ * (30 s) — une lecture pendue est abandonnée avant que la suivante ne parte.
+ */
+export const DELAI_LECTURE_MS = 20_000
+
+async function getJson<T>(url: string, delaiMs: number = DELAI_LECTURE_MS): Promise<T> {
+  const abandon = new AbortController()
+  const minuterie = setTimeout(() => abandon.abort(), delaiMs)
+  try {
+    const response = await fetch(url, { signal: abandon.signal })
+    if (!response.ok) {
+      const error = new Error(`${response.status} ${response.statusText} sur ${url}`)
+      ;(error as Error & { status?: number }).status = response.status
+      throw error
+    }
+    return (await response.json()) as T
+  } catch (err) {
+    // Sans code HTTP : pour l'écran, c'est une panne passagère, à redemander.
+    if (abandon.signal.aborted) {
+      throw new Error(`pas de réponse du serveur en ${Math.round(delaiMs / 1000)} s sur ${url}`)
+    }
+    throw err
+  } finally {
+    clearTimeout(minuterie)
   }
-  return (await response.json()) as T
 }
 
 /**
@@ -42,8 +63,11 @@ export const fetchHealth = () => getJson<Health>('/api/health')
 
 export const fetchRouters = () => getJson<RouterSummary[]>('/api/routers')
 
+/** La découverte sonde le réseau local : bien plus longue qu'une lecture. */
+const DELAI_DECOUVERTE_MS = 120_000
+
 /** Recherche d'équipements sur le réseau. N'envoie aucun identifiant. */
-export const fetchDiscovery = () => getJson<DiscoveredDevice[]>('/api/discover')
+export const fetchDiscovery = () => getJson<DiscoveredDevice[]>('/api/discover', DELAI_DECOUVERTE_MS)
 
 export const fetchDevices = () => getJson<DeviceStatus[]>('/api/devices')
 
