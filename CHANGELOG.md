@@ -4,6 +4,16 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
+## À venir
+
+- **Textes au fait** : alertes (un titre court et la valeur), bandeaux, notes et infobulles
+  du superviseur réduits à ce qui est mesuré — plus d'explication, de conseil ni de
+  conséquence supposée.
+- **Ouverture** : l'outil attend la première réponse et ouvre un équipement connecté, plus
+  le premier du fichier de flotte encore « en attente ».
+- **« secours »** seulement pour un lien effectivement en attente (« Standby », ou lien
+  prioritaire connecté) ; sinon la priorité seule (« P2 »).
+
 ## v0.2.2 — Licences tierces, interface à jour
 
 Une version de distribution : rien ne change dans ce que mesurent le superviseur et le
