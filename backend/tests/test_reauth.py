@@ -11,7 +11,9 @@ session). Le mutant F9, côté écran, est tenu par RepriseIdentifiants.test.tsx
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -112,3 +114,90 @@ async def test_une_page_html_au_login_est_une_panne_passagere(mode, chemin):
     assert not isinstance(erreur.value, CredentialsRefusedError)
     assert client._credentials_refused is False
     await client.aclose()
+
+
+# --- un refus des ANCIENS identifiants ne verrouille pas les nouveaux -------------
+
+def _login_suspendu(chemin_auth: str):
+    """Un routeur dont la réponse au login attend un signal : le temps, pour
+    l'exploitant, de rouvrir les identifiants pendant que l'ancien vol dure."""
+    posts: list[str] = []
+    parti, relacher = asyncio.Event(), asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == chemin_auth:
+            posts.append(request.url.path)
+            if len(posts) == 1:
+                parti.set()
+                await relacher.wait()
+            return httpx.Response(200, json={"stat": "fail", "code": 401, "message": "refusé"})
+        raise AssertionError(f"aucune lecture ne doit partir : {request.url.path}")
+
+    return posts, parti, relacher, handler
+
+
+@pytest.mark.parametrize("mode, chemin", [
+    ({"client_id": "ID", "client_secret": "SECRET"}, "/api/auth.token.grant"),
+    ({"username": "admin", "password": "x"}, "/api/login"),
+])
+async def test_un_refus_en_vol_des_anciens_identifiants_ne_reverrouille_pas(mode, chemin):
+    """La reprise tombe pendant qu'un login des ANCIENS identifiants est en vol
+    (jusqu'à 15 s de délai) : son refus arrivait APRÈS et réarmait le verrou —
+    les nouveaux identifiants étaient bloqués sans avoir été essayés."""
+    posts, parti, relacher, handler = _login_suspendu(chemin)
+    client = RouterApiPeplinkClient(RouterConfig(id="r", name="R", host="192.0.2.1", **mode))
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    ancien = asyncio.ensure_future(client.get_radio_status())
+    await parti.wait()
+    client.allow_new_credentials()       # l'exploitant a corrigé, pendant le vol
+    relacher.set()
+    with pytest.raises(CredentialsRefusedError) as refus:
+        await ancien
+    assert client._credentials_refused is False, "le refus périmé a reverrouillé"
+    assert refus.value.generation != client.credentials_generation
+
+    # Les nouveaux identifiants ont leur tentative — UNE, et leur refus, lui,
+    # verrouille : l'invariant ne faiblit pas.
+    with pytest.raises(CredentialsRefusedError):
+        await client.get_radio_status()
+    assert client._credentials_refused is True
+    with pytest.raises(CredentialsRefusedError):
+        await client.get_radio_status()
+    assert len(posts) == 2
+    await client.aclose()
+
+
+async def test_le_poller_ne_bloque_pas_sur_un_refus_perime(tmp_path):
+    """Même course, un étage plus haut : le cycle en vol reçoit le refus des
+    anciens identifiants après la reprise, et reposait `auth_blocked`."""
+    from app.devices.registry import DeviceRegistry
+    from app.poller import Poller
+    from app.storage.db import SampleRepository
+
+    repo = SampleRepository(str(tmp_path / "s.db"))
+    await repo.connect()
+    registry = DeviceRegistry(default_mode="mock")
+    p = Poller(registry, repo, interval_seconds=0.5)
+    record = await registry.add(RouterConfig(id="mbx", name="MBX", mode="mock"))
+
+    perime = CredentialsRefusedError("login refusé")
+    perime.generation = 0
+    record.client = SimpleNamespace(
+        credentials_generation=1,       # la reprise a eu lieu depuis
+        get_radio_status=AsyncMock(side_effect=perime),
+    )
+    record.status = "en attente"
+    await p._poll_device_once(record)
+    assert record.auth_blocked is False, "un refus périmé a bloqué l'équipement"
+    assert record.status != "identifiants refusés"
+
+    # Le refus des identifiants COURANTS, lui, bloque.
+    courant = CredentialsRefusedError("login refusé")
+    courant.generation = 1
+    record.client.get_radio_status = AsyncMock(side_effect=courant)
+    await p._poll_device_once(record)
+    assert record.auth_blocked is True
+    await repo.close()
+    await registry.close()

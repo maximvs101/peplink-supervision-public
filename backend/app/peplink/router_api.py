@@ -302,7 +302,15 @@ class CredentialsRefusedError(AuthenticationError):
     secondes, et la boucle recommence à chaque expiration. L'outil verrouillait
     donc l'exploitant hors de son propre routeur, au moment précis où il en
     avait besoin.
+
+    `generation` : la génération d'identifiants (`credentials_generation` du
+    client) que la tentative refusée employait. Un appelant qui la trouve
+    différente de la génération COURANTE tient un refus périmé — l'exploitant
+    a rouvert les identifiants pendant le vol — et ne doit rien verrouiller.
+    `None` hors du client (appairage, doubles de test) : refus courant.
     """
+
+    generation: int | None = None
 
 
 def _base_url(host: str) -> str:
@@ -797,6 +805,12 @@ class RouterApiPeplinkClient:
         # `_ensure_authenticated` : elle survit à l'annulation de qui l'a lancée.
         self._auth_en_vol: asyncio.Future | None = None
         self._credentials_refused = False
+        # La génération d'identifiants : `allow_new_credentials` l'avance. Une
+        # tentative la capture au départ, et son refus ne pose le verrou que si
+        # elle n'a pas changé entre-temps. Sans elle, un login des ANCIENS
+        # identifiants encore en vol (jusqu'à 15 s) répondait après la reprise
+        # et réarmait le verrou : les nouveaux étaient bloqués sans essai.
+        self._generation_identifiants = 0
         # La SEULE mémoire des refus : clé de requête -> (échéance en horloge
         # monotone, nature, code du firmware). Un refus de droits survit à une
         # authentification réussie et coûterait un login à chaque tentative ;
@@ -884,7 +898,8 @@ class RouterApiPeplinkClient:
         except httpx.HTTPStatusError as exc:
             message = redact(f"Routeur {self.router_id} : {what} — {exc}")
             if credentials and 400 <= resp.status_code < 500:
-                self._credentials_refused = True
+                # Le verrou est posé par `_authenticate`, qui sait si ce refus
+                # concerne encore les identifiants retenus.
                 raise CredentialsRefusedError(message, code=resp.status_code) from None
             raise RouterApiError(message) from None
 
@@ -920,26 +935,50 @@ class RouterApiPeplinkClient:
                 await asyncio.shield(self._auth_en_vol)
             return self._auth_generation
 
+    @property
+    def credentials_generation(self) -> int:
+        """La génération d'identifiants courante (voir `CredentialsRefusedError`)."""
+        return self._generation_identifiants
+
     async def _authenticate(self) -> None:
-        # Un refus déjà constaté ne se retente pas de lui-même : c'est le verrou
-        # qui empêche la boucle de scrutation de consommer les cinq tentatives
-        # qui suspendent l'accès admin. Seule une action explicite le lève.
-        if self._credentials_refused:
-            raise CredentialsRefusedError(
-                f"Routeur {self.router_id} : identifiants déjà refusés, "
-                "aucune nouvelle tentative sans action explicite"
-            )
-        if self._cfg.client_id and self._cfg.client_secret:
-            await self._auth_client_credentials()
-        elif self._cfg.username:
-            await self._auth_admin_session()
-        else:
-            # Rien à retenter non plus : aucun identifiant ne se matérialisera.
-            self._credentials_refused = True
-            raise CredentialsRefusedError(
-                f"Routeur {self.router_id} : aucun identifiant "
-                "(client_id/client_secret ou username/password)"
-            )
+        """Une tentative, et le verrou posé sur son refus — s'il est COURANT.
+
+        La génération est capturée AVANT le premier `await` : un refus qui
+        revient alors que l'exploitant a rouvert les identifiants concerne les
+        anciens, et ne pose rien. Un refus des identifiants courants, lui, pose
+        toujours le verrou : l'invariant « jamais rejoué » ne faiblit pas.
+        """
+        generation = self._generation_identifiants
+        try:
+            # Un refus déjà constaté ne se retente pas de lui-même : c'est le
+            # verrou qui empêche la boucle de scrutation de consommer les cinq
+            # tentatives qui suspendent l'accès admin. Seule une action
+            # explicite le lève.
+            if self._credentials_refused:
+                raise CredentialsRefusedError(
+                    f"Routeur {self.router_id} : identifiants déjà refusés, "
+                    "aucune nouvelle tentative sans action explicite"
+                )
+            if self._cfg.client_id and self._cfg.client_secret:
+                await self._auth_client_credentials()
+            elif self._cfg.username:
+                await self._auth_admin_session()
+            else:
+                # Rien à retenter non plus : aucun identifiant ne se matérialisera.
+                raise CredentialsRefusedError(
+                    f"Routeur {self.router_id} : aucun identifiant "
+                    "(client_id/client_secret ou username/password)"
+                )
+        except CredentialsRefusedError as exc:
+            exc.generation = generation
+            if generation == self._generation_identifiants:
+                self._credentials_refused = True
+            else:
+                logger.info(
+                    "Routeur %s : refus des identifiants précédents, arrivé après "
+                    "la reprise — le verrou n'est pas reposé", self.router_id,
+                )
+            raise
 
     def allow_new_credentials(self) -> None:
         """Lève le verrou : l'exploitant a corrigé les identifiants.
@@ -950,6 +989,8 @@ class RouterApiPeplinkClient:
         attendre l'échéance de sa mémoire.
         """
         self._credentials_refused = False
+        # Tout refus encore en vol concerne désormais les ANCIENS identifiants.
+        self._generation_identifiants += 1
         self._authenticated = False
         self._token = None
         self._retenus = {}   # d'autres identifiants, un autre périmètre
@@ -1002,7 +1043,6 @@ class RouterApiPeplinkClient:
         self._raise_for_status(resp, "/api/auth.token.grant", credentials=True)
         payload = self._json_d_authentification(resp, "/api/auth.token.grant")
         if payload.get("stat") != "ok":
-            self._credentials_refused = True
             raise CredentialsRefusedError(
                 f"Routeur {self.router_id} : jeton refusé "
                 f"({payload.get('message') or 'sans message'})"
@@ -1023,7 +1063,6 @@ class RouterApiPeplinkClient:
         self._raise_for_status(resp, "/api/login", credentials=True)
         payload = self._json_d_authentification(resp, "/api/login")
         if payload.get("stat") != "ok":
-            self._credentials_refused = True
             raise CredentialsRefusedError(
                 f"Routeur {self.router_id} : login refusé ({payload.get('message', 'inconnu')})"
             )

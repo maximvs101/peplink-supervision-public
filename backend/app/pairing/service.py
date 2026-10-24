@@ -50,6 +50,9 @@ class PairingError(RuntimeError):
         super().__init__(message)
         self.credentials = credentials
         self.autre_equipement = autre_equipement
+        # Les identifiants du trousseau RÉELLEMENT essayés, posés par
+        # `reconnecter` : c'est leur refus que la veille doit retenir.
+        self.identifiants: object | None = None
 
 
 def _device_id(serial: str | None, host: str, sel: bytes) -> str:
@@ -277,12 +280,19 @@ async def reconnecter(registry: DeviceRegistry, repo, connu: dict, *, poller=Non
         ident = coffre.lire(serie)
         if ident is None:
             raise PairingError("Aucun identifiant retenu pour cet équipement.", credentials=True)
-        record = await _pair_sous_verrou(
-            registry, connu["host"],
-            username=ident.username, password=ident.password,
-            client_id=ident.client_id, client_secret=ident.client_secret,
-            name=connu.get("name"), verify_ssl=False, poller=poller, serie_attendue=serie,
-        )
+        try:
+            record = await _pair_sous_verrou(
+                registry, connu["host"],
+                username=ident.username, password=ident.password,
+                client_id=ident.client_id, client_secret=ident.client_secret,
+                name=connu.get("name"), verify_ssl=False, poller=poller, serie_attendue=serie,
+            )
+        except PairingError as exc:
+            # Lus SOUS le verrou : une ressaisie pendant l'attente du verrou
+            # fait que l'appelant (la veille) a lu d'autres identifiants que
+            # ceux-ci. Le refus dit lesquels il concerne.
+            exc.identifiants = ident
+            raise
         if record.info and record.info.serial:
             await repo.remember_device(
                 serial=record.info.serial, device_id=record.id, name=record.config.name,
@@ -360,7 +370,12 @@ class Reconnexion:
             await reconnecter(self._registry, self._repo, connu, poller=self._poller)
         except PairingError as exc:
             if exc.credentials:
-                self._refuses[serie] = ident
+                # Les identifiants que `reconnecter` a VRAIMENT essayés, relus
+                # sous le verrou d'appairage — pas ceux lus ici avant de
+                # l'attendre. Une ressaisie entre les deux faisait retenir les
+                # anciens comme refusés, et le tour suivant rejouait le refus
+                # des courants.
+                self._refuses[serie] = exc.identifiants if exc.identifiants is not None else ident
                 logger.warning(
                     "Reconnexion de %s refusée : plus de tentative tant que les identifiants "
                     "retenus ne changent pas", _nom_journal(connu),

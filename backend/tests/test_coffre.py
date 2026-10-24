@@ -387,3 +387,31 @@ async def test_un_appairage_et_une_reconnexion_simultanes_sur_la_meme_adresse(tr
     assert en_cours["max"] == 1, "deux connexions admin simultanées sur le même routeur"
     assert len(registry.snapshot()) == 1
     await registry.close()
+
+
+async def test_la_veille_retient_le_refus_des_identifiants_REELLEMENT_essayes(trousseau):
+    """La veille lit le trousseau AVANT d'attendre le verrou d'appairage ;
+    `reconnecter` le relit APRÈS. Une ressaisie entre les deux : le refus
+    portait sur les NOUVEAUX identifiants, la veille notait les ANCIENS comme
+    refusés — et au tour suivant, voyant « d'autres » identifiants, rejouait
+    le refus des courants. L'invariant « jamais rejoué » tombait."""
+    import asyncio
+
+    from app.peplink.router_api import AuthenticationError
+
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "ancien"))
+    registry = DeviceRegistry(default_mode="mock")
+    veille = _veille(registry, _Depot([CONNU]))
+    verrou = registry.verrou_appairage(CONNU["host"])
+    with _identify(error=AuthenticationError("refusé")) as identify:
+        await verrou.acquire()                       # un appairage en cours
+        tour = asyncio.ensure_future(veille.tour(maintenant=0.0))
+        await asyncio.sleep(0.01)                    # la veille a lu « ancien »
+        coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "nouveau"))
+        verrou.release()
+        await tour
+        assert identify.await_count == 1
+        for t in range(3, 60, 3):
+            await veille.tour(maintenant=float(t))
+    assert identify.await_count == 1, "le refus des identifiants courants a été rejoué"
+    await registry.close()

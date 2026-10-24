@@ -1218,6 +1218,15 @@ class Poller:
         try:
             statuses = await client.get_radio_status(echeance=echeance)
         except CredentialsRefusedError as exc:
+            # Un refus des identifiants d'AVANT la reprise : la tentative était
+            # en vol quand l'exploitant a rouvert la porte (`/reauth`), et son
+            # refus arrive après. Il ne concerne plus ce qui est retenu — le
+            # bloquer interdirait aux nouveaux identifiants tout essai. Le
+            # cycle suivant tentera, une fois, les identifiants courants.
+            courante = getattr(client, "credentials_generation", None)
+            if exc.generation is not None and courante is not None and exc.generation != courante:
+                logger.info("Routeur %s : refus périmé ignoré (reprise en cours)", router.id)
+                return
             # Identifiants refusés : ne JAMAIS réessayer tout seul. Cinq
             # tentatives ratées suspendent l'accès pendant cinq minutes.
             #
