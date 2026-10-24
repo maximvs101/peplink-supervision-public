@@ -42,7 +42,7 @@ describe('les dénominateurs se lisent, et s’impriment', () => {
     const texte = container.textContent ?? ''
     expect(texte).toContain('sur 412')
     expect(texte).toContain('sur 179')
-    expect(texte).toMatch(/0\.5\s*·\s*7 sauts/)
+    expect(texte).toMatch(/0,5\s*·\s*7 sauts/)
   })
 })
 
@@ -108,5 +108,45 @@ describe('les colonnes sans objet (A-7)', () => {
   it('garde tout quand les mesures existent', () => {
     const { container } = render(<SessionSheet fiche={fiche(null)} />)
     expect(entetes(container)).toEqual(expect.arrayContaining(['Bond médian', 'RSRP médian', 'Cellules']))
+  })
+})
+
+describe('les grandeurs s’écrivent avec leur unité, à la française', () => {
+  const cellules = (c: HTMLElement) => [...[...c.querySelectorAll('tbody tr')][0].querySelectorAll('td')]
+    .map((td) => td.textContent ?? '')
+
+  it('écrit les latences et la médiane RSRP comme les colonnes voisines', () => {
+    // « 33.5 » sans unité au milieu de « 12,5 » : deux conventions sur une
+    // même ligne, et un nombre dont on ne sait pas ce qu'il mesure.
+    const l = { ...lien, rtt_p50_ms: 33.5, rtt_p90_ms: 44.25, rtt_max_ms: 90,
+                path_latency_p50_ms: 28.4, path_latency_p90_ms: 33.5, path_latency_max_ms: 61,
+                rsrp_median: -98.5 }
+    const { container } = render(<SessionSheet fiche={{ ...fiche(null), links: [l] }} />)
+    const td = cellules(container)
+    expect(td.join(' | ')).not.toMatch(/\d\.\d/)
+    expect(td[3]).toMatch(/^34\sms/)
+    expect(td[4]).toMatch(/^44\sms$/)
+    expect(td[5]).toMatch(/^90\sms$/)
+    expect(td[6]).toMatch(/^28\sms/)
+    expect(td[9]).toMatch(/\d\sdBm$/)
+  })
+
+  it('n’écrit une position que si latitude ET longitude sont connues', () => {
+    // `fiche.lon?.toFixed(5)` donnait « 45.12345, » quand lon manquait.
+    const { container } = render(<SessionSheet fiche={{ ...fiche(null), lat: 45.12345, lon: null }} />)
+    expect(container.textContent).not.toMatch(/45\.12345/)
+  })
+})
+
+describe('une grandeur inconnue n’est pas un zéro', () => {
+  it('ne compte pas de station quand le serveur ne sait pas', () => {
+    const { container } = render(<SessionSheet fiche={{ ...fiche(null), sites: null }} />)
+    expect(container.textContent).toMatch(/stations inconnues/)
+  })
+
+  it('dit des manœuvres inconnues, sans les compter pour zéro', () => {
+    const l = { ...lien, maneuvers: null }
+    const { container } = render(<SessionSheet fiche={{ ...fiche(null), links: [l] }} />)
+    expect(container.textContent).toMatch(/manœuvres inconnues/)
   })
 })

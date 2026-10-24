@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api/client', () => ({
@@ -338,6 +338,79 @@ describe('un équipement retiré', () => {
     const avant = vi.mocked(fetchSessions).mock.calls.length
     await act(async () => { await vi.advanceTimersByTimeAsync(90_000) })
     expect(vi.mocked(fetchSessions).mock.calls.length).toBe(avant)
+  })
+})
+
+describe('un premier chargement en échec', () => {
+  it('se lève dès qu’un résumé arrive', async () => {
+    // Le rafraîchissement continuait après un premier échec non-404, mais
+    // `store` ne remettait jamais `fatal` à null : l'écran restait sur
+    // « Impossible de charger l'équipement » alors que le service était revenu.
+    vi.useFakeTimers()
+    vi.mocked(fetchRouter).mockRejectedValue(new Error('Service indisponible'))
+    monter()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText(/Impossible de charger l’équipement/)).toBeInTheDocument()
+
+    vi.mocked(fetchRouter).mockResolvedValue(summary([sample('4')]))
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+    expect(screen.queryByText(/Impossible de charger l’équipement/)).toBeNull()
+    expect(screen.getByTestId('liens').textContent).toBe('4')
+  })
+})
+
+describe('passer d’un identifiant inconnu à un équipement supervisé', () => {
+  it('ne garde ni le verdict « inconnu » ni l’arrêt des relectures', async () => {
+    // `retire` et `inconnu` n'étaient jamais remis à zéro au changement
+    // d'équipement : après un 404, l'équipement suivant restait « inconnu »
+    // et sa bande, son journal et ses sessions n'étaient plus jamais relus.
+    vi.useFakeTimers()
+    const absent = Object.assign(new Error('Not Found'), { status: 404 })
+    vi.mocked(fetchRouter).mockImplementation((id: string) =>
+      id === 'inconnu' ? Promise.reject(absent) : Promise.resolve(summary([sample('4')])))
+    const Aller = () => {
+      const navigate = useNavigate()
+      return <><button onClick={() => navigate('/e/mbx')}>aller</button><Outlet context={{ health: null, routers: [] }} /></>
+    }
+    render(
+      <MemoryRouter initialEntries={['/e/inconnu']}>
+        <Routes>
+          <Route element={<Aller />}>
+            <Route path="/e/:routerId" element={<DeviceShell />}>
+              <Route index element={<Espion />} />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText(/Aucun équipement supervisé/)).toBeInTheDocument()
+    const avant = vi.mocked(fetchSessions).mock.calls.length
+    await act(async () => { screen.getByRole('button', { name: 'aller' }).click() })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.queryByText(/Aucun équipement supervisé/)).toBeNull()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).not.toMatch(/inconnu/i)
+    expect(vi.mocked(fetchSessions).mock.calls.length).toBeGreaterThan(avant)
+  })
+})
+
+describe('les avis de l’écran', () => {
+  it('sont annoncés aux technologies d’assistance', async () => {
+    let fermer: ((c: { code: number; reason: string }) => void) | undefined
+    vi.mocked(openLiveSocket).mockImplementation((_id, _s, _st, onClosed) => {
+      fermer = onClosed as (c: { code: number; reason: string }) => void
+      return () => {}
+    })
+    vi.useFakeTimers()
+    vi.mocked(fetchRouter).mockResolvedValue(summary([sample('4')]))
+    monter()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    vi.mocked(fetchRouter).mockRejectedValue(new Error('délai dépassé'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+    await act(async () => { fermer!({ code: 4404, reason: 'équipement inconnu' }) })
+    const alertes = screen.getAllByRole('alert').map((a) => a.textContent)
+    expect(alertes.some((t) => /non rafraîchi/.test(t ?? ''))).toBe(true)
+    expect(alertes.some((t) => /Flux temps réel refermé/.test(t ?? ''))).toBe(true)
   })
 })
 

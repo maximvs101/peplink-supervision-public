@@ -10,7 +10,7 @@ import {
 } from '../lib/chart'
 import { useElementSize } from '../lib/useElementSize'
 import { LOSS_MIN_PACKETS } from '../lib/verdict'
-import { debutObserve } from '../lib/session'
+import { RESUME_MS, debutObserve } from '../lib/session'
 import { SessionSheet } from './SessionSheet'
 
 /** Fenêtres d'historique proposées. Le maximum suit le plafond de la route.
@@ -25,11 +25,6 @@ const FENETRES = [
 ]
 
 const REFRESH_MS = 15000
-
-
-/** Un volume non mesuré s'écrit « — », jamais « 0.0 » : sur cet outil, un zéro
- *  affiché à la place d'une absence de mesure a déjà menti cinq fois. */
-
 
 interface Props {
   /** Les épisodes du journal de la fenêtre relue, à poser sur la courbe (A-4). */
@@ -98,6 +93,11 @@ export function HistoryChart({
   // La fiche de la session choisie. C'est elle qui rend deux stationnements
   // comparables : sans elle, une session n'est qu'un intervalle de temps.
   const [fiche, setFiche] = useState<SessionSummary | null>(null)
+  // L'échec de lecture de la fiche, et l'heure de la dernière lecture aboutie.
+  // `.catch(() => setFiche(null))` faisait disparaître la fiche sans un mot :
+  // l'absence se lisait comme « rien à dire de cette session ».
+  const [ficheErreur, setFicheErreur] = useState<string | null>(null)
+  const [ficheLueA, setFicheLueA] = useState<number | null>(null)
   // Le nom en cours d'édition. Réamorcé sur celui de la fiche à chaque
   // changement de session, sans quoi l'écran proposerait de renommer une session
   // avec le nom d'une autre.
@@ -106,20 +106,6 @@ export function HistoryChart({
   const [nomErreur, setNomErreur] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [chartRef, chartSize] = useElementSize<HTMLDivElement>()
-
-  useEffect(() => {
-    if (sessionId === null) { setFiche(null); return }
-    let cancelled = false
-    fetchSessionSummary(sessionId)
-      .then((f) => {
-        if (cancelled) return
-        setFiche(f)
-        setNom(f.session.label ?? '')
-        setNomErreur(null)
-      })
-      .catch(() => { if (!cancelled) setFiche(null) })
-    return () => { cancelled = true }
-  }, [sessionId])
 
   // Les BORNES de la session choisie — deux chaînes stables, là où l'objet
   // session change d'identité à chaque relève de la liste.
@@ -132,6 +118,52 @@ export function HistoryChart({
   // (4 147 mesures rechargées pour rien), et une session passée sans point
   // affichait « Collecte en cours », une attente qui ne finirait jamais.
   const passee = sessionChoisie !== undefined && sessionChoisie.id !== sessions[0]?.id
+
+  // La fiche de la session choisie. Celle d'une session EN COURS se relit au
+  // rythme de la tuile du volume du tableau de bord (`RESUME_MS`) : lue une
+  // seule fois au choix, elle restait figée — volume et médianes d'un
+  // stationnement qui continuait. Une passée ne change plus : lue une fois.
+  useEffect(() => {
+    setFiche(null)
+    setFicheErreur(null)
+    setFicheLueA(null)
+    if (sessionId === null) return
+    let cancelled = false
+    // Une relecture à la fois : la fiche relit toute la session, et une
+    // requête lente ne doit pas être doublée par la suivante — ni écrasée par
+    // elle dans le désordre.
+    let enVol = false
+    let premiere = true
+    const lire = () => {
+      if (enVol) return
+      enVol = true
+      fetchSessionSummary(sessionId)
+        .then((f) => {
+          if (cancelled) return
+          setFiche(f)
+          setFicheErreur(null)
+          setFicheLueA(Date.now())
+          // Le nom n'est réamorcé qu'à la première lecture : une relecture
+          // périodique effacerait une saisie en cours.
+          if (premiere) {
+            setNom(f.session.label ?? '')
+            setNomErreur(null)
+            premiere = false
+          }
+        })
+        // La dernière fiche lue reste affichée, datée : l'échec est dit.
+        .catch((err) => {
+          if (!cancelled) setFicheErreur(err instanceof Error ? err.message : 'Erreur inconnue')
+        })
+        .finally(() => { enVol = false })
+    }
+    lire()
+    const timer = passee ? null : window.setInterval(lire, RESUME_MS)
+    return () => {
+      cancelled = true
+      if (timer !== null) window.clearInterval(timer)
+    }
+  }, [sessionId, passee])
 
   // Les repères d'une session PASSÉE viennent de SON journal : ceux de la
   // fenêtre courante tombaient hors de l'axe, et la courbe d'hier ne montrait
@@ -331,12 +363,21 @@ export function HistoryChart({
 
       <div className="card-body">
         {error ? (
-          <div className="notice error">Historique indisponible : {error}</div>
+          <div className="notice is-error" role="alert">Historique indisponible : {error}</div>
         ) : data.length === 0 ? (
           <div className="notice">
             {passee
               ? 'Aucune mesure de cette grandeur dans cette session.'
               : 'Collecte en cours — les mesures apparaîtront d’ici quelques secondes.'}
+          </div>
+        ) : mesures === 0 ? (
+          // Des relevés datés, mais aucun ne porte de valeur traçable — tous
+          // nuls, ou tous retirés faute de paquets. La garde sur `data.length`
+          // laissait passer ce cas : un axe gradué sans courbe, qui se lit
+          // comme une mesure.
+          <div className="notice">
+            Aucune mesure de cette grandeur sur cette fenêtre : {fmtInt(data.length)} relevé
+            {data.length > 1 ? 's' : ''} sans valeur.
           </div>
         ) : (
           <div className="chart-shell" ref={chartRef}>
@@ -515,6 +556,14 @@ export function HistoryChart({
             manquant sur un keepalive affiche 33 % de perte sur un lien parfaitement sain —
             ce n’est pas une mesure basse, c’est une absence de mesure.
           </p>
+        )}
+        {ficheErreur !== null && (
+          <div className="notice is-warn" role="alert">
+            Fiche de la session illisible : {ficheErreur}.
+            {fiche && ficheLueA !== null
+              ? ` Celle affichée date de ${fmtClock(ficheLueA)}.`
+              : ''}
+          </div>
         )}
         {fiche && (
           <div className="session-sheet">

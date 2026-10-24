@@ -6,6 +6,13 @@ import type { Session } from '../types'
  *  regardait « depuis la mise sous tension », à un cycle près. */
 const ECART_DIT_S = 120
 
+/** Relecture de la fiche d'un stationnement EN COURS : la tuile du volume du
+ *  tableau de bord (A-5) et la fiche de l'historique suivent le même rythme.
+ *  La fiche relit toute la session (24 h au plus) pour des chiffres qui
+ *  bougent peu : à la cadence du journal, c'était une lecture lourde toutes les
+ *  trente secondes (revue du 17/10). */
+export const RESUME_MS = 5 * 60_000
+
 /** La borne gauche de ce qui se DESSINE pour une session : le premier relevé.
  *
  *  La session commence à l'allumage, déduit de l'uptime. Mais l'outil est

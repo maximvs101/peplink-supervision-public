@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 
 import { reauthDevice } from '../api/client'
 
-/** Au-delà, un refus toujours affiché est celui de la tentative : deux relectures
- *  de l'état par l'écran, qui en fait une toutes les quinze secondes. */
+/** Au-delà, un refus toujours affiché est celui de la tentative : plus de trois
+ *  relectures de l'état par l'écran, qui en fait une toutes les dix secondes
+ *  (`REFRESH_MS` de `DeviceShell`). */
 export const VERDICT_REPRISE_MS = 35_000
 
 /** Où en est la reprise demandée par l'exploitant. */
@@ -41,7 +42,7 @@ export function RepriseIdentifiants({ routerId, status }: { routerId: string; st
     precedent.current = status
   }, [status, tentative.etat])
 
-  // L'écran ne relit l'état de l'équipement que toutes les quinze secondes :
+  // L'écran ne relit l'état de l'équipement que toutes les dix secondes :
   // le passage par « en attente » peut durer un seul cycle et lui échapper.
   // Toujours refusé passé ce délai, la tentative a eu lieu et a échoué.
   useEffect(() => {
@@ -56,7 +57,7 @@ export function RepriseIdentifiants({ routerId, status }: { routerId: string; st
   const enCours = tentative.etat === 'envoi' || tentative.etat === 'attendue'
 
   return (
-    <div className="notice is-error">
+    <div className="notice is-error" role="alert">
       <strong>Supervision arrêtée sur cet équipement.</strong> Aucune nouvelle
       tentative n’est faite d’elle-même : cinq échecs de connexion suspendent
       l’accès au routeur pendant cinq minutes, y compris depuis son interface web.

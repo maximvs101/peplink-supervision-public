@@ -84,3 +84,35 @@ describe('la palette de qualité du code', () => {
     }
   })
 })
+
+/** Les avis n'ont qu'une convention de modificateurs : `is-warn` / `is-error`.
+ *  `notice warn` et `notice error` coexistaient, deux règles CSS pour la même
+ *  chose — et un avis écrit avec l'un des deux noms perdait sa couleur le
+ *  jour où l'on aurait retiré l'autre. */
+describe('modificateurs des avis', () => {
+  const sources = import.meta.glob(['../**/*.tsx', '!../**/*.test.tsx'], {
+    query: '?raw', import: 'default', eager: true,
+  }) as Record<string, string>
+
+  it('la feuille ne garde que les noms en is-', () => {
+    expect(css).not.toMatch(/\.notice\.(warn|error)\b/)
+  })
+
+  it('aucun écran n’emploie les anciens noms', () => {
+    const fautifs = Object.entries(sources)
+      .filter(([, texte]) => /notice (warn|error)\b|'(warn|error)' : '(warn|error)'/.test(texte))
+      .map(([chemin]) => chemin)
+    expect(fautifs).toEqual([])
+  })
+
+  it('un avis d’erreur est annoncé (role="alert")', () => {
+    // Aucun avis n'avait de rôle : « Impossible de charger l'équipement »,
+    // « Flux temps réel refermé » apparaissaient sans qu'un lecteur d'écran
+    // en dise rien. Un avis d'erreur est un événement, il s'annonce.
+    const muets = Object.entries(sources).flatMap(([chemin, texte]) =>
+      texte.split('\n')
+        .filter((ligne) => /className=.*notice[^"`]*is-error/.test(ligne) && !/role=/.test(ligne))
+        .map((ligne) => `${chemin} : ${ligne.trim()}`))
+    expect(muets).toEqual([])
+  })
+})

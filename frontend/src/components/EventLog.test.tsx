@@ -261,6 +261,17 @@ describe('le changement de cellule comme EXPLICATION', () => {
   })
 })
 
+describe('un brassage de stations inconnu', () => {
+  it('s’écrit « — », jamais zéro', () => {
+    // `station_changes: null` : station non identifiable. Zéro se lirait
+    // comme une stabilité.
+    render(<EventLog log={journal([], { churn: [{
+      wan_id: '4', link_kind: 'cellular', has_cells: true, cell_changes: 3, station_changes: null, outages: 0,
+    }] })} windowLabel="Depuis la mise sous tension" />)
+    expect(screen.getByText(/Brassage/).closest('p, div')?.textContent).toMatch(/—\s*\/\s*3/)
+  })
+})
+
 describe('une fenêtre rognée par le serveur', () => {
   it('est dite comme telle', () => {
     // Une fenêtre rognée en silence se lit comme une fenêtre entière.

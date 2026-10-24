@@ -155,6 +155,16 @@ describe('horloge du routeur (R-3.9)', () => {
   })
 })
 
+describe('un numéro de série non publié', () => {
+  it('se dit « — » au lieu de disparaître', () => {
+    // Le serveur ne publie plus la série à un client non local : la ligne
+    // disparaissait, et l'absence se lisait comme un châssis sans série.
+    render(<DeviceCard device={device({ serial: null })} capabilities={null} siteLat={null} siteLon={null} />)
+    const cle = screen.getByText('Numéro de série')
+    expect(cle.nextElementSibling?.textContent).toBe('—')
+  })
+})
+
 describe('un état stable n’est pas un avertissement (C-44)', () => {
   it('dit le support expiré sans badge d’alerte permanent', () => {
     const { container } = render(<DeviceCard device={{ ...device(), care_plan_active: false }}

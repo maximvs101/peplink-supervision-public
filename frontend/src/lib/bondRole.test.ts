@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { bondRole, roleRetenu } from './bondRole'
 
-const DEDIEES = ['169.254.131.0/24', '212.83.185.61/32']
+const DEDIEES = ['169.254.131.0/24', '203.0.113.61/32']
 
 /**
  * La première règle de ce module était FAUSSE, et le matériel l'a démontré.

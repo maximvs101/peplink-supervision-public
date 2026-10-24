@@ -90,7 +90,7 @@ export function Rapport() {
     }
   }, [journal, complet])
 
-  if (erreur) return <div className="rapport"><p className="notice is-error">{erreur}</p></div>
+  if (erreur) return <div className="rapport"><p className="notice is-error" role="alert">{erreur}</p></div>
   if (fiche === null) return <div className="rapport"><p className="disclaimer">Lecture de la session…</p></div>
 
   const s = fiche.session
@@ -125,7 +125,8 @@ export function Rapport() {
           {complet && (appareil?.name ?? routeur?.name) && <><b>{appareil?.name ?? routeur?.name}</b> · </>}
           {appareil?.model ?? 'Équipement'}
           {appareil?.firmware && <> · firmware {appareil.firmware}</>}
-          {complet && appareil?.serial && <> · série {appareil.serial}</>}
+          {/* Série non publiée (client non local) : « — », pas une omission. */}
+          {complet && appareil && <> · série {appareil.serial ?? '—'}</>}
         </p>
         {!complet && (
           <p className="disclaimer">

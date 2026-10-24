@@ -21,6 +21,7 @@ vi.mock('../api/client', () => ({
 import { fetchEvents, fetchHistory, fetchSessionSummary, nameSession } from '../api/client'
 import type { HistorySeries, Session, SessionSummary } from '../types'
 import { LOSS_MIN_PACKETS } from '../lib/verdict'
+import { RESUME_MS } from '../lib/session'
 import { HistoryChart } from './HistoryChart'
 
 const T0 = Date.parse('2026-08-30T14:00:00Z')
@@ -61,6 +62,7 @@ const fiche = (over: Partial<SessionSummary> = {}): SessionSummary => ({
 
 beforeEach(() => {
   vi.mocked(fetchHistory).mockResolvedValue(serie())
+  vi.mocked(fetchSessionSummary).mockClear()
   vi.mocked(fetchSessionSummary).mockResolvedValue(fiche())
 })
 
@@ -220,7 +222,7 @@ describe('fiche de session', () => {
     // ne disaient rien et serraient le reste.
     expect(entetes).not.toContain('Bond médian')
     expect([valeur('Lien médian'), valeur('Lien p90'), valeur('Lien max')])
-      .toEqual(['28 sur 179', '33', '61'])
+      .toEqual(['28 ms sur 179', '33 ms', '61 ms'])
   })
 
   it('dit ce que la médiane de RSRP doit à l’historique du routeur (R-3.1)', async () => {
@@ -320,6 +322,72 @@ describe('nommer un stationnement', () => {
     await waitFor(() => expect(nameSession).toHaveBeenCalledWith(7, '  Parking de la mairie  '))
     // Et la liste est relue par DeviceShell, pas par ce composant.
     await waitFor(() => expect(rafraichir).toHaveBeenCalled())
+  })
+})
+
+describe('la fiche de session illisible', () => {
+  it('le dit au lieu de faire disparaître la fiche en silence', async () => {
+    // `.catch(() => setFiche(null))` : la fiche disparaissait sans un mot, et
+    // l'absence se lisait comme « rien à dire de cette session ».
+    vi.mocked(fetchSessionSummary).mockRejectedValue(new Error('délai dépassé'))
+    const { container } = render(chart({ sessions: [session()] }))
+    const select = container.querySelector('select') as HTMLSelectElement
+    select.value = '1'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(await screen.findByText(/Fiche de la session illisible : délai dépassé/)).toBeInTheDocument()
+  })
+})
+
+describe('la fiche de la session EN COURS', () => {
+  it('se relit au rythme de la fiche du tableau de bord, sans chevauchement', async () => {
+    // Lue une fois au choix de la session, elle restait figée : le volume et
+    // les médianes d'un stationnement en cours n'avançaient plus.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const { container } = render(chart({ sessions: [session()] }))
+      const select = container.querySelector('select') as HTMLSelectElement
+      select.value = '1'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(fetchSessionSummary).toHaveBeenCalledTimes(1))
+
+      // Une relecture qui ne répond pas : la suivante ne part pas par-dessus.
+      vi.mocked(fetchSessionSummary).mockImplementation(() => new Promise(() => {}))
+      await act(async () => { await vi.advanceTimersByTimeAsync(RESUME_MS) })
+      expect(fetchSessionSummary).toHaveBeenCalledTimes(2)
+      await act(async () => { await vi.advanceTimersByTimeAsync(RESUME_MS) })
+      expect(fetchSessionSummary).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ne relit pas la fiche d’une session passée', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const courante = session({ id: 2, started_at: '2026-08-31T09:00:00Z', first_seen: '2026-08-31T09:00:05Z', last_seen: '2026-08-31T10:00:00Z' })
+      const { container } = render(chart({ sessions: [courante, session({ id: 1 })] }))
+      const select = container.querySelector('select') as HTMLSelectElement
+      select.value = '1'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(fetchSessionSummary).toHaveBeenCalledTimes(1))
+      await act(async () => { await vi.advanceTimersByTimeAsync(3 * RESUME_MS) })
+      expect(fetchSessionSummary).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('une série sans aucune valeur', () => {
+  it('dit l’absence de mesure au lieu d’un graphe vide', async () => {
+    // La garde `data.length === 0` ne couvrait pas une série de points tous
+    // nuls : un axe gradué sans courbe, qui se lit comme une mesure.
+    vi.mocked(fetchHistory).mockResolvedValue({
+      router_id: 'mbx', wan_id: '4', metric: 'sinr', available: 3,
+      points: [0, 1, 2].map((i) => ({ ts: new Date(T0 + i * 5_300).toISOString(), value: null })),
+    })
+    render(chart())
+    expect(await screen.findByText(/Aucune mesure de cette grandeur/)).toBeInTheDocument()
   })
 })
 

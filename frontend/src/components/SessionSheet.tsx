@@ -1,17 +1,18 @@
 import type { SessionSummary } from '../types'
-import { decimal, etiquetteSupport, fmtId, fmtInt } from '../lib/format'
+import { decimal, etiquetteSupport, fmtId, fmtInt, fmtNumber } from '../lib/format'
 import { Notes } from './Note'
 
-/**
- * La fiche d'une session : synthèse par lien, disponibilité du bond, diversité,
- * latence par cellule. Extraite du panneau d'historique pour que le RAPPORT
- * imprimable (R-3.7) la rende à l'identique — une fiche, pas deux copies qui
- * divergent.
- */
-
+/** Un volume non mesuré s'écrit « — », jamais « 0.0 » : sur cet outil, un zéro
+ *  affiché à la place d'une absence de mesure a déjà menti cinq fois. */
 const volume = (mo: number | null) => (mo === null ? '—' : decimal(mo, 1))
 
-/** La durée que couvrent `n` points de l'historique du routeur, à 10 s l'un. */
+/** Latences et RSRP : à la française et AVEC leur unité, comme le tableau de
+ *  bord (`fmtNumber(…, 0, 'ms')`). La fiche les écrivait bruts — « 33.5 » sans
+ *  unité à côté de « 12,5 » : deux conventions sur une ligne (A-8), et un
+ *  nombre dont on ne savait pas ce qu'il mesurait. */
+const ms = (v: number | null | undefined) => fmtNumber(v, 0, 'ms')
+const dbm = (v: number | null | undefined) => fmtNumber(v, 0, 'dBm')
+
 /** « sur N cycles » : le dénominateur propre à une part de diversité. Tu
  *  quand le serveur ne le publie pas (une version en arrière) : on ne
  *  l'invente pas. */
@@ -24,11 +25,18 @@ function Compte({ n }: { n: number | undefined }) {
   return <small className="sub-note"> sur {fmtInt(n)}</small>
 }
 
+/** La durée que couvrent `n` points de l'historique du routeur, à 10 s l'un. */
 function dureeComblee(n: number): string {
   const secondes = n * 10
   return secondes < 60 ? `${secondes} s` : `${Math.floor(secondes / 60)} min`
 }
 
+/**
+ * La fiche d'une session : synthèse par lien, disponibilité du bond, diversité,
+ * latence par cellule. Extraite du panneau d'historique pour que le RAPPORT
+ * imprimable (R-3.7) la rende à l'identique — une fiche, pas deux copies qui
+ * divergent.
+ */
 export function SessionSheet({
   fiche, periodSeconds = null, partager = false,
 }: {
@@ -62,14 +70,22 @@ export function SessionSheet({
             station : « un seul site » collait à la position par
             accident. Le MAX HD2, deux opérateurs, affichait « 2 sites » à
             côté de « ± 1 m » — un équipement qui n'a pas bougé. */}
-        {fiche.sites > 0 && (
+        {/* `null` : le serveur ne sait pas — aucune station identifiable.
+            Ce n'est pas « zéro station », et cela se dit. */}
+        {fiche.sites === null ? (
+          <span className="badge" title="Aucune station de base identifiable sur la session">
+            stations inconnues
+          </span>
+        ) : fiche.sites > 0 && (
           <span className="badge" title="Stations de base distinctes vues sur la session — un fait radio, pas un déplacement">
             {fiche.sites === 1 ? 'une seule station' : `${fiche.sites} stations`}
           </span>
         )}
-        {fiche.lat !== null && !partager && (
+        {/* Les DEUX coordonnées, ou rien : `lon?.toFixed(5)` écrivait
+            « 45.12345, » quand la longitude manquait. */}
+        {fiche.lat !== null && fiche.lon !== null && !partager && (
           <span className="badge">
-            {fiche.lat.toFixed(5)}, {fiche.lon?.toFixed(5)}
+            {fiche.lat.toFixed(5)}, {fiche.lon.toFixed(5)}
             {fiche.radius_m !== null && ` ± ${Math.round(fiche.radius_m)} m`}
           </span>
         )}
@@ -116,10 +132,10 @@ export function SessionSheet({
                 <td className="num">{volume(l.mb_down)}</td>
                 {aBond && <>
                   <td className="num">
-                    {l.rtt_p50_ms ?? '—'}<Compte n={l.rtt_samples} />
+                    {ms(l.rtt_p50_ms)}<Compte n={l.rtt_samples} />
                   </td>
-                  <td className="num">{l.rtt_p90_ms ?? '—'}</td>
-                  <td className="num">{l.rtt_max_ms ?? '—'}</td>
+                  <td className="num">{ms(l.rtt_p90_ms)}</td>
+                  <td className="num">{ms(l.rtt_max_ms)}</td>
                 </>}
                 {/* Le compte voyage avec les percentiles, pour qu'un p90
                     sur trois points ne se lise pas comme un p90 sur trois
@@ -130,12 +146,12 @@ export function SessionSheet({
                     pas, et le rapport promet que les latences voyagent avec
                     leur nombre de mesures (C-12). */}
                 <td className="num">
-                  {l.path_latency_p50_ms ?? '—'}<Compte n={l.path_latency_samples} />
+                  {ms(l.path_latency_p50_ms)}<Compte n={l.path_latency_samples} />
                 </td>
-                <td className="num">{l.path_latency_p90_ms ?? '—'}</td>
-                <td className="num">{l.path_latency_max_ms ?? '—'}</td>
+                <td className="num">{ms(l.path_latency_p90_ms)}</td>
+                <td className="num">{ms(l.path_latency_max_ms)}</td>
                 {aRadio && <td className="num">
-                  {l.rsrp_median ?? '—'}
+                  {dbm(l.rsrp_median)}
                   {/* La médiane couvre toute la session : nos relevés, et
                       l'heure du routeur dans les trous (R-3.1). Elle dit ce
                       qu'elle lui doit — un point toutes les 10 s. */}
@@ -150,7 +166,11 @@ export function SessionSheet({
                 </td>}
                 <td className="num">
                   {l.outages}
-                  {(l.maneuvers ?? 0) > 0 && (
+                  {/* `null` : journal du routeur non lu — on ne sait pas, et
+                      ce n'est pas « aucune manœuvre ». */}
+                  {l.maneuvers === null ? (
+                    <small className="sub-note"> · manœuvres inconnues</small>
+                  ) : l.maneuvers > 0 && (
                     <small className="sub-note">
                       {' '}+ {l.maneuvers} manœuvre{l.maneuvers > 1 ? 's' : ''}
                     </small>
@@ -166,7 +186,7 @@ export function SessionSheet({
                     un lien sans cellule — un filaire ne peut pas en
                     changer, et zéro s'y lirait comme une stabilité. */}
                 {aRadio && <td className="num">
-                  {l.cell_changes_per_hour ?? '—'}
+                  {fmtNumber(l.cell_changes_per_hour, 1)}
                   {l.cell_changes_per_hour !== null && l.cell_changes_per_hour !== undefined && (
                     <small className="sub-note">
                       {' '}· {fmtInt(l.cell_changes)} saut{l.cell_changes > 1 ? 's' : ''}
@@ -274,9 +294,9 @@ export function SessionSheet({
                   <td>{fmtId(c.cell_id)}</td>
                   <td>{fmtId(c.enb_id)}</td>
                   <td className="num">{fmtInt(c.samples)}</td>
-                  <td className="num">{c.rtt_p50_ms ?? '—'}</td>
-                  <td className="num">{c.rtt_p90_ms ?? '—'}</td>
-                  <td className="num">{c.rtt_p99_ms ?? '—'}</td>
+                  <td className="num">{ms(c.rtt_p50_ms)}</td>
+                  <td className="num">{ms(c.rtt_p90_ms)}</td>
+                  <td className="num">{ms(c.rtt_p99_ms)}</td>
                 </tr>
               ))}
             </tbody>
@@ -301,7 +321,7 @@ export function SessionSheet({
           fiche complète — or volumes, coupures et barycentre sont tous des
           totaux. Une session de trois semaines ne se relit pas en entier. */}
       {fiche.partial && fiche.window_start && (
-        <div className="notice warn">
+        <div className="notice is-warn">
           Session trop longue pour être relue en entier : cette fiche ne porte que
           sur la fenêtre du {new Date(fiche.window_start).toLocaleString('fr-FR')} au{' '}
           {new Date(fiche.window_end ?? fiche.session.last_seen).toLocaleString('fr-FR')}.

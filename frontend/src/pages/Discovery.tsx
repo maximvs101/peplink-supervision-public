@@ -48,7 +48,11 @@ const STATUS_REMEDY: Record<string, string> = {
  */
 export function Discovery() {
   const [devices, setDevices] = useState<DiscoveredDevice[] | null>(null)
-  const [supervised, setSupervised] = useState<DeviceStatus[]>([])
+  // `null` tant que la première lecture n'a pas abouti. Démarrer à `[]`
+  // faisait affirmer « Aucun équipement en supervision » le temps de la
+  // première réponse — et proposer « Mettre en supervision » sur un
+  // équipement déjà supervisé, si la recherche répondait avant la liste.
+  const [supervised, setSupervised] = useState<DeviceStatus[] | null>(null)
   const [connus, setConnus] = useState<KnownDevice[]>([])
   // La reconnexion par le trousseau en vol (série), et son dernier échec.
   const [reconnexion, setReconnexion] = useState<string | null>(null)
@@ -97,12 +101,15 @@ export function Discovery() {
 
   useEffect(search, [search])
 
-  const supervisedHosts = new Set(supervised.map((d) => hoteCanonique(d.host)).filter(Boolean))
+  // La liste n'est pas encore lue : ni « aucun », ni « déjà supervisé », ni
+  // « mettre en supervision » — on ne sait pas encore.
+  const enLecture = supervised === null && supervisedError === null
+  const supervisedHosts = new Set((supervised ?? []).map((d) => hoteCanonique(d.host)).filter(Boolean))
   // De l'hôte détecté à l'équipement supervisé qui l'occupe : « déjà supervisé »
   // était une étiquette morte, et l'exploitant cherchait le tableau de bord
   // derrière elle. Elle mène désormais à l'équipement.
   const supervisePar = new Map(
-    supervised.flatMap((d) => (d.host ? [[hoteCanonique(d.host), d.id] as const] : [])),
+    (supervised ?? []).flatMap((d) => (d.host ? [[hoteCanonique(d.host), d.id] as const] : [])),
   )
   // Le formulaire d'appairage se déplie dans la table des équipements DÉTECTÉS :
   // proposer « Reconnecter » sur un équipement que la recherche ne voit pas
@@ -162,7 +169,9 @@ export function Discovery() {
             <span className="note">
               {supervisedError !== null
                 ? 'liste illisible'
-                : supervised.length === 0
+                : supervised === null
+                  ? 'lecture en cours…'
+                  : supervised.length === 0
                   ? 'aucun équipement'
                   : supervised.length === 1
                     ? 'un équipement'
@@ -176,11 +185,15 @@ export function Discovery() {
                   affirmait « Aucun équipement en supervision » et proposait
                   d'appairer des équipements que le serveur venait de marquer
                   comme déjà supervisés. */}
-              <div className="notice is-error">
+              <div className="notice is-error" role="alert">
                 <strong>La liste des équipements supervisés n’a pas pu être lue.</strong>{' '}
                 {supervisedError}. Ce qui suit ne dit donc pas ce qui est déjà en service :
                 appairer un équipement déjà supervisé le remplacerait.
               </div>
+            </div>
+          ) : supervised === null ? (
+            <div className="panel-body">
+              <div className="notice" role="status">Lecture des équipements supervisés…</div>
             </div>
           ) : supervised.length === 0 ? (
             <div className="panel-body">
@@ -308,11 +321,11 @@ export function Discovery() {
 
           {error ? (
             <div className="panel-body">
-              <div className="notice is-error">{error}</div>
+              <div className="notice is-error" role="alert">{error}</div>
             </div>
           ) : devices === null ? (
             <div className="panel-body">
-              <div className="notice">Sondage du réseau…</div>
+              <div className="notice" role="status">Sondage du réseau…</div>
             </div>
           ) : devices.length === 0 ? (
             <div className="panel-body">
@@ -397,6 +410,8 @@ export function Discovery() {
                             ) : (
                               <span className="tag">déjà supervisé</span>
                             )
+                          ) : enLecture && device.api_reachable ? (
+                            <span className="tag">vérification…</span>
                           ) : device.api_reachable ? (
                             <button
                               className={ouvert ? 'is-quiet' : 'is-primary'}
@@ -450,7 +465,7 @@ export function Discovery() {
           <section className="panel">
             <div className="panel-head"><h2>Déjà vus depuis ce poste</h2></div>
             <div className="panel-body">
-              <div className="notice is-error">
+              <div className="notice is-error" role="alert">
                 Historique des équipements illisible : {connusError}.
               </div>
             </div>
@@ -507,6 +522,8 @@ export function Discovery() {
                             aussi, et un clic relançait une connexion inutile (A-11). */}
                         {d.host && supervisedHosts.has(hoteCanonique(d.host)) ? (
                           <span className="sub-note">déjà supervisé</span>
+                        ) : enLecture ? (
+                          <span className="sub-note">vérification…</span>
                         ) : d.host && d.credentials_stored ? (
                           <button
                             className="is-quiet"

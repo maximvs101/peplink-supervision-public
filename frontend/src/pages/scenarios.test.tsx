@@ -486,7 +486,7 @@ describe('à quoi sert le bond', () => {
           samples={samples} figures={keyFigures(samples)}
           redundancy={{ state: 'unknown', packets: 0 }}
           cells={1} sites={1} located={1} attached={1}
-          role={{ kind: 'routes', routes: ['169.254.131.0/24', '212.83.185.61/32'] }}
+          role={{ kind: 'routes', routes: ['169.254.131.0/24', '203.0.113.61/32'] }}
           grievances={[]} tunnelUptimeS={null} throughputLimitMbps={null} routerId="mbx" cellGroups={new Map()}
         />
       </MemoryRouter>,
@@ -515,7 +515,7 @@ describe('à quoi sert le bond', () => {
           samples={samples} figures={keyFigures(samples)}
           redundancy={{ state: 'unknown', packets: 0 }}
           cells={1} sites={1} located={1} attached={1}
-          role={{ kind: 'routes', routes: ['212.83.185.61/32'] }}
+          role={{ kind: 'routes', routes: ['203.0.113.61/32'] }}
           grievances={['1 en latence excessive (353 ms contre 19 ms)']} tunnelUptimeS={null} throughputLimitMbps={null} routerId="mbx" cellGroups={new Map()}
         />
       </MemoryRouter>,

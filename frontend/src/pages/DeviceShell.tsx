@@ -18,7 +18,8 @@ import { Masthead } from '../components/Masthead'
 import { compareWanIds } from '../lib/wanOrder'
 import { bondRole, roleRetenu, type BondRole } from '../lib/bondRole'
 import { paquetsParSecondeRecents } from '../lib/redundancy'
-import { debutObserve, libelleFenetre } from '../lib/session'
+import { linkVerdict, type LinkVerdict } from '../lib/verdict'
+import { RESUME_MS, debutObserve, libelleFenetre } from '../lib/session'
 
 export interface DeviceContext {
   routerId: string
@@ -37,9 +38,8 @@ export interface DeviceContext {
   ageSeconds: number | null
   /** Cause de l'échec telle que le serveur la constate, expurgée de tout secret. */
   error: string | null
-  /** Période de scrutation du serveur, quand il l'a publiée : le seuil de
-   *  péremption s'en déduit au lieu d'être figé dans le navigateur. */
-  /** Période observée entre deux cycles du serveur, quand il l'a mesurée. */
+  /** Période observée entre deux cycles du serveur, quand il l'a mesurée : le
+   *  seuil de péremption s'en déduit au lieu d'être figé dans le navigateur. */
   periodSeconds: number | null
   /** Le stationnement en cours. L'équipement n'est alimenté que véhicule à
    *  l'arrêt : c'est un lieu et une intervention, et c'est la fenêtre naturelle
@@ -71,6 +71,10 @@ export interface DeviceContext {
   /** L'état de santé du serveur, pour ce qui relève du diagnostic et non de
    *  l'exploitation — la décomposition de la cadence, notamment. */
   health: Health | null
+  /** Le verdict BRUT de la liaison, calculé UNE fois par relevé ici : le
+   *  bandeau le lisse, le tableau de bord en tire les griefs du bond et de la
+   *  radio. Chacun le recalculait — `Overview` sans mémo, à chaque trame. */
+  verdict: LinkVerdict
 }
 
 export const useDevice = () => useOutletContext<DeviceContext>()
@@ -81,8 +85,6 @@ const REFRESH_MS = 10_000
 /** Cadence de relecture de la bande de stationnement. Bien plus lente : elle
  *  couvre des heures, une tranche vaut plusieurs dizaines de secondes, et la
  *  rejouer à chaque cycle coûterait une agrégation SQL pour un pixel. */
-/** Relecture de la fiche du stationnement, pour la tuile du volume (A-5). */
-const RESUME_MS = 5 * 60_000
 const BAND_MS = 30_000
 
 /** Dernier résumé RÉELLEMENT obtenu du serveur, et l'instant de sa réception.
@@ -158,6 +160,13 @@ export function DeviceShell() {
     // une mesure périmée. Prouvé par sonde.
     let rang = 0
     let dernierRendu = 0
+    // Un autre équipement repart à neuf : `retire` et `inconnu` n'étaient
+    // jamais remis à zéro, et après un 404 l'équipement suivant restait
+    // « inconnu », sans plus jamais relire sa bande ni son journal. Cet effet
+    // est déclaré AVANT celui de la bande : il remet la référence à faux
+    // avant que l'autre ne la lise.
+    retire.current = false
+    setInconnu(false)
     setSnapshot(null)
     setSamples({})
     setFatal(null)
@@ -172,6 +181,12 @@ export function DeviceShell() {
       setSnapshot({ summary, receivedAt: at })
       setClock(at)
       setRefreshError(null)
+      // Un résumé reçu dément tout échec de chargement antérieur. Le premier
+      // échec non-404 posait `fatal`, le rafraîchissement continuait, mais rien
+      // ne le levait : l'écran restait sur « Impossible de charger
+      // l'équipement » une fois le service revenu. Un retrait (404) arrête la
+      // relecture, et aucune réponse plus ancienne ne passe le jeton de rang.
+      if (!retire.current) setFatal(null)
       // Le résumé fait AUTORITÉ sur la liste des liens. `setSamples` n'était
       // appelé qu'au montage et le flux ne sait que fusionner : un WAN désactivé
       // depuis l'administration — que le serveur purge bien de son état et omet
@@ -444,7 +459,12 @@ export function DeviceShell() {
   // Et sur les DERNIÈRES minutes, non sur toute la session : une moyenne de
   // six heures mettait vingt-huit minutes à voir le trafic arriver, et des
   // heures à le voir partir.
-  const mesure = bondRole(router?.bond_routes, paquetsParSecondeRecents(timeline))
+  // Mémoïsé : `bondRole` rend un objet neuf, et le verdict ci-dessous dépend
+  // du rôle — sans cela il se recalculerait à chaque rendu.
+  const mesure = useMemo(
+    () => bondRole(router?.bond_routes, paquetsParSecondeRecents(timeline)),
+    [router?.bond_routes, timeline],
+  )
   // Le dernier rôle MESURÉ, par équipement. Le débit du tunnel s'éteint avec
   // lui : sans cette mémoire, dix minutes après la chute du concentrateur le
   // témoin ne voyait plus rien et le bandeau changeait d'avis (C-2).
@@ -452,6 +472,26 @@ export function DeviceShell() {
   if (mesure.kind === 'porte' || mesure.kind === 'routes') dernierMesure.current = { routerId, role: mesure }
   const role = roleRetenu(
     mesure, dernierMesure.current?.routerId === routerId ? dernierMesure.current.role : null,
+  )
+
+  const statut = inconnu ? 'inconnu' : (router?.status ?? 'en attente')
+  const periode = router?.period_seconds ?? health?.cycle_period_seconds ?? null
+  const tunnelCause = router
+    ? causeDuTunnel(router.bond_profiles ?? [], router.capabilities, Date.now())
+    : null
+  const seuilLatence = router?.latency_threshold_ms ?? null
+  const tunnelAttendu = router?.tunnel_attendu ?? null
+  const jamais = router?.never_connected
+  // Une seule fois par changement d'ENTRÉE — un relevé, un résumé, l'âge qui
+  // avance —, et non à chaque rendu ni une fois par consommateur. `tunnelCause`
+  // est une chaîne : recalculée à chaque rendu, elle ne change pas d'identité.
+  const verdict = useMemo(
+    () => linkVerdict({
+      samples: ordered, status: statut, ageSeconds, periodSeconds: periode, role,
+      latencyThresholdMs: seuilLatence, tunnelAttendu, tunnelCause,
+      neverConnected: jamais ?? [],
+    }),
+    [ordered, statut, ageSeconds, periode, role, seuilLatence, tunnelAttendu, tunnelCause, jamais],
   )
 
   const context: DeviceContext = {
@@ -479,7 +519,7 @@ export function DeviceShell() {
     // scrutation, et la vue de flotte retient le pire — un équipement mort
     // relâcherait le seuil de péremption de ses voisins sains de tout son budget.
     // La période observée, jamais la consigne : voir `staleAfterSeconds`.
-    periodSeconds: router?.period_seconds ?? health?.cycle_period_seconds ?? null,
+    periodSeconds: periode,
     session,
     sessions,
     rafraichirSessions: async () => { await relireRef.current?.() },
@@ -489,6 +529,7 @@ export function DeviceShell() {
     events,
     resume,
     health,
+    verdict,
   }
 
   // Le bandeau de tête reste en place même quand il n'y a plus rien à montrer :
@@ -501,15 +542,16 @@ export function DeviceShell() {
       routers={routers}
       samples={ordered}
       live={live}
-      status={inconnu ? 'inconnu' : context.status}
+      status={statut}
       ageSeconds={ageSeconds}
       error={context.error}
       periodSeconds={context.periodSeconds}
       role={role}
       latencyThresholdMs={router?.latency_threshold_ms ?? null}
       tunnelAttendu={router?.tunnel_attendu ?? null}
-      tunnelCause={router ? causeDuTunnel(router.bond_profiles ?? [], router.capabilities, Date.now()) : null}
+      tunnelCause={tunnelCause}
       neverConnected={router?.never_connected ?? []}
+      verdict={verdict}
     />
   )
 
@@ -518,7 +560,7 @@ export function DeviceShell() {
       <>
         {mast}
         <div className="page">
-          <div className="notice is-error">{fatal}</div>
+          <div className="notice is-error" role="alert">{fatal}</div>
         </div>
       </>
     )
@@ -530,14 +572,14 @@ export function DeviceShell() {
       {(refreshError || liveClosure) && (
         <div className="page" style={{ paddingBottom: 0 }}>
           {refreshError && (
-            <div className="notice warn">
+            <div className="notice is-warn" role="alert">
               <strong>État de l’équipement non rafraîchi.</strong> {refreshError}. Ce qui
               est à l’écran date du dernier échange abouti et vieillit : le bandeau le
               déclarera périmé.
             </div>
           )}
           {liveClosure && (
-            <div className="notice error">
+            <div className="notice is-error" role="alert">
               Flux temps réel refermé par le serveur : {liveClosure}. Aucune reconnexion
               ne sera tentée.
             </div>
