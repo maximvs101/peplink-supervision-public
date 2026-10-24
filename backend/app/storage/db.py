@@ -8,6 +8,7 @@ un passage ultérieur à TimescaleDB/InfluxDB ne touche que ce fichier.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import os
@@ -380,8 +381,10 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
 # 0,03 ms pour les cinquante dernières, mesuré.
 _SQL_SESSION = """
 SELECT id, router_id, started_at, last_seen, samples, label,
-       (SELECT MIN(ts) FROM samples
-         WHERE router_id = s.router_id AND ts >= s.started_at AND ts <= s.last_seen)
+       -- Retenu en colonne avant que la rétention regroupe le début de la
+       -- session : le premier relevé brut disparaît alors avec les autres.
+       COALESCE(s.first_seen, (SELECT MIN(ts) FROM samples
+         WHERE router_id = s.router_id AND ts >= s.started_at AND ts <= s.last_seen))
        AS first_seen
 FROM sessions s
 """
@@ -460,6 +463,104 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_router ON sessions (router_id, started_at DESC);
 """
+
+
+# --- rétention : ce qui reste d'un relevé au-delà de `RETENTION_JOURS` ------
+#
+# Un relevé par lien toutes les cinq secondes fait des dizaines de millions de
+# lignes par an, et rien ne les retirait. Au-delà de la durée de conservation,
+# les relevés d'une MINUTE se réduisent à une ligne de `samples_minute` : pour
+# chaque grandeur de l'historique, combien de mesures, leur minimum, leur
+# maximum et leur somme — la moyenne s'en déduit, et deux lignes d'une même
+# minute se fusionnent sans rien perdre. Une minute sans relevé n'a PAS de
+# ligne ; une grandeur jamais mesurée dans la minute a un compte nul et des
+# extrêmes à NULL — jamais un zéro.
+#
+# Ce que la minute ne peut pas porter — une micro-coupure trahie par un uptime
+# qui recule entre deux relevés, un volume intégré relevé à relevé, une
+# disponibilité par cycle — a été FIGÉ avant, session par session, dans
+# `sessions_figees` : la fiche et le journal d'une session close se relisent
+# donc tels qu'ils étaient, et seules les courbes et la bande perdent leur
+# résolution, ce que l'API dit (`source = "minute"`, `grouped_before`).
+#
+# Les colonnes de chaque grandeur sont générées depuis `METRICS` : la liste
+# blanche de l'historique est aussi celle de ce qui survit au regroupement.
+_RETENTION_SCHEMA = (
+    """
+CREATE TABLE IF NOT EXISTS samples_minute (
+    router_id   TEXT NOT NULL,
+    wan_id      TEXT NOT NULL,
+    -- Début de la minute, au format des relevés (`…T10:14:00+00:00`).
+    ts          TEXT NOT NULL,
+    kind        TEXT,
+    rat         TEXT,
+    releves     INTEGER NOT NULL,
+    -- Les comptes de la bande, additifs : `connectes < releves` est l'état
+    -- connecté le plus défavorable de la minute.
+    connectes   INTEGER NOT NULL,
+    portants    INTEGER NOT NULL,
+    tunnel_connu INTEGER NOT NULL,
+    desactives  INTEGER NOT NULL,
+    -- Somme des paquets réparés, NULL si le firmware n'en a publié aucun.
+    reparation  INTEGER,
+    -- Plus petit dénominateur des taux de perte retenus (règle des 200 paquets).
+    loss_percent_paquets INTEGER,
+"""
+    + "".join(
+        f"    {m}_n INTEGER NOT NULL DEFAULT 0, {m}_min REAL, {m}_max REAL, {m}_somme REAL,\n"
+        for m in METRICS
+    )
+    + """
+    PRIMARY KEY (router_id, wan_id, ts)
+);
+-- Jusqu'où chaque équipement est regroupé : ses relevés bruts AVANT cette
+-- borne ne sont plus lus, ceux d'après le sont. Avancée dans la transaction
+-- même qui regroupe et supprime : un arrêt au milieu ne laisse rien de compté
+-- deux fois ni de perdu.
+CREATE TABLE IF NOT EXISTS retention (
+    router_id        TEXT PRIMARY KEY,
+    regroupe_jusqu_a TEXT NOT NULL
+);
+-- La fiche et le journal d'une session close, calculés sur ses relevés BRUTS
+-- avant qu'ils soient regroupés. Valables tant que `last_seen` n'a pas bougé :
+-- une session reprise après coup se recalcule.
+CREATE TABLE IF NOT EXISTS sessions_figees (
+    session_id INTEGER PRIMARY KEY,
+    last_seen  TEXT NOT NULL,
+    seuil_rtt  REAL NOT NULL,
+    -- Début de la fenêtre du journal figé (fin = `last_seen`).
+    journal_de TEXT NOT NULL,
+    fiche      TEXT NOT NULL,
+    journal    TEXT NOT NULL,
+    fige_a     TEXT NOT NULL
+);
+-- Le prochain lot de regroupement cherche le plus ancien point de l'heure du
+-- routeur après la borne : sans cet index, la clé (routeur, lien, instant) ne
+-- sert que par son préfixe.
+CREATE INDEX IF NOT EXISTS idx_router_history_ts ON router_history (router_id, ts);
+"""
+)
+
+# Grandeurs regroupées depuis la seule table `samples`. Les trois grandeurs
+# radio et la latence du lien ont leurs propres sources, les mêmes que
+# `history()` : l'heure du routeur y entre (R-3.1, R-3.2).
+_REGROUPEES_SIMPLES = (
+    "rssi", "tx_kbps", "rx_kbps", "rtt_ms", "packets_up", "packets_down",
+    "tunnel_tx_kbps", "tunnel_rx_kbps",
+)
+_REGROUPEES_RADIO = ("rsrp", "rsrq", "sinr")
+
+# Un taux de perte n'est regroupé que s'il était PUBLIABLE : le pire des sens
+# comptés sur au moins ce nombre de paquets — la règle de l'écran
+# (`LOSS_MIN_PACKETS`). Un 33 % sur trois paquets de keepalive, que l'écran
+# jette, ne doit pas devenir le maximum d'une minute qu'on ne pourra plus trier.
+_PAQUETS_PUBLIABLES = 200
+
+# Marge d'effacement au bord d'un lot : les relevés des quinze dernières
+# secondes restent en base jusqu'au lot suivant, parce que les règles de
+# couverture de l'heure du routeur (± 10 s, ± 15 s) regardent leurs voisins.
+# Ils sont déjà comptés : sous la borne, plus personne ne les lit.
+_MARGE_LOT_S = 15
 
 
 # Équipements appairés depuis l'interface. Les IDENTIFIANTS N'Y SONT PAS : les
@@ -553,6 +654,80 @@ def _echantillonner(points: list[HistoryPoint], limit: int) -> list[HistoryPoint
         haut = max(mesures, key=lambda p: p.value)  # type: ignore[arg-type,return-value]
         allege.extend(sorted({id(bas): bas, id(haut): haut}.values(), key=lambda p: p.ts))
     return allege
+
+
+def _minute(instant: datetime) -> str:
+    """Le début de la minute de `instant`, au format des relevés."""
+    return instant.replace(second=0, microsecond=0).isoformat()
+
+
+def _instant(episode: dict) -> str:
+    """L'horodatage d'un épisode du journal : son instant, ou son début."""
+    return str(episode.get("ts") or episode.get("debut") or "")
+
+
+def _copier_base(source: Path, cible: Path) -> None:
+    """Copie la base par l'API de sauvegarde, en un pas ; rien si elle échoue.
+
+    En un pas : par petits pas, chaque écriture de la scrutation ferait
+    recommencer la copie depuis le début. Un fichier entamé (disque plein…)
+    passerait au lancement suivant pour la copie déjà faite : il est effacé.
+    """
+    origine = sqlite3.connect(source)
+    copie = sqlite3.connect(cible)
+    try:
+        origine.backup(copie)
+    except BaseException:
+        copie.close()
+        origine.close()
+        cible.unlink(missing_ok=True)
+        raise
+    copie.close()
+    origine.close()
+
+
+def _fusion(colonne: str, operation: str) -> str:
+    """Fusion SQL de deux valeurs d'une même minute ; NULL ne vaut rien."""
+    a, b = colonne, f"excluded.{colonne}"
+    return (f"{a} = CASE WHEN {a} IS NULL THEN {b} WHEN {b} IS NULL THEN {a} "
+            f"ELSE {operation.format(a=a, b=b)} END")
+
+
+# Deux écritures d'une même minute s'additionnent au lieu de s'écraser. Les
+# lots sont découpés à la minute et ne se recouvrent pas : c'est une ceinture,
+# pas le mécanisme.
+_FUSION_MINUTE = ", ".join(
+    [f"{c} = {c} + excluded.{c}"
+     for c in ("releves", "connectes", "portants", "tunnel_connu", "desactives")]
+    + ["kind = COALESCE(kind, excluded.kind)", "rat = COALESCE(rat, excluded.rat)",
+       _fusion("reparation", "{a} + {b}"), _fusion("loss_percent_paquets", "min({a}, {b})")]
+    + [f"{m}_n = {m}_n + excluded.{m}_n" for m in METRICS]
+    + [_fusion(f"{m}_min", "min({a}, {b})") for m in METRICS]
+    + [_fusion(f"{m}_max", "max({a}, {b})") for m in METRICS]
+    + [_fusion(f"{m}_somme", "{a} + {b}") for m in METRICS]
+)
+
+
+def _perte_publiable(min_packets: int) -> tuple[str, str]:
+    """Le taux de perte publiable d'un relevé, et son dénominateur, en SQL.
+
+    Le pire des sens PUBLIABLES, et son compte. Un sens ne l'est que s'il porte
+    un taux ET un compte qui atteint la règle ; à égalité, le montant l'emporte
+    — même départage que `reportableLoss`. Partagé par l'historique et par le
+    regroupement à la minute : une seule règle pour une même grandeur.
+    """
+    haut_ok = f"(loss_percent_up IS NOT NULL AND packets_up >= {int(min_packets)})"
+    bas_ok = f"(loss_percent_down IS NOT NULL AND packets_down >= {int(min_packets)})"
+    montant = f"({haut_ok} AND (NOT {bas_ok} OR loss_percent_up >= loss_percent_down))"
+    valeur = (
+        f"CASE WHEN {montant} THEN loss_percent_up"
+        f" WHEN {bas_ok} THEN loss_percent_down ELSE NULL END"
+    )
+    denom = (
+        f"CASE WHEN {montant} THEN packets_up"
+        f" WHEN {bas_ok} THEN packets_down ELSE NULL END"
+    )
+    return valeur, denom
 
 
 def _fusionner_tranche(garde: dict, autre: dict) -> None:
@@ -650,6 +825,10 @@ class SampleRepository:
         os.makedirs(directory, exist_ok=True)
         self._conn = await aiosqlite.connect(self._path)
         self._conn.row_factory = aiosqlite.Row
+        # Avant toute table : une base NEUVE naît en vidage incrémental, et la
+        # rétention lui rend sa place par petits pas. Sur une base existante,
+        # le réglage n'agit qu'au prochain VACUUM complet (`compacter`).
+        await self._conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
         # Journal en WAL : un LECTEUR ne bloque plus l'écrivain. En journal
         # DELETE, une transaction ouverte par un script de diagnostic — le cas
         # raconté plus bas, à propos du plan des îlots — rendait « database is
@@ -665,6 +844,7 @@ class SampleRepository:
         await self._conn.executescript(_INSTALLATION_SCHEMA)
         await self._conn.executescript(_ROUTER_HISTORY_SCHEMA)
         await self._migrate()
+        await self._conn.executescript(_RETENTION_SCHEMA)
         await self._conn.commit()
         if self._path != ":memory:":
             # Une URI de fichier en bonne forme — `file:///C:/…` sous Windows,
@@ -689,6 +869,12 @@ class SampleRepository:
                 if column not in existing:
                     await self._conn.execute(
                         f"ALTER TABLE router_history ADD COLUMN {column} {definition}")
+        # Le premier relevé d'une session, figé avant que la rétention le
+        # regroupe (voir `_SQL_SESSION`). NULL : relu dans `samples`.
+        async with self._conn.execute("PRAGMA table_info(sessions)") as cursor:
+            existing = {row["name"] for row in await cursor.fetchall()}
+        if "first_seen" not in existing:
+            await self._conn.execute("ALTER TABLE sessions ADD COLUMN first_seen TEXT")
         # Les étapes qui TRANSFORMENT des données sont numérotées et jouées
         # une seule fois : `PRAGMA user_version` retient la dernière. Les
         # colonnes ci-dessus se constatent, elles ; une suppression ne se
@@ -1122,11 +1308,15 @@ class SampleRepository:
         """
         if self._conn is None:
             return False
+        # Ses minutes regroupées comptent aussi : un lien d'il y a trois mois
+        # reste un lien connu.
         async with self._conn.execute(
-            "SELECT 1 FROM samples WHERE router_id = ? AND wan_id = ? LIMIT 1",
-            (router_id, wan_id),
+            "SELECT EXISTS (SELECT 1 FROM samples WHERE router_id = ? AND wan_id = ?)"
+            " OR EXISTS (SELECT 1 FROM samples_minute WHERE router_id = ? AND wan_id = ?)",
+            (router_id, wan_id, router_id, wan_id),
         ) as cur:
-            return await cur.fetchone() is not None
+            ligne = await cur.fetchone()
+            return bool(ligne and ligne[0])
 
     async def history(
         self,
@@ -1177,6 +1367,20 @@ class SampleRepository:
         # exactement ce qui produisait la fenêtre inversée.
         fin = fin or utcnow()
         debut = debut or (fin - timedelta(minutes=30))
+
+        # Avant la borne de rétention, la courbe se lit dans les minutes
+        # regroupées ; après, dans les relevés bruts, par le chemin ordinaire.
+        # Une fenêtre qui ne touche pas la borne ne coûte qu'une lecture de clé.
+        marqueur = await self.regroupe_jusqu_a(router_id)
+        if marqueur is not None and debut.isoformat() < marqueur:
+            borne = datetime.fromisoformat(marqueur)
+            regroupes, n_regroupes = await self._history_minutes(
+                router_id, wan_id, metric, debut, min(fin, borne), limit)
+            bruts, n_bruts = ([], 0)
+            if fin > borne:
+                bruts, n_bruts = await self.history(
+                    router_id, wan_id, metric, borne, fin, limit, min_packets)
+            return _echantillonner(regroupes + bruts, limit), n_regroupes + n_bruts
 
         # Les relevés où cette grandeur n'a PAS été mesurée restent dans la
         # série, avec une valeur nulle. Les filtrer paraissait plus propre — et
@@ -1271,20 +1475,7 @@ class SampleRepository:
             else "NULL"
         )
         if metric in _TAUX and min_packets is not None:
-            # Le pire des sens PUBLIABLES, et son compte. Un sens ne l'est que
-            # s'il porte un taux ET un compte qui atteint la règle ; à égalité,
-            # le montant l'emporte — même départage que `reportableLoss`.
-            haut_ok = f"(loss_percent_up IS NOT NULL AND packets_up >= {int(min_packets)})"
-            bas_ok = f"(loss_percent_down IS NOT NULL AND packets_down >= {int(min_packets)})"
-            montant = f"({haut_ok} AND (NOT {bas_ok} OR loss_percent_up >= loss_percent_down))"
-            valeur = (
-                f"CASE WHEN {montant} THEN loss_percent_up"
-                f" WHEN {bas_ok} THEN loss_percent_down ELSE NULL END"
-            )
-            denom = (
-                f"CASE WHEN {montant} THEN packets_up"
-                f" WHEN {bas_ok} THEN packets_down ELSE NULL END"
-            )
+            valeur, denom = _perte_publiable(min_packets)
 
         if available <= _LIGNES_MEMOIRE_MAX:
             async with self._conn.execute(
@@ -1452,7 +1643,18 @@ class SampleRepository:
             requete += " AND ts >= ?"
             params = (router_id, since.isoformat())
         async with self._conn.execute(requete, params) as cursor:
-            return {str(r[0]) for r in await cursor.fetchall()}
+            vus = {str(r[0]) for r in await cursor.fetchall()}
+        # Une session plus ancienne que la rétention : ses premières minutes
+        # sont regroupées, et un lien debout ne l'est qu'avant la borne.
+        marqueur = await self.regroupe_jusqu_a(router_id)
+        if marqueur is not None and (since is None or since.isoformat() < marqueur):
+            async with self._conn.execute(
+                "SELECT DISTINCT wan_id FROM samples_minute"
+                " WHERE router_id = ? AND ts >= ? AND connectes > 0",
+                (router_id, _minute(since) if since is not None else ""),
+            ) as cursor:
+                vus |= {str(r[0]) for r in await cursor.fetchall()}
+        return vus
 
     async def bond_carried_since(self, router_id: str, since: datetime | None) -> bool:
         """Le bond a-t-il porté un lien sur cet équipement DEPUIS `since` ?
@@ -1488,6 +1690,17 @@ class SampleRepository:
                        " AND tunnel_state = 'ACTIVE' LIMIT 1")
             params = (router_id, since.isoformat())
         async with self._conn.execute(requete, params) as cursor:
+            if await cursor.fetchone() is not None:
+                return True
+        # Même prédicat sur les minutes regroupées : `portants` y compte les
+        # relevés debout ET dans le bond.
+        marqueur = await self.regroupe_jusqu_a(router_id)
+        if marqueur is None or (since is not None and since.isoformat() >= marqueur):
+            return False
+        async with self._conn.execute(
+            "SELECT 1 FROM samples_minute WHERE router_id = ? AND ts >= ? AND portants > 0 LIMIT 1",
+            (router_id, _minute(since) if since is not None else ""),
+        ) as cursor:
             return await cursor.fetchone() is not None
 
     async def last_sample_at(self, router_id: str) -> datetime | None:
@@ -1501,7 +1714,11 @@ class SampleRepository:
         if self._conn is None:
             return None
         async with self._conn.execute(
-            "SELECT MAX(ts) AS dernier FROM samples WHERE router_id = ?", (router_id,)
+            # Les minutes regroupées en dernier recours : leur instant est le
+            # début de la minute, à moins d'une minute du dernier relevé.
+            "SELECT COALESCE((SELECT MAX(ts) FROM samples WHERE router_id = ?),"
+            " (SELECT MAX(ts) FROM samples_minute WHERE router_id = ? AND releves > 0)) AS dernier",
+            (router_id, router_id),
         ) as cursor:
             row = await cursor.fetchone()
         if row is None or row["dernier"] is None:
@@ -1659,10 +1876,19 @@ class SampleRepository:
         # médiane ; à une période, 8 parts sur 68 restaient vides sur une
         # fenêtre couverte, lues comme autant de trous de supervision.
         plancher = max(1.0, 2 * (periode or 0.0))
+        marqueur = await self.regroupe_jusqu_a(router_id)
+        if marqueur is not None and debut.isoformat() < marqueur:
+            # Au-delà de la rétention, un relevé est une minute : la même règle
+            # que pour la cadence — deux fois l'écart — sans quoi une part sur
+            # deux serait vide par construction et lue comme un trou.
+            plancher = max(plancher, 120.0)
         largeur = max(plancher, etendue / max(1, tranches))
         # Le nombre de parts suit la largeur retenue, sans quoi l'écran étalerait
         # la fenêtre sur deux cents pas dont la plupart ne peuvent rien porter.
         parts = max(1, min(tranches, math.ceil(etendue / largeur) if etendue > 0 else 1))
+        if marqueur is not None and debut.isoformat() < marqueur:
+            lignes = await self._timeline_regroupee(router_id, debut, fin, largeur, marqueur)
+            return self._parts_fusionnees(lignes, parts), largeur, parts
         async with self._conn.execute(
             """
             SELECT wan_id,
@@ -1717,6 +1943,11 @@ class SampleRepository:
         # Le rabotage écrasait l'indice sans FUSIONNER les agrégats : deux lignes
         # sortaient pour la même part et le même lien, et la bande comptait ce
         # lien deux fois. On les réunit.
+        return self._parts_fusionnees(lignes, parts), largeur, parts
+
+    @staticmethod
+    def _parts_fusionnees(lignes: list[dict], parts: int) -> list[dict]:
+        """Les tranches rabotées dans `[0, parts)`, et réunies par lien."""
         par_part: dict[tuple[str, int], dict] = {}
         for ligne in lignes:
             ligne["tranche"] = min(max(0, int(ligne["tranche"])), parts - 1)
@@ -1726,7 +1957,7 @@ class SampleRepository:
                 par_part[cle] = ligne
                 continue
             _fusionner_tranche(deja, ligne)
-        return list(par_part.values()), largeur, parts
+        return list(par_part.values())
 
     async def events(
         self, router_id: str, debut: datetime, fin: datetime, seuil_rtt: float
@@ -2130,6 +2361,574 @@ class SampleRepository:
             ]
 
         return transitions + latences + positions + signalements + bond + operateurs, brassage
+
+    # --- rétention : regrouper, figer, compacter ------------------------------
+    #
+    # Le travail lui-même est ordonné par `app/retention.py` ; ici, chaque
+    # opération est une unité courte, sous le verrou d'écriture, validée en
+    # entier ou annulée. Voir `_RETENTION_SCHEMA` pour ce qui survit.
+
+    async def regroupe_jusqu_a(self, router_id: str) -> str | None:
+        """La borne avant laquelle cet équipement n'a plus que des minutes."""
+        if self._conn is None:
+            return None
+        async with self._conn.execute(
+            "SELECT regroupe_jusqu_a FROM retention WHERE router_id = ?", (router_id,)
+        ) as cursor:
+            ligne = await cursor.fetchone()
+        return str(ligne[0]) if ligne else None
+
+    async def _history_minutes(
+        self, router_id: str, wan_id: str, metric: str, debut: datetime, fin: datetime, limit: int,
+    ) -> tuple[list[HistoryPoint], int]:
+        """La courbe d'une grandeur sur les minutes regroupées.
+
+        Une minute rend son minimum ET son maximum, au même instant — le début
+        de la minute —, marqués `source = "minute"` : un segment vertical qui
+        dit l'étendue sans inventer l'ordre des mesures. Une minute dont aucun
+        relevé n'a porté la grandeur rend un point SANS valeur, et la courbe s'y
+        interrompt comme sur les relevés bruts. Au-delà de `limit`, même
+        enveloppe que `history()` : par tranches de rangs égaux, le plus bas des
+        minimums et le plus haut des maximums.
+
+        Le compte rendu est celui des MESURES regroupées (une par minute sans
+        mesure) : il dépasse les points rendus, et l'écran dit « enveloppe ».
+        """
+        assert self._conn is not None
+        bornes = (router_id, wan_id, _minute(debut), fin.isoformat())
+        ou = "router_id = ? AND wan_id = ? AND ts >= ? AND ts < ?"
+        async with self._conn.execute(
+            f"SELECT COUNT(*) AS n, SUM(CASE WHEN {metric}_n > 0 THEN {metric}_n ELSE 1 END) AS mesures "
+            f"FROM samples_minute WHERE {ou}",
+            bornes,
+        ) as cursor:
+            compte = await cursor.fetchone()
+        minutes = int(compte["n"] or 0) if compte else 0
+        if minutes == 0:
+            return [], 0
+        techno = "rat" if metric in _RADIO else "NULL"
+        denom = "loss_percent_paquets" if metric in _TAUX else "NULL"
+        async with self._conn.execute(
+            f"""
+            WITH f AS (
+                SELECT ts, {metric}_min AS bas_v, {metric}_max AS haut_v,
+                       {techno} AS rat, {denom} AS denom,
+                       NTILE(?) OVER (ORDER BY ts) AS tranche
+                FROM samples_minute WHERE {ou}
+            ), c AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (PARTITION BY tranche ORDER BY bas_v IS NULL, bas_v ASC, ts) AS rb,
+                       ROW_NUMBER() OVER (PARTITION BY tranche ORDER BY haut_v IS NULL, haut_v DESC, ts) AS rh
+                FROM f
+            )
+            SELECT ts, bas_v, haut_v, rat, denom, rb, rh FROM c WHERE rb = 1 OR rh = 1 ORDER BY ts
+            """,
+            (max(1, min(minutes, limit // 2)), *bornes),
+        ) as cursor:
+            lignes = await cursor.fetchall()
+        points: list[HistoryPoint] = []
+        for r in lignes:
+            ts = datetime.fromisoformat(r["ts"])
+            garde = dict(ts=ts, denominator=r["denom"], rat=r["rat"], source="minute")
+            if r["bas_v"] is None:
+                # Rien de mesuré : le trou reste un trou, une fois.
+                if r["rb"] == 1:
+                    points.append(HistoryPoint(value=None, **garde))
+                continue
+            if r["rb"] == 1:
+                points.append(HistoryPoint(value=r["bas_v"], **garde))
+            if r["rh"] == 1 and (r["rb"] != 1 or r["haut_v"] != r["bas_v"]):
+                points.append(HistoryPoint(value=r["haut_v"], **garde))
+        return points, int(compte["mesures"] or 0)
+
+    async def _timeline_regroupee(
+        self, router_id: str, debut: datetime, fin: datetime, largeur: float, marqueur: str,
+    ) -> list[dict]:
+        """La bande sur une fenêtre qui traverse la borne de rétention.
+
+        Les relevés bruts après la borne, les minutes avant, réduits par les
+        mêmes agrégats — tous additifs ou des minimums, donc exacts à la minute
+        près. Le pire SINR d'une minute peut compter un point de l'heure du
+        routeur pris dans un trou de supervision : c'est la source de la courbe
+        regroupée, et une minute sans relevé de l'outil n'entre pas dans la
+        bande.
+        """
+        assert self._conn is not None
+        async with self._conn.execute(
+            """
+            SELECT wan_id,
+                   CAST((julianday(ts) - julianday(?)) * 86400.0 / ? AS INTEGER) AS tranche,
+                   SUM(releves) AS releves, SUM(debout) AS debout, SUM(portants) AS portants,
+                   SUM(tunnel_connu) AS tunnel_connu, SUM(desactives) AS desactives,
+                   MIN(sinr_pire) AS sinr_pire, MIN(rsrp_pire) AS rsrp_pire,
+                   SUM(reparation) AS reparation, SUM(paquets) AS paquets
+            FROM (
+                SELECT wan_id, ts, 1 AS releves, connected AS debout,
+                       CASE WHEN connected AND tunnel_state = 'ACTIVE' THEN 1 ELSE 0 END AS portants,
+                       CASE WHEN tunnel_state IS NOT NULL THEN 1 ELSE 0 END AS tunnel_connu,
+                       CASE WHEN status_message = ? THEN 1 ELSE 0 END AS desactives,
+                       sinr AS sinr_pire, rsrp AS rsrp_pire,
+                       repair_sent AS reparation, packets_up AS paquets
+                FROM samples WHERE router_id = ? AND ts >= ? AND ts <= ?
+                UNION ALL
+                SELECT wan_id, ts, releves, connectes, portants, tunnel_connu, desactives,
+                       sinr_min, rsrp_min, reparation, packets_up_somme
+                FROM samples_minute
+                WHERE router_id = ? AND ts >= ? AND ts < ? AND ts <= ? AND releves > 0
+            )
+            GROUP BY wan_id, tranche
+            ORDER BY wan_id, tranche
+            """,
+            (debut.isoformat(), largeur, STATUT_DESACTIVE,
+             router_id, max(debut.isoformat(), marqueur), fin.isoformat(),
+             router_id, _minute(debut), marqueur, fin.isoformat()),
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def journal(
+        self, router_id: str, debut: datetime, fin: datetime, seuil_rtt: float,
+    ) -> tuple[list[dict], list[dict], datetime | None]:
+        """`events()`, et ce qu'il en reste au-delà de la rétention.
+
+        Le troisième membre est la borne avant laquelle le journal n'a plus ses
+        relevés bruts, ou None quand il est entier. Le journal d'une session
+        close, demandé sur sa fenêtre — ce que fait l'écran —, est relu tel
+        qu'il a été figé : il est alors entier. Une autre fenêtre qui traverse
+        la borne reçoit les épisodes figés des sessions qu'elle recouvre, ceux
+        des relevés bruts après la borne, et la borne elle-même : avant elle,
+        une coupure hors de toute session figée n'a plus de relevé pour la dater.
+        """
+        marqueur = await self.regroupe_jusqu_a(router_id)
+        if self._conn is None or marqueur is None or debut.isoformat() >= marqueur:
+            episodes, brassage = await self.events(router_id, debut, fin, seuil_rtt)
+            return episodes, brassage, None
+        de, a = debut.isoformat(), fin.isoformat()
+        async with self._conn.execute(
+            """
+            SELECT s.started_at, s.last_seen, f.journal_de, f.journal
+            FROM sessions s JOIN sessions_figees f ON f.session_id = s.id AND f.last_seen = s.last_seen
+            WHERE s.router_id = ? AND f.seuil_rtt = ? AND s.last_seen >= ? AND s.started_at <= ?
+            ORDER BY s.started_at
+            """,
+            (router_id, seuil_rtt, de, a),
+        ) as cursor:
+            figees = [dict(r) for r in await cursor.fetchall()]
+        for f in figees:
+            # La fenêtre de la session elle-même : le journal figé, entier.
+            if f["started_at"] <= de <= f["journal_de"] and a == f["last_seen"]:
+                j = json.loads(f["journal"])
+                return [e for e in j["episodes"] if de <= _instant(e) <= a], j["brassage"], None
+        borne = datetime.fromisoformat(marqueur)
+        episodes = [
+            e for f in figees for e in json.loads(f["journal"])["episodes"]
+            if de <= _instant(e) < marqueur and _instant(e) <= a
+        ]
+        brassage: list[dict] = []
+        if fin > borne:
+            bruts, brassage = await self.events(router_id, borne, fin, seuil_rtt)
+            episodes += bruts
+        return episodes, brassage, borne
+
+    async def export_minutes(
+        self, router_id: str, debut: str, fin: str,
+        apres: tuple[str, str] | None = None, limite: int | None = None,
+    ) -> list[dict]:
+        """Les minutes regroupées de la fenêtre, à la forme des relevés d'export.
+
+        Une minute s'exporte comme UNE ligne : son début, l'état connecté le
+        plus défavorable, la MOYENNE de chaque grandeur mesurée — vide si rien
+        ne l'a été —, et un message qui dit ce qu'elle est. Ce que la minute ne
+        garde pas (cellule, opérateur, uptime, position) reste vide : une
+        absence, jamais une valeur inventée.
+        """
+        if self._conn is None:
+            return []
+        moyennes = ", ".join(
+            f"CASE WHEN {m}_n > 0 THEN {m}_somme / {m}_n END AS {m}" for m in METRICS
+        )
+        suite, params = "", [router_id, debut, fin]
+        if apres is not None:
+            suite = "AND (ts, wan_id) > (?, ?)"
+            params += list(apres)
+        borne = ""
+        if limite is not None:
+            borne = "LIMIT ?"
+            params.append(limite)
+        async with self._conn.execute(
+            f"""
+            SELECT ts, wan_id, kind, rat, releves,
+                   CASE WHEN releves > 0 THEN (connectes = releves) END AS connected,
+                   {moyennes}
+            -- Depuis le début de la minute qui contient `debut` : une minute
+            -- est datée de sa première seconde.
+            FROM samples_minute
+            WHERE router_id = ? AND ts >= substr(?, 1, 16) || ':00+00:00' AND ts < ? {suite}
+            ORDER BY ts, wan_id {borne}
+            """,
+            params,
+        ) as cursor:
+            lignes = [dict(r) for r in await cursor.fetchall()]
+        vides = ("operator", "plmn", "band", "earfcn", "pci", "cell_id", "enb_id", "tac",
+                 "signal_bars", "tunnel_state", "loss_percent_up", "loss_percent_down",
+                 "uptime_s", "site_lat", "site_lon", "ssid", "bssid")
+        for ligne in lignes:
+            for champ in vides:
+                ligne[champ] = None
+            ligne["status_message"] = (
+                f"regroupé à la minute : moyenne de {ligne['releves']} relevé(s)"
+                if ligne["releves"] else
+                # Une minute que seule l'heure du routeur a vue (trou de
+                # supervision) : pas d'état de connexion, la radio du routeur.
+                "regroupé à la minute : heure du routeur seule")
+        return lignes
+
+    async def fiche_figee(self, session_id: int, last_seen: str) -> str | None:
+        """La fiche figée de cette session, si elle vaut encore pour `last_seen`."""
+        if self._conn is None:
+            return None
+        async with self._conn.execute(
+            "SELECT fiche FROM sessions_figees WHERE session_id = ? AND last_seen = ?",
+            (session_id, last_seen),
+        ) as cursor:
+            ligne = await cursor.fetchone()
+        return str(ligne[0]) if ligne else None
+
+    async def sessions_a_figer(self, limite: datetime) -> list[dict]:
+        """Les sessions closes avant `limite` dont la fiche n'est pas figée —
+        ou l'a été pour une fin qui a bougé depuis."""
+        if self._conn is None:
+            return []
+        async with self._conn.execute(
+            _SQL_SESSION + "WHERE last_seen < ? AND NOT EXISTS ("
+            " SELECT 1 FROM sessions_figees f WHERE f.session_id = s.id AND f.last_seen = s.last_seen)"
+            " ORDER BY last_seen",
+            (limite.isoformat(),),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+    async def figer_session(
+        self, session: dict, seuil_rtt: float, journal_de: str, fiche: str, journal: str,
+    ) -> None:
+        """Retient la fiche et le journal d'une session, avec son premier relevé."""
+        if self._conn is None:
+            return
+        async with self.transaction():
+            await self._conn.execute(
+                """
+                INSERT INTO sessions_figees
+                    (session_id, last_seen, seuil_rtt, journal_de, fiche, journal, fige_a)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    last_seen = excluded.last_seen, seuil_rtt = excluded.seuil_rtt,
+                    journal_de = excluded.journal_de, fiche = excluded.fiche,
+                    journal = excluded.journal, fige_a = excluded.fige_a
+                """,
+                (session["id"], session["last_seen"], seuil_rtt, journal_de, fiche, journal,
+                 utcnow().isoformat()),
+            )
+            if session.get("first_seen") is not None:
+                await self._conn.execute(
+                    "UPDATE sessions SET first_seen = ? WHERE id = ? AND first_seen IS NULL",
+                    (session["first_seen"], session["id"]),
+                )
+
+    async def equipements_releves(self) -> list[str]:
+        """Les équipements qui ont des relevés bruts ou une heure du routeur.
+
+        Par sauts d'index (`MIN(router_id) > ?`) plutôt qu'un `DISTINCT`, qui
+        parcourrait tout l'index d'une table de plusieurs millions de lignes.
+        """
+        if self._conn is None:
+            return []
+        trouves: set[str] = set()
+        for table in ("samples", "router_history"):
+            dernier = ""
+            while True:
+                async with self._conn.execute(
+                    f"SELECT MIN(router_id) FROM {table} WHERE router_id > ?", (dernier,)
+                ) as cursor:
+                    ligne = await cursor.fetchone()
+                if ligne is None or ligne[0] is None:
+                    break
+                dernier = str(ligne[0])
+                trouves.add(dernier)
+        return sorted(trouves)
+
+    async def _borne_regroupement(self, router_id: str, limite: datetime) -> str:
+        """Jusqu'où cet équipement peut être regroupé.
+
+        Pas au-delà de `limite` moins vingt-quatre heures : une session encore
+        ouverte à `limite` ne relit, pour sa fiche et son journal, que ses
+        dernières vingt-quatre heures (`_FENETRE_SESSION_S`), et elles restent
+        brutes. Ni au-delà du début d'une session close qui n'est pas encore
+        figée : on ne regroupe pas ce dont la fiche n'a pas été calculée.
+        """
+        assert self._conn is not None
+        borne = limite - timedelta(seconds=_FENETRE_SESSION_S)
+        async with self._conn.execute(
+            """
+            SELECT MIN(s.started_at) FROM sessions s
+            WHERE s.router_id = ? AND s.last_seen < ? AND NOT EXISTS (
+                SELECT 1 FROM sessions_figees f
+                WHERE f.session_id = s.id AND f.last_seen = s.last_seen)
+            """,
+            (router_id, limite.isoformat()),
+        ) as cursor:
+            ligne = await cursor.fetchone()
+        if ligne is not None and ligne[0] is not None:
+            borne = min(borne, datetime.fromisoformat(str(ligne[0])))
+        return _minute(borne)
+
+    async def _premier_brut(self, router_id: str, depuis: str) -> str | None:
+        """Le plus ancien relevé brut ou point du routeur à partir de `depuis`."""
+        assert self._conn is not None
+        async with self._conn.execute(
+            """
+            SELECT MIN(t) FROM (
+                SELECT MIN(ts) AS t FROM samples WHERE router_id = ? AND ts >= ?
+                UNION ALL
+                SELECT MIN(ts) FROM router_history WHERE router_id = ? AND ts >= ?)
+            """,
+            (router_id, depuis, router_id, depuis),
+        ) as cursor:
+            ligne = await cursor.fetchone()
+        return None if ligne is None or ligne[0] is None else str(ligne[0])
+
+    async def a_regrouper(self, router_id: str, limite: datetime) -> bool:
+        """Cet équipement a-t-il des relevés bruts à regrouper ?"""
+        if self._conn is None:
+            return False
+        borne = await self._borne_regroupement(router_id, limite)
+        premier = await self._premier_brut(router_id, await self.regroupe_jusqu_a(router_id) or "")
+        return premier is not None and premier < borne
+
+    async def regrouper_lot(self, router_id: str, limite: datetime) -> bool:
+        """Regroupe UNE heure au plus de cet équipement, et dit s'il l'a fait.
+
+        Dans une seule transaction, sous le verrou d'écriture : le premier
+        relevé des sessions touchées est retenu, les minutes sont écrites, les
+        relevés bruts et l'heure du routeur effacés, la borne avancée. Un arrêt
+        au milieu annule tout, et le lot suivant reprend au même endroit — rien
+        n'est compté deux fois, rien n'est perdu. Une heure de cinq liens, c'est
+        trois mille six cents relevés : quelques dizaines de millisecondes, que
+        la scrutation attend à peine.
+        """
+        if self._conn is None:
+            return False
+        async with self.transaction():
+            borne = await self._borne_regroupement(router_id, limite)
+            premier = await self._premier_brut(
+                router_id, await self.regroupe_jusqu_a(router_id) or "")
+            if premier is None or premier >= borne:
+                return False
+            debut = _minute(datetime.fromisoformat(premier))
+            heure = datetime.fromisoformat(debut).replace(minute=0)
+            fin = min(_minute(heure + timedelta(hours=1)), borne)
+            await self._conn.execute(
+                """
+                UPDATE sessions SET first_seen = (
+                    SELECT MIN(ts) FROM samples
+                    WHERE router_id = sessions.router_id
+                      AND ts >= sessions.started_at AND ts <= sessions.last_seen)
+                WHERE router_id = ? AND first_seen IS NULL AND started_at < ?
+                """,
+                (router_id, fin),
+            )
+            minutes = await self._minutes_du_lot(router_id, debut, fin)
+            if minutes:
+                colonnes = list(minutes[0])
+                await self._conn.executemany(
+                    f"INSERT INTO samples_minute ({', '.join(colonnes)}) "
+                    f"VALUES ({', '.join('?' * len(colonnes))}) "
+                    f"ON CONFLICT(router_id, wan_id, ts) DO UPDATE SET {_FUSION_MINUTE}",
+                    [tuple(m[c] for c in colonnes) for m in minutes],
+                )
+            efface = (datetime.fromisoformat(fin) - timedelta(seconds=_MARGE_LOT_S)).isoformat()
+            await self._conn.execute(
+                "DELETE FROM samples WHERE router_id = ? AND ts < ?", (router_id, efface))
+            await self._conn.execute(
+                "DELETE FROM router_history WHERE router_id = ? AND ts < ?", (router_id, efface))
+            await self._conn.execute(
+                "INSERT INTO retention (router_id, regroupe_jusqu_a) VALUES (?, ?) "
+                "ON CONFLICT(router_id) DO UPDATE SET regroupe_jusqu_a = excluded.regroupe_jusqu_a",
+                (router_id, fin),
+            )
+        return True
+
+    async def _minutes_du_lot(self, router_id: str, debut: str, fin: str) -> list[dict]:
+        """Les lignes de `samples_minute` d'un lot, depuis ses trois sources."""
+        assert self._conn is not None
+        minute = "substr(ts, 1, 16) || ':00+00:00'"
+
+        def stats(col: str, nom: str) -> str:
+            return (f"COUNT({col}) AS {nom}_n, MIN({col}) AS {nom}_min, "
+                    f"MAX({col}) AS {nom}_max, SUM({col}) AS {nom}_somme")
+
+        perte, perte_paquets = _perte_publiable(_PAQUETS_PUBLIABLES)
+        par_cle: dict[tuple[str, str], dict] = {}
+
+        def ligne(wan_id: str, ts: str) -> dict:
+            cle = (wan_id, ts)
+            if cle not in par_cle:
+                par_cle[cle] = {
+                    "router_id": router_id, "wan_id": wan_id, "ts": ts, "kind": None, "rat": None,
+                    "releves": 0, "connectes": 0, "portants": 0, "tunnel_connu": 0,
+                    "desactives": 0, "reparation": None, "loss_percent_paquets": None,
+                    **{f"{m}_{s}": (0 if s == "n" else None)
+                       for m in METRICS for s in ("n", "min", "max", "somme")},
+                }
+            return par_cle[cle]
+
+        def verser(lignes, *ecartees: str) -> None:
+            for r in lignes:
+                ligne(r["wan_id"], r["minute"]).update(
+                    {k: v for k, v in dict(r).items() if k not in ("wan_id", "minute", *ecartees)})
+
+        # Les relevés de l'outil : comptes de la bande, grandeurs simples, perte.
+        async with self._conn.execute(
+            f"""
+            SELECT wan_id, {minute} AS minute, MAX(kind) AS kind, MAX(rat) AS rat,
+                   COUNT(*) AS releves, SUM(connected) AS connectes,
+                   SUM(CASE WHEN connected AND tunnel_state = 'ACTIVE' THEN 1 ELSE 0 END) AS portants,
+                   SUM(CASE WHEN tunnel_state IS NOT NULL THEN 1 ELSE 0 END) AS tunnel_connu,
+                   SUM(CASE WHEN status_message = ? THEN 1 ELSE 0 END) AS desactives,
+                   SUM(repair_sent) AS reparation,
+                   {', '.join(stats(m, m) for m in _REGROUPEES_SIMPLES)},
+                   {stats('perte', 'loss_percent')}, MIN(perte_paquets) AS loss_percent_paquets
+            FROM (SELECT *, {perte} AS perte, {perte_paquets} AS perte_paquets FROM samples
+                  WHERE router_id = ? AND ts >= ? AND ts < ?)
+            GROUP BY wan_id, minute
+            """,
+            (STATUT_DESACTIVE, router_id, debut, fin),
+        ) as cursor:
+            verser(await cursor.fetchall())
+        # La radio : les relevés, et l'heure du routeur dans les trous de
+        # supervision — la règle de `history()` (R-3.1).
+        async with self._conn.execute(
+            f"""
+            SELECT wan_id, {minute} AS minute, MAX(rat) AS rat_radio,
+                   {', '.join(stats(m, m) for m in _REGROUPEES_RADIO)}
+            FROM (
+                SELECT wan_id, ts, rsrp, rsrq, sinr, rat FROM samples
+                WHERE router_id = ? AND ts >= ? AND ts < ?
+                UNION ALL
+                SELECT h.wan_id, h.ts, h.rsrp, h.rsrq, h.sinr, h.rat FROM router_history h
+                WHERE h.router_id = ? AND h.ts >= ? AND h.ts < ?
+                  AND (h.rsrp IS NOT NULL OR h.rsrq IS NOT NULL OR h.sinr IS NOT NULL)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM samples s
+                    WHERE s.router_id = h.router_id AND s.wan_id = h.wan_id
+                      AND s.ts >= strftime('%Y-%m-%dT%H:%M:%S', substr(h.ts, 1, 19), '-14 seconds')
+                      AND s.ts <  strftime('%Y-%m-%dT%H:%M:%S', substr(h.ts, 1, 19), '+15 seconds'))
+            )
+            GROUP BY wan_id, minute
+            """,
+            (router_id, debut, fin, router_id, debut, fin),
+        ) as cursor:
+            radio = await cursor.fetchall()
+        verser(radio, "rat_radio")
+        for r in radio:
+            cible = ligne(r["wan_id"], r["minute"])
+            cible["rat"] = cible["rat"] or r["rat_radio"]
+        # La latence du lien : la série du routeur, et les relevés qu'elle ne
+        # couvre pas (R-3.2, C-9).
+        async with self._conn.execute(
+            f"""
+            SELECT wan_id, {minute} AS minute, {stats('v', 'path_latency_ms')}
+            FROM (
+                SELECT s.wan_id, s.ts, s.path_latency_ms AS v FROM samples s
+                WHERE s.router_id = ? AND s.ts >= ? AND s.ts < ? AND NOT {_SERIE_COUVRE}
+                UNION ALL
+                SELECT wan_id, ts, path_latency_ms FROM router_history
+                WHERE router_id = ? AND ts >= ? AND ts < ?
+                  AND (serie_latence = 1 OR path_latency_ms IS NOT NULL)
+            )
+            GROUP BY wan_id, minute
+            """,
+            (router_id, debut, fin, router_id, debut, fin),
+        ) as cursor:
+            verser(await cursor.fetchall())
+        return list(par_cle.values())
+
+    async def retention_commencee(self) -> bool:
+        """La copie d'avant la première purge a-t-elle été faite ?"""
+        if self._conn is None:
+            return False
+        async with self._conn.execute(
+            "SELECT 1 FROM installation WHERE cle = 'retention_copie'"
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    async def copie_avant_retention(self) -> None:
+        """Une copie de la base telle qu'avant la toute première purge.
+
+        Même logique que `_copie_avant_migration` — hors du motif élagué par le
+        lanceur, une seule, effacée si elle échoue —, mais par une connexion à
+        part et hors de la boucle : en WAL, la copie lit un instantané sans
+        bloquer l'écrivain, et la scrutation continue pendant qu'elle se fait.
+        """
+        if self._conn is None:
+            return
+        if self._path != ":memory:":
+            source = Path(os.path.abspath(self._path))
+            cible = source.with_name(source.name + ".avant-retention.bak")
+            if not cible.exists():
+                await asyncio.to_thread(_copier_base, source, cible)
+        async with self.transaction():
+            await self._conn.execute(
+                "INSERT OR IGNORE INTO installation (cle, valeur) VALUES ('retention_copie', ?)",
+                (utcnow().isoformat().encode(),),
+            )
+
+    async def compacter(self, pas: int = 1024) -> int:
+        """Rend au système les pages libérées par la rétention ; le nombre rendu.
+
+        Une base NEUVE est en vidage incrémental : `incremental_vacuum` par pas
+        de quatre mégaoctets, chacun sous le verrou, la scrutation passant entre
+        deux. Une base EXISTANTE ne l'est pas, et ne peut le devenir que par un
+        VACUUM complet : il est fait UNE fois, quand la rétention a libéré au
+        moins le quart du fichier — après le premier regroupement, la base ne
+        garde que la durée de conservation, et c'est le plus petit VACUUM
+        possible. Il suspend les écritures le temps de réécrire ce qui reste ;
+        la scrutation attend son tour, sans rien perdre.
+        """
+        if self._conn is None or self._path == ":memory:":
+            return 0
+
+        async def pragma(nom: str) -> int:
+            assert self._conn is not None
+            async with self._conn.execute(f"PRAGMA {nom}") as cursor:
+                return int((await cursor.fetchone())[0])
+
+        libres = await pragma("freelist_count")
+        if libres == 0:
+            return 0
+        mode = await pragma("auto_vacuum")
+        if mode == 2:
+            rendues = 0
+            while libres > 0:
+                async with self._ecriture:
+                    async with self._conn.execute(f"PRAGMA incremental_vacuum({int(pas)})") as c:
+                        await c.fetchall()
+                    await self._conn.commit()
+                restant = await pragma("freelist_count")
+                rendues += libres - restant
+                if restant >= libres:
+                    break
+                libres = restant
+                await asyncio.sleep(0)
+        elif libres * 4 >= await pragma("page_count"):
+            async with self._ecriture:
+                await self._conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
+                await self._conn.execute("VACUUM")
+            logger.info("Base compactée, vidage incrémental activé (%d pages rendues)", libres)
+            rendues = libres
+        else:
+            return 0
+        async with self._ecriture:
+            async with self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)") as c:
+                await c.fetchall()
+        return rendues
 
     async def close(self) -> None:
         if self._lecture is not None:

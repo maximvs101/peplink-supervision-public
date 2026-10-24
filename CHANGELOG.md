@@ -31,6 +31,10 @@ Correctifs pas encore étiquetés ; la section prendra le numéro de la prochain
   n'affirme plus « aucun équipement » avant d'avoir lu, la fiche de la session en cours se
   relit, avis d'erreur annoncés aux lecteurs d'écran.
 - **Robustesse face aux firmwares** : réponses incomplètes ou inattendues tolérées.
+- **Rétention de la base** (`RETENTION_JOURS`, 30 par défaut) : au-delà, les sessions closes
+  sont figées (fiche et journal inchangés), puis les relevés regroupés à la minute et le
+  fichier compacté, en tâche de fond ; copie `samples.db.avant-retention.bak` avant la
+  première purge. Les courbes, la bande et l'export anciens passent à la minute, et le disent.
 - **Garde de version à la publication** : l'étiquette, la section du CHANGELOG, les deux
   paquets Python et l'interface doivent dire le même numéro, sinon rien n'est publié.
 - **Dépendances épinglées** : versions Python exactes, outils de test à part

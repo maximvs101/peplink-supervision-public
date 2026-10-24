@@ -401,6 +401,7 @@
   "started_at": "2026-09-19T11:01:27Z",
   "ended_at": "2026-09-19T11:01:37Z",
   "capped": false,
+  "grouped_before": null,
   "slice_count": 10,
   "slice_seconds": 1.0,
   "lanes": [
@@ -498,6 +499,7 @@
   "started_at": "2026-09-19T11:01:27Z",
   "ended_at": "2026-09-19T11:01:37Z",
   "capped": false,
+  "grouped_before": null,
   "episodes": [
    {
     "kind": "hors du bond",

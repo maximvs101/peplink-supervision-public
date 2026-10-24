@@ -1221,6 +1221,10 @@ class Timeline(BaseModel):
     # La fenêtre demandée a été ROGNÉE à vingt-quatre heures : `started_at`
     # est le début réellement relu, pas celui demandé. Jamais tu.
     capped: bool = False
+    # Avant cet instant, les relevés sont regroupés à la minute (rétention,
+    # `RETENTION_JOURS`) : la bande y a la résolution de la minute. `None`
+    # quand toute la fenêtre est relue à pleine résolution.
+    grouped_before: datetime | None = None
     slice_count: int
     slice_seconds: float
     lanes: list[TimelineLane] = []
@@ -1311,6 +1315,11 @@ class EventLog(BaseModel):
     ended_at: datetime
     # Fenêtre rognée à vingt-quatre heures : voir `Timeline.capped`.
     capped: bool = False
+    # Avant cet instant, les relevés sont regroupés à la minute : le journal
+    # n'y a plus que les épisodes figés des sessions closes, et pas les
+    # comptes par lien. `None` quand le journal est entier — y compris celui
+    # d'une session close relu sur sa propre fenêtre, figé avant le regroupement.
+    grouped_before: datetime | None = None
     episodes: list[Episode] = []
     churn: list[LinkChurn] = []
     # Épisodes retenus par le plafond, et donc NON listés. Jamais tu : un
@@ -1328,7 +1337,8 @@ class HistoryPoint(BaseModel):
     value: float | None = None
     # « routeur » : un point de l'heure que le ROUTEUR garde, placé dans un trou
     # de supervision (R-3.1) — une mesure passée, sans état de connexion, que
-    # l'écran dessine à part. `None` : un relevé de cet outil.
+    # l'écran dessine à part. `None` : un relevé de cet outil. « minute » : le
+    # minimum ou le maximum d'une minute regroupée par la rétention.
     source: str | None = None
     # Paquets réellement comptés sous ce point, quand la grandeur est un TAUX.
     #
@@ -1359,3 +1369,7 @@ class HistorySeries(BaseModel):
     # et maximum par tranche — et non la série complète. Le dire est nécessaire :
     # une courbe allégée se lit exactement comme une courbe complète.
     available: int = 0
+    # Avant cet instant, la courbe est faite de MINUTES regroupées : chacune
+    # rend son minimum et son maximum, marqués `source = "minute"`. `None`
+    # quand toute la fenêtre est à pleine résolution.
+    grouped_before: datetime | None = None

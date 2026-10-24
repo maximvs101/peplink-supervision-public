@@ -250,11 +250,42 @@ Copier `backend/.env.example` en `backend/.env` et ajuster.
 | `PEPLINK_MODE` | `mock` | `mock` (simulateur) ou `router` (API locale réelle) |
 | `POLL_INTERVAL_SECONDS` | `3` | Période de scrutation |
 | `DATABASE_PATH` | `./data/samples.db` | Base des mesures |
+| `RETENTION_JOURS` | `30` | Jours gardés à pleine résolution ; `0` garde tout (voir ci-dessous) |
 | `ROUTERS_CONFIG` | `./routers.yaml` | Fichier de flotte |
 | `CORS_ORIGINS` | serveur Vite | Origines autorisées depuis un navigateur |
 | `ALLOWED_HOSTS` | vide | Noms d'hôte admis en plus de `localhost` et des adresses IP |
 
 Les chemins relatifs sont résolus depuis `backend/`, quel que soit le répertoire courant.
+
+### Rétention de la base
+
+Un relevé par lien toutes les cinq secondes fait des dizaines de millions de lignes par an.
+Au-delà de `RETENTION_JOURS` (30 par défaut), une tâche de fond (`app/retention.py`), une
+fois par heure et jamais au démarrage :
+
+1. **fige** chaque session close : sa fiche (volumes, coupures et micro-coupures,
+   disponibilité, latences…) et son journal sur la fenêtre que l'écran relit. Une session
+   close s'affiche ensuite **à l'identique** ;
+2. **regroupe à la minute** les relevés plus anciens que `RETENTION_JOURS` + 1 jour, et
+   l'heure gardée par le routeur : pour chaque grandeur des courbes, nombre de mesures,
+   minimum, maximum et somme ; pour la bande, les comptes (relevés, connectés, dans le
+   bond…). Une minute sans relevé n'a pas de ligne, une grandeur non mesurée reste sans
+   valeur — jamais un zéro. Les relevés bruts regroupés sont effacés ;
+3. **compacte** le fichier (`incremental_vacuum` ; une base créée avant cette version est
+   convertie une fois par un `VACUUM` complet, qui suspend les écritures le temps de
+   réécrire les 30 jours restants).
+
+Ce qui est perdu, et dit : au-delà de la rétention, une courbe a la résolution de la minute
+(chaque minute rend son minimum et son maximum, `source = "minute"`, `grouped_before`), la
+bande aussi, l'export CSV d'une session donne une ligne par minute et par lien (moyennes,
+état connecté le plus défavorable, message « regroupé à la minute »), l'heure du routeur
+n'est plus exportable à part, et un taux de perte n'est gardé que s'il était publiable
+(200 paquets). Le journal d'une fenêtre qui n'est pas celle d'une session close ne garde
+avant la borne que les épisodes figés des sessions (`grouped_before`). Le travail se fait
+par lots d'une heure d'un équipement — une transaction de quelques dizaines de
+millisecondes, sous le verrou d'écriture ; un arrêt au milieu n'annule que le lot en cours.
+La toute première purge est précédée d'une copie `samples.db.avant-retention.bak`, jamais
+élaguée.
 
 ### Brancher de vrais routeurs
 

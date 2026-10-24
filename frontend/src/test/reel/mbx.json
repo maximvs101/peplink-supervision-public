@@ -752,6 +752,7 @@
   "started_at": "2026-08-30T08:20:51Z",
   "ended_at": "2026-08-30T08:21:01Z",
   "capped": false,
+  "grouped_before": null,
   "slice_count": 10,
   "slice_seconds": 1.0,
   "lanes": [
@@ -878,6 +879,7 @@
   "started_at": "2026-08-30T08:20:51Z",
   "ended_at": "2026-08-30T08:21:01Z",
   "capped": false,
+  "grouped_before": null,
   "episodes": [],
   "churn": [
    {

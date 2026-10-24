@@ -280,6 +280,20 @@ describe('une fenêtre rognée par le serveur', () => {
   })
 })
 
+describe('une fenêtre plus ancienne que la rétention', () => {
+  it('dit que ses relevés sont regroupés à la minute', () => {
+    // Un journal muet avant la borne se lirait « aucune coupure ».
+    render(<EventLog log={journal([], { grouped_before: '2026-09-11T18:00:00Z' })}
+                     windowLabel="Fenêtre choisie" />)
+    expect(screen.getByText(/regroupés à la minute/)).toBeInTheDocument()
+  })
+
+  it('se tait quand le journal est entier', () => {
+    render(<EventLog log={journal([], { grouped_before: null })} windowLabel="Fenêtre choisie" />)
+    expect(screen.queryByText(/regroupés à la minute/)).not.toBeInTheDocument()
+  })
+})
+
 describe('les faits du journal du routeur', () => {
   it('sont nommés, rattachés à l’équipement quand ils ne visent aucun lien', () => {
     render(<EventLog log={journal([

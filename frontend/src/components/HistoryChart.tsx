@@ -300,6 +300,8 @@ export function HistoryChart({
   // rendant deux points par tranche — le plus bas et le plus haut — et l'espacement
   // des points cesse alors de refléter la cadence de scrutation.
   const enveloppe = available > data.length
+  // Des minutes regroupées par la rétention (`source = "minute"`).
+  const regroupee = data.some((p) => p.source === 'minute')
 
   // Les points du ROUTEUR (R-3.1) vont dans leur propre série : ils se tracent
   // à part, et la courbe de cet outil s'interrompt là où elle n'a rien relevé.
@@ -696,6 +698,9 @@ export function HistoryChart({
             : `${points.filter((p) => p.value !== null).length} `
               + `mesure${points.filter((p) => p.value !== null).length > 1 ? 's' : ''} tracée`
               + `${points.filter((p) => p.value !== null).length > 1 ? 's' : ''}`}{' '}
+          {/* La rétention a regroupé les relevés anciens : la résolution
+              perdue se dit, comme l'enveloppe. */}
+          {regroupee && '· relevés anciens regroupés à la minute, minimum et maximum de chacune '}
           · {passee ? 'session passée, courbe figée' : 'rafraîchi toutes les 15 s'}
         </p>
       </div>

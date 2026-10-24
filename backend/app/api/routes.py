@@ -34,7 +34,8 @@ from ..models import (
     RouterSummary,
     utcnow,
 )
-from ..sessions import _identifiant_reseau, build_summary
+from ..retention import calculer_fiche
+from ..sessions import _identifiant_reseau
 from ..storage.db import METRICS
 from .security import est_poste_local, require_loopback
 
@@ -451,9 +452,25 @@ async def export_session(
         entete = io.StringIO()
         csv.writer(entete, delimiter=";", lineterminator="\n").writerow([nom for nom, _ in colonnes])
         yield ("\ufeff" + entete.getvalue()).encode("utf-8")
+        # Au-del\u00e0 de la r\u00e9tention, la session n'a plus que des minutes : une
+        # ligne par minute et par lien, dont le message dit ce qu'elle est.
+        marqueur = await repo.regroupe_jusqu_a(router_id)
+        bruts_de = debut
+        if marqueur is not None and debut < marqueur:
+            bruts_de = max(debut, marqueur)
+            suite: tuple[str, str] | None = None
+            while True:
+                minutes = await repo.export_minutes(
+                    router_id, debut, min(fin, marqueur), apres=suite, limite=_LOT_EXPORT)
+                if minutes:
+                    yield (await asyncio.to_thread(
+                        _mettre_en_forme, minutes, colonnes, reseau, complet)).encode("utf-8")
+                if len(minutes) < _LOT_EXPORT:
+                    break
+                suite = (minutes[-1]["ts"], minutes[-1]["wan_id"])
         apres: tuple[str, str, int] | None = None
         while True:
-            lot = await repo.export_rows(router_id, debut, fin, apres=apres, limite=_LOT_EXPORT)
+            lot = await repo.export_rows(router_id, bruts_de, fin, apres=apres, limite=_LOT_EXPORT)
             if not lot:
                 return
             yield (await asyncio.to_thread(_mettre_en_forme, lot, colonnes, reseau, complet)).encode("utf-8")
@@ -502,16 +519,17 @@ async def session_summary(
     if lignes is None:
         raise HTTPException(status_code=404, detail=f"Session inconnue : {session_id}")
     session = Session(**lignes)
-    releves, fenetre = await repo.session_rows(
-        session.router_id, lignes["started_at"], lignes["last_seen"]
-    )
-    # La latence du lien, selon la série du routeur, sur ce qui a été relu.
-    lu_de = fenetre[0].isoformat() if fenetre else lignes["started_at"]
-    lu_a = fenetre[1].isoformat() if fenetre else lignes["last_seen"]
-    series = await repo.latency_series(session.router_id, lu_de, lu_a)
-    # Le RSRP des trous de supervision, à l'heure du routeur (R-3.1).
-    combles = await repo.filled_rsrp(session.router_id, lu_de, lu_a)
-    fiche = await asyncio.to_thread(build_summary, session, releves, fenetre, series, combles)
+    # Une session close au-delà de la rétention a été FIGÉE avant que ses
+    # relevés soient regroupés : sa fiche est relue telle quelle, sous le nom
+    # qu'elle porte aujourd'hui.
+    figee = await repo.fiche_figee(session_id, lignes["last_seen"])
+    if figee is not None:
+        fiche = SessionSummary.model_validate_json(figee)
+        fiche.session = session
+    else:
+        fiche = await calculer_fiche(repo, lignes)
+    lu_de = fiche.window_start.isoformat() if fiche.window_start else lignes["started_at"]
+    lu_a = fiche.window_end.isoformat() if fiche.window_end else lignes["last_seen"]
     # Les manœuvres, du journal du routeur : une désactivation est une coupure
     # que le routeur attribue à l'exploitant (« Disabled »).
     # Sur la fenêtre RELUE, comme tout le reste de la fiche : une fiche
@@ -599,8 +617,17 @@ async def get_history(
         router_id, wan, metric, debut, fin, min_packets=min_packets
     )
     return HistorySeries(
-        router_id=router_id, wan_id=wan, metric=metric, points=points, available=available
+        router_id=router_id, wan_id=wan, metric=metric, points=points, available=available,
+        grouped_before=await _regroupe_avant(request, router_id, debut),
     )
+
+
+async def _regroupe_avant(request: Request, router_id: str, debut: datetime) -> datetime | None:
+    """La borne de rétention de l'équipement, si la fenêtre commence avant elle."""
+    marqueur = await request.app.state.repo.regroupe_jusqu_a(router_id)
+    if marqueur is None or debut.isoformat() >= marqueur:
+        return None
+    return datetime.fromisoformat(marqueur)
 
 
 @router.get("/routers/{router_id}/timeline", response_model=Timeline)
@@ -662,6 +689,7 @@ async def get_timeline(
         started_at=debut,
         ended_at=fin,
         capped=rognee,
+        grouped_before=await _regroupe_avant(request, router_id, debut),
         slice_count=parts,
         slice_seconds=largeur,
         # Ordre naturel, comme partout : « 10 » vient après « 2 ».
@@ -755,7 +783,10 @@ async def get_events(
     debut, fin = _fenetre(minutes, _en_utc(since), _en_utc(until))
     debut, rognee = _plafonnee(debut, fin)
 
-    bruts, brassage = await request.app.state.repo.events(
+    # `journal` et non `events` : au-delà de la rétention, le journal d'une
+    # session close est relu tel qu'il a été figé, et une fenêtre qui traverse
+    # la borne la reçoit pour le dire.
+    bruts, brassage, regroupe = await request.app.state.repo.journal(
         router_id, debut, fin, _SEUIL_EPISODE_MS
     )
 
@@ -809,6 +840,7 @@ async def get_events(
         started_at=debut,
         ended_at=fin,
         capped=rognee,
+        grouped_before=regroupe,
         episodes=retenus,
         omitted=max(0, len(episodes) - _EPISODES_MAX),
         churn=[
