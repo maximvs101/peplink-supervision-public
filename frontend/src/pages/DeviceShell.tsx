@@ -18,7 +18,7 @@ import { Masthead } from '../components/Masthead'
 import { compareWanIds } from '../lib/wanOrder'
 import { bondRole, roleRetenu, type BondRole } from '../lib/bondRole'
 import { paquetsParSecondeRecents } from '../lib/redundancy'
-import { debutObserve, libelleFenetre } from '../lib/session'
+import { RESUME_MS, debutObserve, libelleFenetre } from '../lib/session'
 
 export interface DeviceContext {
   routerId: string
@@ -78,9 +78,6 @@ export const useDevice = () => useOutletContext<DeviceContext>()
 /** Cadence de rafraîchissement de l'état de l'équipement. */
 const REFRESH_MS = 10_000
 
-/** Relecture de la fiche du stationnement, pour la tuile du volume (A-5).
- *  Exportée : la fiche de session de l'historique se relit au même rythme. */
-export const RESUME_MS = 5 * 60_000
 /** Cadence de relecture de la bande de stationnement. Bien plus lente : elle
  *  couvre des heures, une tranche vaut plusieurs dizaines de secondes, et la
  *  rejouer à chaque cycle coûterait une agrégation SQL pour un pixel. */
