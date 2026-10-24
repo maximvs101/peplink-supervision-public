@@ -423,7 +423,7 @@ describe('un identifiant qui ne désigne rien', () => {
     const absent = Object.assign(new Error('Not Found'), { status: 404 })
     vi.mocked(fetchRouter).mockRejectedValue(absent)
     render(
-      <MemoryRouter initialEntries={['/e/inconnu']}>
+      <MemoryRouter initialEntries={['/e/eq-0123456789ab']}>
         <Routes>
           <Route element={<Outlet context={{ health: null, routers: [summary([]), { ...summary([]), id: 'dome', name: 'DOME' }] }} />}>
             <Route path="/e/:routerId" element={<DeviceShell />}>
@@ -436,11 +436,14 @@ describe('un identifiant qui ne désigne rien', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/inconnu/i)
     expect(screen.queryByText(/En attente du premier relevé/)).toBeNull()
-    expect(screen.getByText(/Aucun équipement supervisé sous l’identifiant « inconnu »/)).toBeInTheDocument()
+    expect(screen.getByText(/Aucun équipement supervisé sous cet identifiant/)).toBeInTheDocument()
+    // L'identifiant est une empreinte opaque : le répéter n'apprend rien à
+    // l'exploitant, ni dans le message, ni dans le bandeau, ni dans le sélecteur.
+    expect(document.body.textContent).not.toContain('eq-0123456789ab')
     expect(screen.queryByText(/autre onglet/)).toBeNull()
     // Le sélecteur ne montre pas le premier équipement à la place.
     const select = screen.getByRole('combobox', { name: /Équipement supervisé/ }) as HTMLSelectElement
-    expect(select.value).toBe('inconnu')
+    expect(select.value).toBe('eq-0123456789ab')
   })
 })
 

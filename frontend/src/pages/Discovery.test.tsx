@@ -190,3 +190,25 @@ describe('avant la première lecture de la flotte', () => {
     expect(screen.queryByRole('button', { name: 'Mettre en supervision' })).toBeNull()
   })
 })
+
+describe('sous le nom d’un équipement supervisé', () => {
+  it('dit son modèle, pas son identifiant opaque', async () => {
+    // L'identifiant est devenu une empreinte (`eq-` + 12 hex) : sous le nom,
+    // il n'apprenait plus rien à l'exploitant. Il reste dans l'URL du lien.
+    const fiche = {
+      model: 'MAX HD2', product_code: null, serial: null, firmware: null,
+      hardware_revision: null, name: null, uptime_s: null, cpu_load_percent: null,
+      power_watts: null, power_sources: [], mac_lan: null, temperature_c: null,
+      power_load_percent: null,
+    } as unknown as DeviceStatus['device']
+    vi.mocked(fetchDevices).mockResolvedValue([
+      supervise({ id: 'eq-0123456789ab', serial: null, device: fiche }),
+    ])
+    vi.mocked(fetchDiscovery).mockResolvedValue([])
+    const { container } = monter()
+    const lien = await screen.findByRole('link', { name: 'EQUIPEMENT-DEMO' })
+    expect(lien).toHaveAttribute('href', '/e/eq-0123456789ab')
+    expect(container.textContent).not.toContain('eq-0123456789ab')
+    expect(lien.closest('td')!.textContent).toContain('MAX HD2')
+  })
+})

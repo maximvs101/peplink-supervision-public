@@ -214,7 +214,6 @@ export function Discovery() {
                     <th className="l">État</th>
                     <th className="l">Adresse</th>
                     <th className="l">Numéro de série</th>
-                    <th className="l">Modèle</th>
                     <th />
                   </tr>
                 </thead>
@@ -234,7 +233,12 @@ export function Discovery() {
                             <b>
                               <Link to={`/e/${encodeURIComponent(device.id)}`}>{device.name}</Link>
                             </b>
-                            <span className="sub">{device.id}</span>
+                            {/* Le modèle, et non l'identifiant : devenu une
+                                empreinte opaque (`eq-…`), celui-ci n'apprenait
+                                rien à l'exploitant. Il reste dans l'URL. */}
+                            {device.device?.model && (
+                              <span className="sub">{device.device.model}</span>
+                            )}
                           </span>
                         </span>
                       </td>
@@ -250,9 +254,6 @@ export function Discovery() {
                       <td className="l num">{device.host ?? <Absent />}</td>
                       <td className="l num">
                         {device.serial ?? <Absent />}
-                      </td>
-                      <td className="l">
-                        {device.device?.model ?? <Absent />}
                       </td>
                       <td>
                         {/* Un équipement venu du fichier de flotte ne se retire

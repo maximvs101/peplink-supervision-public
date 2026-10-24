@@ -221,7 +221,8 @@ export function DeviceShell() {
           // retiré avant l'ouverture. Aucune cause n'est inventée.
           setInconnu(true)
           setFatal(
-            `Aucun équipement supervisé sous l’identifiant « ${routerId} ». ` +
+            // Sans recopier l'identifiant : une empreinte opaque n'aide pas.
+            'Aucun équipement supervisé sous cet identifiant. ' +
               'Le lien est peut-être erroné, ou l’équipement a été retiré de la ' +
               'supervision. La liste des équipements dit ce qui est supervisé.',
           )
@@ -429,7 +430,7 @@ export function DeviceShell() {
   // d'ouverture serve de référence — ce qui y figure se voit déjà.
   const veilleur = useRef<Veilleur | null>(null)
   useEffect(() => {
-    const v = new Veilleur(modeMemorise(), routerId)
+    const v = new Veilleur(modeMemorise(), 'équipement')
     veilleur.current = v
     const changer = (e: Event) => v.changerMode((e as CustomEvent<ModePrevenir>).detail)
     window.addEventListener(EVENEMENT_PREVENIR, changer)
@@ -438,7 +439,8 @@ export function DeviceShell() {
       veilleur.current = null
     }
   }, [routerId])
-  const nomEquipement = router?.name ?? routerId
+  // Le nom affiché dans les notifications : jamais l'identifiant opaque.
+  const nomEquipement = router?.name ?? 'équipement'
   useEffect(() => {
     if (router) veilleur.current?.renommer(nomEquipement)
     if (router) veilleur.current?.observer(router.alerts ?? [])

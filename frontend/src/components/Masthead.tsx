@@ -53,8 +53,11 @@ export function Masthead({
         {/* `.mast-id b` tronque par CSS. Sans `title`, un nom long — et les
             noms de WAN de ce parc portent un numéro de ligne et un ICCID
             complet — était coupé sans aucun moyen de le lire en entier. */}
-        <b title={info?.model ?? router?.name ?? routerId}>
-          {info?.model ?? router?.name ?? routerId}
+        {/* Jamais l'identifiant : c'est une empreinte opaque (`eq-…`), qui
+            n'apprend rien à l'exploitant. Avant la première réponse — ou pour
+            un identifiant qui ne désigne rien — le bandeau dit « Équipement ». */}
+        <b title={info?.model ?? router?.name ?? 'Équipement'}>
+          {info?.model ?? router?.name ?? 'Équipement'}
         </b>
         <span className="num">
           {info
@@ -106,7 +109,7 @@ export function Masthead({
                 navigateur affichait le PREMIER équipement, et le sélecteur
                 mentait sur ce que l'écran regardait. */}
             {routers.every((r) => r.id !== routerId) && (
-              <option value={routerId} disabled>{routerId} — inconnu</option>
+              <option value={routerId} disabled>équipement inconnu</option>
             )}
             {routers.map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
