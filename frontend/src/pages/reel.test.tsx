@@ -200,6 +200,26 @@ describe('le tableau de bord sur un équipement réel', () => {
     unmount()
   })
 
+  it('ne dit pas « en cours de lecture » une identité lue dont la série est tue', async () => {
+    // Hors du poste local, l'API rend `serial: null` (`_sans_serie`). Sur un
+    // modèle qui ne publie pas son firmware, le bandeau ne voyait plus rien à
+    // joindre et annonçait une lecture en cours — alors que la fiche est là.
+    const reel = REELS['MAX HD4 MBX, quatre SIM, tunnel monté']
+    const fiche = reel.router.device!
+    vi.mocked(fetchRouter).mockResolvedValue({
+      ...reel.router, status: 'connecté',
+      device: { ...fiche, serial: null, firmware: null },
+    })
+    vi.mocked(fetchSessions).mockResolvedValue(reel.sessions)
+    vi.mocked(fetchTimeline).mockResolvedValue(reel.timeline)
+    vi.mocked(fetchEvents).mockResolvedValue(reel.events)
+    const { container, unmount } = monterTableauDeBord()
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    expect(container.textContent).not.toMatch(/identité en cours de lecture/)
+    expect(container.textContent).not.toMatch(/identité non lue/)
+    unmount()
+  })
+
   it('ne promet pas une première mesure à un équipement injoignable', async () => {
     // Le libellé ne dépendait que de `samples.length` : « première mesure en
     // cours… » sous un bandeau « Équipement injoignable ». Vu sur un MBX réel.

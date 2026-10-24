@@ -57,12 +57,17 @@ export function Masthead({
           {info?.model ?? router?.name ?? routerId}
         </b>
         <span className="num">
-          {[info?.serial, info?.firmware].filter(Boolean).join(' · ')
-            // « En cours de lecture » seulement si une lecture aura lieu :
-            // injoignable ou refusé, l'identité n'est pas lue (C-42).
-            || (status === 'connecté' || status === 'en attente'
+          {info
+            // Fiche présente : l'identité EST lue. Une série nulle n'y dit pas
+            // une lecture en cours — hors du poste local, l'API la tait
+            // (`_sans_serie`) — et un modèle peut ne pas publier son firmware.
+            // On montre ce qui est connu, et rien de plus.
+            ? [info.serial, info.firmware].filter(Boolean).join(' · ')
+            // Pas de fiche. « En cours de lecture » seulement si une lecture
+            // aura lieu : injoignable ou refusé, l'identité n'est pas lue (C-42).
+            : status === 'connecté' || status === 'en attente'
               ? 'identité en cours de lecture'
-              : 'identité non lue')}
+              : 'identité non lue'}
         </span>
       </div>
 
