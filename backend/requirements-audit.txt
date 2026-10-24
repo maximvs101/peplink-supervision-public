@@ -1,0 +1,35 @@
+# L'audit des failles connues (job `audits` de la CI, seul à l'installer) :
+# pip-audit lit backend/requirements.txt tel quel (`--no-deps`), il n'a pas
+# besoin de l'exécution installée. Les constructions ne l'installent pas.
+#
+# Ce qu'il tire — relevé le 24/10/2026 dans un venv neuf.
+pip-audit==2.10.1
+boolean.py==5.0
+CacheControl==0.14.4
+charset-normalizer==3.5.2
+cyclonedx-python-lib==11.12.0
+defusedxml==0.7.1
+filelock==4.2.4
+license-expression==30.4.4
+markdown-it-py==4.2.0
+mdurl==0.1.2
+msgpack==1.2.3
+packageurl-python==0.17.6
+pip-api==0.0.35
+pip-requirements-parser==32.0.1
+platformdirs==4.13.5
+py-serializable==2.1.0
+pyparsing==3.3.3
+requests==2.34.2
+rich==15.0.0
+sortedcontainers==2.4.0
+tomli==2.5.0
+tomli-w==1.2.0
+urllib3==2.8.0
+# Installé seul, sans l'exécution ni les tests : ce que ceux-ci épinglaient
+# pour lui, aux mêmes versions.
+packaging==26.3
+Pygments==2.21.0
+certifi==2026.10.19
+idna==3.20
+typing_extensions==4.16.0

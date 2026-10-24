@@ -462,11 +462,86 @@ def test_un_job_audite_les_dependances_d_execution():
     assert "audits" in besoins and "construire" in besoins
 
 
-def test_pip_audit_et_la_couverture_sont_epingles_en_dev():
-    dev = {_paquet(ligne) for ligne in _exigences("requirements-dev.txt")}
-    assert {"pip-audit", "pytest-cov", "coverage"} <= dev
+def test_pip_audit_et_la_couverture_sont_epingles_a_part():
+    """La couverture sert aux tests de la construction ; pip-audit au seul
+    job d'audit. Les trois constructions installaient pip-audit et ses vingt
+    dépendances pour rien."""
+    test = {_paquet(ligne) for ligne in _exigences("requirements-test.txt")}
+    audit = {_paquet(ligne) for ligne in _exigences("requirements-audit.txt")}
+    assert {"pytest-cov", "coverage"} <= test and "pip-audit" not in test
+    assert "pip-audit" in audit
     execution = {_paquet(ligne) for ligne in _exigences("requirements.txt")}
     assert not {"pip-audit", "pytest-cov", "coverage"} & execution
+    # Le poste de développement installe tout d'un coup, comme avant.
+    dev = _exigences("requirements-dev.txt")
+    assert "-r requirements-test.txt" in dev and "-r requirements-audit.txt" in dev
+
+
+AUDITER = RACINE / ".github" / "scripts" / "auditer.py"
+
+
+def _auditer(tmp_path: Path, sorties: list[tuple[int, str]]) -> subprocess.CompletedProcess:
+    """Lance l'enveloppe d'audit sur un faux outil qui rend `sorties`, une par appel."""
+    faux = tmp_path / "outil.py"
+    compteur = tmp_path / "appels"
+    faux.write_text(
+        "import json, sys, pathlib\n"
+        f"c = pathlib.Path({str(compteur)!r})\n"
+        "n = int(c.read_text()) if c.exists() else 0\n"
+        "c.write_text(str(n + 1))\n"
+        f"code, texte = json.loads({json.dumps(json.dumps(sorties))})[min(n, {len(sorties) - 1})]\n"
+        "print(texte)\n"
+        "sys.exit(code)\n",
+        encoding="utf-8",
+    )
+    fait = subprocess.run(
+        [sys.executable, str(AUDITER), "--", sys.executable, str(faux)],
+        capture_output=True, text=True, check=False, env={**os.environ, "AUDIT_PAUSE_S": "0"},
+    )
+    fait.appels = int(compteur.read_text())  # type: ignore[attr-defined]
+    return fait
+
+
+_RESEAU_PIP = "requests.exceptions.ConnectionError: Max retries exceeded with url: /pypi/fastapi/json"
+_RESEAU_NPM = "npm error code EAI_AGAIN\nnpm error audit endpoint returned an error"
+
+
+def test_l_audit_propre_passe(tmp_path):
+    fait = _auditer(tmp_path, [(0, "No known vulnerabilities found")])
+    assert fait.returncode == 0 and fait.appels == 1
+
+
+@pytest.mark.parametrize("sortie", [
+    "Found 2 known vulnerabilities in 1 package",
+    "# npm audit report\n\n3 vulnerabilities (1 moderate, 2 high)",
+])
+def test_des_failles_connues_echouent_sans_retenter(tmp_path, sortie):
+    fait = _auditer(tmp_path, [(1, sortie)])
+    assert fait.returncode == 1 and fait.appels == 1
+    assert "failles connues" in fait.stdout
+
+
+@pytest.mark.parametrize("sortie", [_RESEAU_PIP, _RESEAU_NPM])
+def test_une_erreur_reseau_passagere_est_retentee(tmp_path, sortie):
+    fait = _auditer(tmp_path, [(1, sortie), (0, "found 0 vulnerabilities")])
+    assert fait.returncode == 0 and fait.appels == 2
+
+
+@pytest.mark.parametrize("sortie", [_RESEAU_PIP, _RESEAU_NPM])
+def test_une_erreur_reseau_qui_persiste_se_dit_erreur_reseau(tmp_path, sortie):
+    fait = _auditer(tmp_path, [(1, sortie)])
+    assert fait.returncode == 2 and fait.appels == 2
+    assert "erreur réseau" in fait.stdout and "failles connues" not in fait.stdout
+
+
+def test_les_deux_audits_passent_par_l_enveloppe():
+    etapes = _flux()["jobs"]["audits"]["steps"]
+    for outil in ("pip_audit", "npm audit"):
+        (run,) = [e["run"] for e in etapes if outil in e.get("run", "")]
+        ligne = next(ligne for ligne in run.splitlines() if outil in ligne)
+        assert "auditer.py --" in ligne, ligne
+    installs = [e["run"] for e in etapes if "pip install" in e.get("run", "")]
+    assert installs and all("requirements-audit.txt" in r for r in installs)
 
 
 def test_la_couverture_est_mesuree_sur_une_seule_machine():
@@ -519,7 +594,8 @@ def test_licence_mit_au_nom_du_compte():
 # outils de test et de construction vivent à part.
 
 BACKEND = RACINE / "backend"
-_FICHIERS = ("requirements.txt", "requirements-dev.txt", "requirements-build.txt")
+_FICHIERS = ("requirements.txt", "requirements-test.txt", "requirements-audit.txt",
+             "requirements-build.txt")
 
 
 def _exigences(nom: str) -> list[str]:
@@ -547,9 +623,9 @@ def test_les_outils_de_test_ne_sont_pas_des_dependances_d_execution():
     for indispensable in ("fastapi", "uvicorn", "websockets", "pydantic", "pydantic-settings",
                           "httpx", "aiosqlite", "pyyaml", "keyring"):
         assert indispensable in execution, indispensable
-    dev = _exigences("requirements-dev.txt")
-    assert "-r requirements.txt" in dev
-    assert {"pytest", "pytest-asyncio", "ruff", "httpx2"} <= {_paquet(ligne) for ligne in dev}
+    test = _exigences("requirements-test.txt")
+    assert "-r requirements.txt" in test
+    assert {"pytest", "pytest-asyncio", "ruff", "httpx2"} <= {_paquet(ligne) for ligne in test}
     construction = _exigences("requirements-build.txt")
     assert "-r requirements.txt" in construction
     assert "pyinstaller" in {_paquet(ligne) for ligne in construction}
@@ -576,10 +652,14 @@ def test_un_seul_vite_dans_le_verrou():
     assert int(verrou["packages"]["node_modules/vite"]["version"].split(".")[0]) >= 8
 
 
-def test_la_ci_installe_les_outils_de_test():
+def test_la_ci_installe_les_outils_de_test_et_rien_de_plus():
     etapes = _flux()["jobs"]["construire"]["steps"]
     installs = [e["run"] for e in etapes if "pip install" in e.get("run", "")]
-    assert installs and all("requirements-dev.txt" in r for r in installs)
+    assert installs and all("requirements-test.txt" in r and "requirements-build.txt" in r
+                            for r in installs)
+    assert not any("requirements-dev.txt" in r or "requirements-audit.txt" in r for r in installs)
     caches = [e["with"]["cache-dependency-path"] for e in etapes
               if str(e.get("uses", "")).startswith("actions/setup-python")]
-    assert caches and all(f"backend/{nom}" in caches[0] for nom in _FICHIERS)
+    assert caches and all(f"backend/{nom}" in caches[0]
+                          for nom in ("requirements.txt", "requirements-test.txt",
+                                      "requirements-build.txt"))

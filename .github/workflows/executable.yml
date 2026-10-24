@@ -101,20 +101,21 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
+          cache-dependency-path: backend/requirements-audit.txt
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
+      # Par `auditer.py` : une panne réseau est retentée une fois, puis dite
+      # « erreur réseau » — et non « failles connues », qui seules sont dites
+      # comme telles.
       - name: Serveur — failles connues (pip-audit)
         run: |
-          python -m pip install -r backend/requirements-dev.txt
-          python -m pip_audit --no-deps --progress-spinner off -r backend/requirements.txt
+          python -m pip install -r backend/requirements-audit.txt
+          python .github/scripts/auditer.py -- python -m pip_audit --no-deps --progress-spinner off -r backend/requirements.txt
       # Le verrou suffit : `npm audit` n'a pas besoin de node_modules.
       - name: Interface — failles connues (npm audit)
         working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+        run: python ../.github/scripts/auditer.py -- npm audit --omit=dev --audit-level=high
 
   construire:
     needs: garde
@@ -183,7 +184,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt
-            backend/requirements-dev.txt
+            backend/requirements-test.txt
             backend/requirements-build.txt
 
       - name: Interface — dépendances, types, tests, compilation
@@ -218,7 +219,8 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          python -m pip install -r requirements-dev.txt -r requirements-build.txt
+          # Tests et construction, rien d'autre : pip-audit est au job d'audit.
+          python -m pip install -r requirements-test.txt -r requirements-build.txt
           python -m ruff check .
           if [ "${{ matrix.couverture }}" = true ]; then
             python -m pytest -q --junitxml=rapport-pytest.xml \

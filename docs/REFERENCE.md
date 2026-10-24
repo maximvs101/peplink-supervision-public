@@ -35,10 +35,14 @@ python -m venv .venv
 .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000 --reload
 ```
 
-Trois listes, toutes en versions exactes (`==`) : `requirements.txt` pour l'exécution
+Des listes toutes en versions exactes (`==`) : `requirements.txt` pour l'exécution
 (ce que l'exécutable embarque, et ce qu'installe le PC de terrain),
-`requirements-dev.txt` qui y ajoute pytest et ruff, `requirements-build.txt` qui y ajoute
-PyInstaller.
+`requirements-test.txt` qui y ajoute pytest, ruff et la couverture, `requirements-audit.txt`
+(pip-audit, pour le seul job d'audit de la CI), `requirements-dev.txt` qui réunit les deux
+pour le poste de développement, et `requirements-build.txt` qui ajoute PyInstaller à
+l'exécution. Les constructions de la CI n'installent que `requirements-test.txt` et
+`requirements-build.txt`. Les audits passent par `.github/scripts/auditer.py` : une erreur
+réseau est retentée une fois, puis signalée comme telle, jamais comme une faille.
 
 Lancé ainsi, directement, le serveur démarre en **mode simulateur** (`PEPLINK_MODE=mock`,
 le défaut de `config.py`) et **sans sauvegarde** de la base : c'est le mode du

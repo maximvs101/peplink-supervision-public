@@ -1,57 +1,9 @@
-# Tests et lint, en plus de l'exécution — rien d'ici n'entre dans l'exécutable.
+# Le poste de développement : tests, lint, couverture et audit, en plus de
+# l'exécution — rien d'ici n'entre dans l'exécutable.
 #
 #     .venv/bin/python -m pip install -r requirements-dev.txt
 #
-# Versions exactes, relevées comme celles de requirements.txt.
--r requirements.txt
-
-pytest==9.1.1
-iniconfig==2.3.1
-pluggy==1.7.0
-packaging==26.3
-Pygments==2.21.0
-pytest-asyncio==1.4.0
-ruff==0.17.1
-
-# Le client de test de Starlette (1.7+) ; l'application, elle, parle aux
-# routeurs avec `httpx`.
-httpx2==2.13.1
-httpcore2==2.13.1
-truststore==0.10.5
-
-# Windows n'a pas de base de fuseaux : zoneinfo la prend ici (tests du témoin).
-# Absente du venv macOS où les autres versions ont été relevées : dernière
-# publication au 24/10/2026 (2026.5, du 03/10).
-tzdata==2026.5; sys_platform == "win32"
-
-# Couverture des tests (CI, une machine de la matrice ; affichée, sans seuil).
-# coverage 7.16.2 et non 7.17.0, publiée deux jours avant le relevé.
-pytest-cov==7.1.0
-coverage==7.16.2
-
-# Failles connues des dépendances d'EXÉCUTION (job `audits` de la CI :
-# `python -m pip_audit --no-deps -r backend/requirements.txt`), et ce qu'il
-# tire — relevé le 24/10/2026 dans un venv neuf.
-pip-audit==2.10.1
-boolean.py==5.0
-CacheControl==0.14.4
-charset-normalizer==3.5.2
-cyclonedx-python-lib==11.12.0
-defusedxml==0.7.1
-filelock==4.2.4
-license-expression==30.4.4
-markdown-it-py==4.2.0
-mdurl==0.1.2
-msgpack==1.2.3
-packageurl-python==0.17.6
-pip-api==0.0.35
-pip-requirements-parser==32.0.1
-platformdirs==4.13.5
-py-serializable==2.1.0
-pyparsing==3.3.3
-requests==2.34.2
-rich==15.0.0
-sortedcontainers==2.4.0
-tomli==2.5.0
-tomli-w==1.2.0
-urllib3==2.8.0
+# La CI installe les morceaux séparément : requirements-test.txt pour les
+# constructions, requirements-audit.txt pour le seul job d'audit.
+-r requirements-test.txt
+-r requirements-audit.txt
