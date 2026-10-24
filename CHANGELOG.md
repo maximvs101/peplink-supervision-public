@@ -4,10 +4,21 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
-## À venir
+## v0.2.2 — Licences tierces, interface à jour
 
-- Les mentions des composants tiers embarqués (`LICENCES-TIERCES.txt`) voyagent avec chaque
-  exécutable, servies sous `/LICENCES-TIERCES.txt`, et sont publiées dans chaque Release.
+Une version de distribution : rien ne change dans ce que mesurent le superviseur et le
+témoin, ni dans leur base. Aucune migration à la mise à jour.
+
+- **Mentions des composants tiers** (`LICENCES-TIERCES.txt`) : l'interpréteur Python et les
+  bibliothèques qu'il embarque, les dépendances Python, l'interface et ses polices — 89
+  composants, chacun avec sa licence en texte complet. Le fichier voyage dans chaque
+  exécutable, servi sous `/LICENCES-TIERCES.txt`, et accompagne chaque Release (compté dans
+  `SHA256SUMS`). Il est refait à chaque construction, et la construction échoue si une
+  dépendance arrive sous une licence hors de la liste admise.
+- **Interface à jour** : React 19, recharts 3, TypeScript 7. Une valeur de courbe qui n'est
+  pas un nombre s'écrit « — » dans l'infobulle, jamais un zéro.
+- **Pages de l'interface sans cache permanent** hors des fichiers versionnés de `assets/` :
+  une mise à jour de l'exécutable ne laisse plus lire une ancienne page.
 
 ## v0.2.1 — Revue complète et rétention de la base
 
