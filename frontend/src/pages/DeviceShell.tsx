@@ -268,9 +268,7 @@ export function DeviceShell() {
           setInconnu(true)
           setFatal(
             // Sans recopier l'identifiant : une empreinte opaque n'aide pas.
-            'Aucun équipement supervisé sous cet identifiant. ' +
-              'Le lien est peut-être erroné, ou l’équipement a été retiré de la ' +
-              'supervision. La liste des équipements dit ce qui est supervisé.',
+            'Aucun équipement supervisé sous cet identifiant.',
           )
           return
         }
@@ -278,9 +276,7 @@ export function DeviceShell() {
         // dernier état connu, c'est présenter comme supervisé ce qui ne l'est
         // plus — reproduit en le retirant depuis un autre onglet.
         setFatal(
-          'Cet équipement n’est plus supervisé : il a été retiré depuis un autre ' +
-            'onglet ou une autre session. Les valeurs affichées jusqu’ici dataient ' +
-            'd’avant son retrait.',
+          'Équipement retiré de la supervision.',
         )
         return
       }
@@ -720,16 +716,15 @@ export function DeviceShell() {
         <div className="page" style={{ paddingBottom: 0 }}>
           {refreshError && (
             <div className="notice is-warn" role="alert">
-              <strong>État de l’équipement non rafraîchi.</strong> {refreshError}.{ageEtat} Ce
-              qui est à l’écran date du dernier échange abouti et vieillit : le bandeau le
-              déclarera périmé. {boutonEtat}
+              <strong>État de l’équipement non rafraîchi.</strong> {refreshError}.{ageEtat}{' '}
+              {boutonEtat}
             </div>
           )}
           {etatAncien && <Fraicheur nom="État de l’équipement" etat={fraicheur.etat} />}
           {liveClosure && (
             <div className="notice is-error" role="alert">
-              Flux temps réel refermé par le serveur : {liveClosure}. Aucune reconnexion
-              automatique ne sera tentée.{' '}
+              Flux temps réel refermé par le serveur : {liveClosure}. Pas de reconnexion
+              automatique.{' '}
               <button
                 type="button"
                 className="is-quiet reessayer"

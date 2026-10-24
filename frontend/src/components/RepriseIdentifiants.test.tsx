@@ -44,7 +44,7 @@ describe('la reprise des identifiants', () => {
     rerender(<MemoryRouter><RepriseIdentifiants routerId="dome" status="en attente" /></MemoryRouter>)
     rerender(<MemoryRouter><RepriseIdentifiants routerId="dome" status="identifiants refusés" /></MemoryRouter>)
     expect(screen.queryByText(/aura lieu au prochain cycle/)).toBeNull()
-    expect(screen.getByText(/La nouvelle tentative a été refusée/)).toBeInTheDocument()
+    expect(screen.getByText(/Nouvel essai refusé/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /découverte/ })).toHaveAttribute('href', '/decouverte')
   })
 
@@ -55,7 +55,7 @@ describe('la reprise des identifiants', () => {
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Réessayer/ })) })
       expect(screen.getByText(/aura lieu au prochain cycle/)).toBeInTheDocument()
       await act(async () => { vi.advanceTimersByTime(VERDICT_REPRISE_MS) })
-      expect(screen.getByText(/La nouvelle tentative a été refusée/)).toBeInTheDocument()
+      expect(screen.getByText(/Nouvel essai refusé/)).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /Réessayer/ })).not.toBeDisabled()
     } finally {
       vi.useRealTimers()

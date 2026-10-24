@@ -58,18 +58,14 @@ export function RepriseIdentifiants({ routerId, status }: { routerId: string; st
 
   return (
     <div className="notice is-error" role="alert">
-      <strong>Supervision arrêtée sur cet équipement.</strong> Aucune nouvelle
-      tentative n’est faite d’elle-même : cinq échecs de connexion suspendent
-      l’accès au routeur pendant cinq minutes, y compris depuis son interface web.
+      <strong>Identifiants refusés — supervision arrêtée.</strong> Pas de nouvel essai
+      automatique (5 refus : accès admin suspendu 5 min).
       {tentative.etat === 'refusee' ? (
         <>
-          {' '}<b>La nouvelle tentative a été refusée</b> : les identifiants en mémoire
-          sont toujours faux, et la rejouer consommerait un échec de plus. Corrigez-les
-          en ré-appairant l’équipement depuis la <Link to="/decouverte">découverte</Link>.{' '}
+          {' '}<b>Nouvel essai refusé</b> : identifiants à corriger depuis la{' '}
+          <Link to="/decouverte">découverte</Link>.{' '}
         </>
-      ) : (
-        <> Corrigez les identifiants, puis relancez une tentative — une seule.{' '}</>
-      )}
+      ) : ' '}
       <button
         type="button"
         className="is-quiet"
@@ -85,7 +81,7 @@ export function RepriseIdentifiants({ routerId, status }: { routerId: string; st
       >
         Réessayer la connexion
       </button>
-      {tentative.etat === 'attendue' && <> Nouvelle tentative autorisée : elle aura lieu au prochain cycle.</>}
+      {tentative.etat === 'attendue' && <> Nouvel essai autorisé : il aura lieu au prochain cycle.</>}
       {tentative.etat === 'erreur' && <> {tentative.message}</>}
     </div>
   )
