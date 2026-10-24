@@ -194,7 +194,7 @@ def test_the_liaison_on_a_single_link_speaks_but_only_when_watched():
     seule = [a for a in publiees if a.kind == "liaison sur un seul lien"]
     assert len(seule) == 1
     assert seule[0].wan_id is None, "la règle ne désigne aucun lien : elle parle du bond"
-    assert seule[0].detail == "lien 4 seul, sur 3 liens"
+    assert seule[0].detail == "lien 4 · 1 sur 3"
 
     # Aucun lien regardé : la règle se tait, quelle que soit la durée.
     aveugle = [_lien("4", etat=None), _lien("5", etat=None)]
@@ -213,7 +213,7 @@ def test_a_link_beyond_the_cutoff_no_longer_carries():
     liens = [_lien("4"), _lien("5", ecarte=True), _lien("6", ecarte=True)]
     suivies, _ = _publie(liens, [], _a(0))
     _, publiees = _publie(liens, suivies, _a(SEUL_LIEN_S + 1))
-    assert [a.detail for a in publiees if a.kind == "liaison sur un seul lien"] == ["lien 4 seul, sur 3 liens"]
+    assert [a.detail for a in publiees if a.kind == "liaison sur un seul lien"] == ["lien 4 · 1 sur 3"]
 
 
 def test_no_carrying_link_at_all_is_said_as_such():
@@ -225,7 +225,7 @@ def test_no_carrying_link_at_all_is_said_as_such():
     # Le genre est désormais distinct, et le genre « un seul lien » ne doit PAS
     # sortir ici : zéro n'est pas un.
     bond = [a for a in publiees if a.kind == "liaison sans aucun lien"]
-    assert len(bond) == 1 and bond[0].detail == "aucun sur 2"
+    assert len(bond) == 1 and bond[0].detail == "0 sur 2"
     assert [a for a in publiees if a.kind == "liaison sur un seul lien"] == []
     # Et les deux liens hors du bond sont signalés séparément : ce sont eux
     # qu'on va aller voir.
@@ -281,7 +281,7 @@ def test_une_cause_pair_commune_ne_fait_pas_une_alerte_par_lien():
     bond = [a for a in publiees if a.kind == "liaison sans aucun lien"]
     # La cause commune voyage avec l'alerte de bond : absorber les alertes
     # par lien ne fait pas disparaître le mot du routeur.
-    assert len(bond) == 1 and bond[0].detail == "aucun sur 3 — PEER_DOWN"
+    assert len(bond) == 1 and bond[0].detail == "0 sur 3 — PEER_DOWN"
 
 
 def test_des_causes_cote_lien_gardent_leur_alerte_chacune():

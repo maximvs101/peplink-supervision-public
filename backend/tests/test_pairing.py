@@ -74,7 +74,7 @@ async def test_refused_credentials_are_reported_as_such():
             await pair(registry, "192.0.2.1", username="admin", password="faux")
 
     assert err.value.credentials is True
-    assert "5 minutes" in str(err.value)         # l'utilisateur est averti du blocage
+    assert "suspendu 5 min" in str(err.value)    # l'utilisateur est averti du blocage
     assert registry.snapshot() == []             # rien n'a été ajouté
     await registry.close()
 

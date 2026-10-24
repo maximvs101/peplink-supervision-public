@@ -101,7 +101,7 @@ async def require_loopback(request: Request) -> None:
         logger.warning("Route locale refusée à %s (%s)", client, request.url.path)
         raise HTTPException(
             status_code=403,
-            detail="Cette opération n'est possible que depuis la machine qui héberge la supervision.",
+            detail="Réservé au poste qui héberge la supervision.",
         )
     # Le poste local, oui — mais pas pour le compte d'une page tierce (C-13).
     # Un formulaire POST cross-site sans corps est une requête « simple »,
@@ -113,7 +113,7 @@ async def require_loopback(request: Request) -> None:
                        request.url.path, request.headers.get("origin"))
         raise HTTPException(
             status_code=403,
-            detail="Cette opération ne peut pas être déclenchée depuis une autre page.",
+            detail="Refusé : requête venant d'une autre page.",
         )
 
 

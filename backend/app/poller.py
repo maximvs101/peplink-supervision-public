@@ -197,9 +197,9 @@ def _cause_injoignable(exc: BaseException) -> str:
     chaîne des causes jusqu'au premier mot.
     """
     if isinstance(exc, httpx.ConnectTimeout):
-        return "délai de connexion dépassé — l'adresse ne répond pas"
+        return "délai de connexion dépassé"
     if isinstance(exc, httpx.ReadTimeout | httpx.WriteTimeout | httpx.PoolTimeout):
-        return "délai de réponse dépassé — l'équipement joint ne répond plus"
+        return "délai de réponse dépassé"
     courante: BaseException | None = exc
     vues: set[int] = set()
     while courante is not None and id(courante) not in vues:
@@ -504,7 +504,7 @@ class Poller:
         if len(refus) >= _ADMIN_SEUIL:
             self._alerte_admin[record.id] = Alert(
                 kind="connexions admin refusées", wan_id=None, since=refus[0].ts,
-                detail=f"{len(refus)} refus en 5 min — cinq suspendent l'accès admin pendant 5 min",
+                detail=f"{len(refus)} en 5 min",
                 sustained_s=0.0,
             )
         else:
@@ -585,16 +585,13 @@ class Poller:
             semblables = [e for e in ecarts.values() if abs(e - ecart) <= _HORLOGE_ACCORD_S]
             sens = "en avance" if ecart > 0 else "en retard"
             valeur = f"{int(abs(ecart) // 60)} min" if abs(ecart) >= 90 else f"{round(abs(ecart))} s"
+            # Le fait seul : l'écart, son sens, et s'il est commun à tous les
+            # équipements — sans désigner de fautif (consigne de l'exploitant :
+            # factuel, sans interprétation).
+            detail = f"routeur {valeur} {sens} sur ce poste"
             if len(ecarts) >= 2 and len(semblables) == len(ecarts):
-                cause = (f"le routeur est {valeur} {sens} sur ce poste, comme les "
-                         f"{len(ecarts)} équipements supervisés : c'est sans doute l'horloge de "
-                         "ce poste qui dérive — vérifier sa synchronisation")
-            else:
-                cause = f"écart de {valeur} entre le routeur et ce poste (le routeur {sens})"
-            alerte.detail = (
-                f"{cause} — l'historique à 10 s du routeur est écarté et son journal n'est "
-                "plus lu tant que les deux horloges ne s'accordent pas"
-            )
+                detail += f" · même écart sur les {len(ecarts)} équipements"
+            alerte.detail = f"{detail} · historique 10 s et journal du routeur non lus"
 
     def forget(self, router_id: str, *, conserver_abonnes: bool = False) -> None:
         """Efface tout état rattaché à un équipement retiré.

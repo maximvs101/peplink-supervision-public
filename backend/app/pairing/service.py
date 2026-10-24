@@ -119,7 +119,7 @@ async def _pair_sous_verrou(
     """`pair()`, l'appelant tenant déjà le verrou d'appairage de `host`."""
     if not (username or client_id):
         raise PairingError(
-            "Renseigner un compte administrateur ou un client API.", credentials=True
+            "Compte administrateur ou client API requis.", credentials=True
         )
 
     probe_config = RouterConfig(
@@ -169,23 +169,20 @@ async def _identifier_puis_enregistrer(
     except AuthenticationError as exc:
         logger.info("Appairage refusé sur %s : %s", host, exc)
         raise PairingError(
-            "Identifiants refusés. Attention : cinq tentatives ratées suspendent "
-            f"l'accès à l'équipement pendant 5 minutes (limite : {LOCKOUT_AFTER}).",
+            f"Identifiants refusés ({LOCKOUT_AFTER} refus : accès admin suspendu 5 min).",
             credentials=True,
         ) from exc
     except RouterApiError as exc:
-        raise PairingError(f"L'équipement a refusé la lecture : {exc}") from exc
+        raise PairingError(f"Lecture refusée par l'équipement : {exc}") from exc
     except Exception as exc:
         raise PairingError(
-            f"Équipement injoignable en {host} : {type(exc).__name__}. "
-            "Vérifier l'adresse et le raccordement."
+            f"Équipement injoignable en {host} : {type(exc).__name__}."
         ) from exc
     if info is None:
         # Connecté, mais sans identité : pour la veille, c'est un écart de
         # série comme un autre — elle ne peut pas savoir qui répond.
         raise PairingError(
-            "Connexion réussie, mais l'équipement n'a pas publié son identité. "
-            "Il est peut-être trop ancien pour être supervisé.",
+            "Connexion établie ; identité non publiée par l'équipement.",
             autre_equipement=serie_attendue is not None,
         )
     # Une reconnexion vise UN équipement. Un autre occupe peut-être l'adresse
@@ -194,7 +191,7 @@ async def _identifier_puis_enregistrer(
     # chaque tour, une connexion admin toutes les trois secondes (revue du 17/10).
     if serie_attendue and info.serial != serie_attendue:
         raise PairingError(
-            f"Un autre équipement répond à {host} : ce n'est pas celui qui y était retenu.",
+            f"Autre équipement en {host} (série différente).",
             autre_equipement=True,
         )
 
