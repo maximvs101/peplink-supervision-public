@@ -373,6 +373,7 @@ export function HistoryChart({
         value: bruts[i].value,
         comble: bruts[i].comble,
         retire: p.value !== null && !publiable(p),
+        minute: p.source === 'minute',
       })),
     }
     telecharger(nomFichierCourbe(courbe), courbeCsv(courbe))

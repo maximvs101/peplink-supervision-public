@@ -124,6 +124,26 @@ describe('exporter la courbe affichée', () => {
     expect(texte).toContain('# série;enveloppe : minimum et maximum par tranche, 2 points pour 4147 mesures')
   })
 
+  it('marque les minutes regroupées par la rétention, et le dit en tête', async () => {
+    // Un point `minute` est le minimum ou le maximum d'une minute regroupée :
+    // il sortait marqué « superviseur » sous « série ; complète ».
+    vi.mocked(fetchHistory).mockResolvedValue({
+      router_id: 'mbx', wan_id: '4', metric: 'sinr', available: 3,
+      points: [
+        { ts: new Date(T0).toISOString(), value: 4, denominator: null, source: 'minute' },
+        { ts: new Date(T0 + 30_000).toISOString(), value: 9, denominator: null, source: 'minute' },
+        { ts: new Date(T0 + 60_000).toISOString(), value: 7, denominator: null },
+      ],
+    } as HistorySeries)
+    monter()
+    const { texte } = await exporter()
+    const lignes = texte.slice(1).split('\r\n')
+    expect(lignes.find((l) => l.startsWith('# série;'))).toMatch(/en partie regroupée à la minute/)
+    expect(texte).not.toContain('# série;complète')
+    const corps = lignes.filter((l) => /^\d{4}-/.test(l)).map((l) => l.split(';')[2])
+    expect(corps).toEqual(['minute', 'minute', 'superviseur'])
+  })
+
   it('ne propose rien tant qu’aucune courbe n’est tracée', async () => {
     vi.mocked(fetchHistory).mockResolvedValue(serie('sinr', []))
     monter()

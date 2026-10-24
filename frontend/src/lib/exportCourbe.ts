@@ -27,6 +27,9 @@ export interface LigneCourbe {
   /** Taux retiré de la courbe faute de paquets : la cellule reste vide, et la
    *  raison est dite — une absence de mesure n'est pas une mesure basse. */
   retire: boolean
+  /** Minimum ou maximum d'une minute regroupée par la rétention
+   *  (`source = "minute"`) : ni un relevé, ni la série complète. */
+  minute?: boolean
 }
 
 export interface CourbeExportee {
@@ -85,6 +88,17 @@ export const texte = (v: string): string => {
 export function courbeCsv(c: CourbeExportee): string {
   const premier = c.lignes[0]?.t ?? Date.now()
   const traces = c.lignes.length
+  // Les minutes regroupées par la rétention : tout ou partie de la courbe
+  // n'est plus faite de relevés, et une « série complète » le tairait.
+  const minutes = c.lignes.filter((l) => l.minute && l.comble === null).length
+  const regroupement = minutes === 0
+    ? null
+    : `${minutes === traces ? 'regroupée' : 'en partie regroupée'} à la minute par la rétention `
+      + ': minimum et maximum de chaque minute'
+  const enveloppe = c.enveloppe
+    ? `enveloppe : minimum et maximum par tranche, ${traces} points pour ${c.disponibles} mesures`
+    : null
+  const serie = [enveloppe, regroupement].filter(Boolean).join(' — ') || 'complète'
   const lignes = [
     `# équipement;${texte(c.equipement)}`,
     `# lien;${texte(c.lien)}`,
@@ -92,9 +106,7 @@ export function courbeCsv(c: CourbeExportee): string {
     `# fenêtre;${texte(c.fenetre.libelle)}`,
     // Dit en tête, parce qu'une enveloppe lue comme une série complète fait
     // conclure à des interruptions qui n'ont pas eu lieu.
-    `# série;${c.enveloppe
-      ? `enveloppe : minimum et maximum par tranche, ${traces} points pour ${c.disponibles} mesures`
-      : 'complète'}`,
+    `# série;${serie}`,
     `# fuseau;${fuseau(premier)}`,
     `instant;${texte(`valeur (${c.grandeur.unit})`)};source;remarque`,
   ]
@@ -104,7 +116,7 @@ export function courbeCsv(c: CourbeExportee): string {
     lignes.push([
       instantLocal(l.t),
       nombre(duRouteur ? l.comble : l.value),
-      duRouteur ? 'routeur' : 'superviseur',
+      duRouteur ? 'routeur' : l.minute ? 'minute' : 'superviseur',
       remarque,
     ].join(';'))
   }

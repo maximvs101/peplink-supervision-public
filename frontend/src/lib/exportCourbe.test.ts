@@ -72,4 +72,12 @@ describe('export CSV de la courbe affichée', () => {
     expect(nombre(Number.NaN)).toBe('')
     expect(nombre(-0.0000004)).toBe('0')
   })
+
+  it('dit une courbe entièrement regroupée à la minute', () => {
+    const csv = courbeCsv(courbe({
+      lignes: [{ t: t0, value: 2, comble: null, retire: false, minute: true }],
+    }))
+    expect(csv).toContain('# série;regroupée à la minute')
+    expect(csv).toContain('2026-08-30 16:00:05;2;minute;')
+  })
 })
