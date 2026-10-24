@@ -326,3 +326,30 @@ async def test_the_paired_client_is_adopted_under_the_final_identifier():
     assert second.client is not client_du_premier
     assert second.client._base.endswith("10.0.0.1")
     await registry.close()
+
+
+async def test_deux_appairages_simultanes_de_la_meme_adresse_sont_serialises():
+    """Deux formulaires — ou deux onglets — sur la même adresse : deux connexions
+    admin, et deux `registry.add` concurrents. Le verrou par hôte canonique les
+    met en file (revue du 24/10)."""
+    import asyncio
+
+    registry = DeviceRegistry(default_mode="mock")
+    en_cours = {"n": 0, "max": 0}
+
+    async def lente(*a, **k):
+        en_cours["n"] += 1
+        en_cours["max"] = max(en_cours["max"], en_cours["n"])
+        await asyncio.sleep(0.05)
+        en_cours["n"] -= 1
+        return INFO
+
+    with patch("app.pairing.service.RouterApiPeplinkClient.identify", AsyncMock(side_effect=lente)), \
+         patch("app.pairing.service.RouterApiPeplinkClient.aclose", AsyncMock()):
+        await asyncio.gather(
+            pair(registry, "192.0.2.1", username="admin", password="x"),
+            pair(registry, "http://192.0.2.1/", username="admin", password="x"),
+        )
+    assert en_cours["max"] == 1
+    assert len(registry.snapshot()) == 1
+    await registry.close()

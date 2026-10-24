@@ -89,6 +89,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         reconnexion.cancel()
+        # ATTENDUE, et pas seulement annulée : une tentative en vol finit son
+        # `await` — fermeture de client, `registry.add` — après l'annulation, et
+        # elle le faisait pendant que `registry.close()` fermait tout.
+        await asyncio.gather(reconnexion, return_exceptions=True)
         await poller.stop()
         await registry.close()
         await repo.close()

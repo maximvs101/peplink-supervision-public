@@ -331,3 +331,58 @@ async def test_un_equipement_absent_ne_retarde_pas_les_autres(trousseau):
     assert registry.find_by_serial("0000-0000-0042") is not None
     assert contacte[0] - debut < 0.25, "l'équipement présent a attendu le délai de l'absent"
     await registry.close()
+
+
+# --- revue du 24/10 ----------------------------------------------------------------
+
+async def test_un_ecart_de_serie_fait_reculer_la_veille_jusqu_a_quelques_minutes(trousseau):
+    """Un autre routeur occupe l'adresse retenue — ou la série lue est vide : la
+    veille s'y reconnectait en admin toutes les 30 s, indéfiniment. Après un
+    écart de série, le recul double jusqu'à quelques minutes."""
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
+    autre = DeviceInfo(model="Pepwave MAX HD2", serial="0000-0000-0077", firmware="8.5.4", name="AUTRE")
+    sans_serie = DeviceInfo(model="Pepwave MAX HD2", serial=None, firmware="8.5.4", name="AUTRE")
+    for info in (autre, sans_serie):
+        registry = DeviceRegistry(default_mode="mock")
+        veille = _veille(registry, _Depot([CONNU]))
+        with _identify(info) as identify:
+            for t in range(0, 1800, 3):
+                await veille.tour(maintenant=float(t))
+        # À 30 s de plafond : une soixantaine de connexions admin en 30 min.
+        assert identify.await_count <= 15, identify.await_count
+        assert veille._pause["0000-0000-0042"] >= 240.0
+        assert registry.snapshot() == []
+        await registry.close()
+
+
+async def test_un_appairage_et_une_reconnexion_simultanes_sur_la_meme_adresse(trousseau):
+    """Le verrou de reconnexion était PAR SÉRIE, et la route d'appairage ne le
+    prenait pas : la veille et le formulaire ouvraient deux connexions admin
+    sur le même routeur, et deux `registry.add` se remplaçaient. Le verrou est
+    désormais par HÔTE canonique, partagé entre `pair()` et la veille."""
+    import asyncio
+
+    from app.pairing.service import pair, reconnecter
+
+    coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "secret"))
+    registry = DeviceRegistry(default_mode="mock")
+    depot = _Depot([CONNU])
+    en_cours = {"n": 0, "max": 0}
+
+    async def lente(*a, **k):
+        en_cours["n"] += 1
+        en_cours["max"] = max(en_cours["max"], en_cours["n"])
+        await asyncio.sleep(0.05)
+        en_cours["n"] -= 1
+        return INFO
+
+    with patch("app.pairing.service.RouterApiPeplinkClient.identify", AsyncMock(side_effect=lente)), \
+         patch("app.pairing.service.RouterApiPeplinkClient.aclose", AsyncMock()):
+        await asyncio.gather(
+            reconnecter(registry, depot, CONNU),
+            # Autre graphie du même hôte : même équipement.
+            pair(registry, "192.0.2.7/", username="admin", password="secret"),
+        )
+    assert en_cours["max"] == 1, "deux connexions admin simultanées sur le même routeur"
+    assert len(registry.snapshot()) == 1
+    await registry.close()

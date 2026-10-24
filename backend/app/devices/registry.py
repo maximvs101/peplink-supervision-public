@@ -97,6 +97,13 @@ class DeviceRegistry:
     default_mode: str = "mock"
     _records: dict[str, DeviceRecord] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Un verrou d'APPAIRAGE par hôte canonique : `pair()`, la route
+    # d'appairage et la veille de reconnexion le prennent tous. Le verrou était
+    # par série et seule la veille le prenait — or la série n'est connue
+    # qu'APRÈS la connexion : la route et la veille ouvraient deux connexions
+    # admin sur le même routeur, et deux `add` se remplaçaient. Porté par le
+    # registre, qui est l'objet que tous partagent, et non par le module.
+    _verrous_appairage: dict[str, asyncio.Lock] = field(default_factory=dict)
 
     # --- lecture ---
     def snapshot(self) -> list[DeviceRecord]:
@@ -143,6 +150,11 @@ class DeviceRegistry:
             (r for r in self._records.values() if hote_canonique(r.config.host) == cible),
             None,
         )
+
+    def verrou_appairage(self, host: str | None) -> asyncio.Lock:
+        """Le verrou d'appairage de cette adresse, quelle qu'en soit la graphie."""
+        cle = hote_canonique(host) or (host or "")
+        return self._verrous_appairage.setdefault(cle, asyncio.Lock())
 
     # --- mutation ---
     async def add(self, config: RouterConfig, client=None) -> DeviceRecord:
