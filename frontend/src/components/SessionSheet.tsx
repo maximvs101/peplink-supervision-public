@@ -2,13 +2,8 @@ import type { SessionSummary } from '../types'
 import { decimal, etiquetteSupport, fmtId, fmtInt, fmtNumber } from '../lib/format'
 import { Notes } from './Note'
 
-/**
- * La fiche d'une session : synthèse par lien, disponibilité du bond, diversité,
- * latence par cellule. Extraite du panneau d'historique pour que le RAPPORT
- * imprimable (R-3.7) la rende à l'identique — une fiche, pas deux copies qui
- * divergent.
- */
-
+/** Un volume non mesuré s'écrit « — », jamais « 0.0 » : sur cet outil, un zéro
+ *  affiché à la place d'une absence de mesure a déjà menti cinq fois. */
 const volume = (mo: number | null) => (mo === null ? '—' : decimal(mo, 1))
 
 /** Latences et RSRP : à la française et AVEC leur unité, comme le tableau de
@@ -18,7 +13,6 @@ const volume = (mo: number | null) => (mo === null ? '—' : decimal(mo, 1))
 const ms = (v: number | null | undefined) => fmtNumber(v, 0, 'ms')
 const dbm = (v: number | null | undefined) => fmtNumber(v, 0, 'dBm')
 
-/** La durée que couvrent `n` points de l'historique du routeur, à 10 s l'un. */
 /** « sur N cycles » : le dénominateur propre à une part de diversité. Tu
  *  quand le serveur ne le publie pas (une version en arrière) : on ne
  *  l'invente pas. */
@@ -31,11 +25,18 @@ function Compte({ n }: { n: number | undefined }) {
   return <small className="sub-note"> sur {fmtInt(n)}</small>
 }
 
+/** La durée que couvrent `n` points de l'historique du routeur, à 10 s l'un. */
 function dureeComblee(n: number): string {
   const secondes = n * 10
   return secondes < 60 ? `${secondes} s` : `${Math.floor(secondes / 60)} min`
 }
 
+/**
+ * La fiche d'une session : synthèse par lien, disponibilité du bond, diversité,
+ * latence par cellule. Extraite du panneau d'historique pour que le RAPPORT
+ * imprimable (R-3.7) la rende à l'identique — une fiche, pas deux copies qui
+ * divergent.
+ */
 export function SessionSheet({
   fiche, periodSeconds = null, partager = false,
 }: {

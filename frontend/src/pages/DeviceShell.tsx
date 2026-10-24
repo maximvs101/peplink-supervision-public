@@ -38,9 +38,8 @@ export interface DeviceContext {
   ageSeconds: number | null
   /** Cause de l'échec telle que le serveur la constate, expurgée de tout secret. */
   error: string | null
-  /** Période de scrutation du serveur, quand il l'a publiée : le seuil de
-   *  péremption s'en déduit au lieu d'être figé dans le navigateur. */
-  /** Période observée entre deux cycles du serveur, quand il l'a mesurée. */
+  /** Période observée entre deux cycles du serveur, quand il l'a mesurée : le
+   *  seuil de péremption s'en déduit au lieu d'être figé dans le navigateur. */
   periodSeconds: number | null
   /** Le stationnement en cours. L'équipement n'est alimenté que véhicule à
    *  l'arrêt : c'est un lieu et une intervention, et c'est la fenêtre naturelle

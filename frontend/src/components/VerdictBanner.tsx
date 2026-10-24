@@ -12,8 +12,6 @@ interface Props {
   status?: string
   /** Âge du relevé le plus récent, mesuré par le serveur. */
   ageSeconds?: number | null
-  /** Équipement observé. L'historique et le chronomètre ne valent que pour lui :
-   *  les lui rattacher explicitement est ce qui permet de les remettre à zéro. */
   /** Cause de l'échec, telle que le serveur la constate (expurgée de tout
    *  secret côté serveur). Affichée seulement quand la liaison ne va pas. */
   error?: string | null

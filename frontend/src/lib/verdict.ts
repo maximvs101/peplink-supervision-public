@@ -444,6 +444,17 @@ function describeLatency(outliers: LatencyOutlier[]): string {
     : `${fmt(worst.rtt)} ms contre ${fmt(worst.reference)} ms`
 }
 
+/** Un lien ÉCARTÉ du bond : tunnel connu, état connu, et hors du bond.
+ *
+ *  `state === null` est un état INCONNU, ni dedans ni dehors — le tunnel n'a
+ *  pas été sondé à ce cycle — et n'écarte personne. Cette définition vivait en
+ *  trois copies, dans le plan, la table et le bandeau ; le module se souvient
+ *  de ce qu'une copie divergente a coûté (« 1 hors du bond » ici, « — » là,
+ *  pour le même lien). Une seule, pour que les trois écrans tombent d'accord
+ *  sur un rail en pointillé, une ligne grisée et un grief. */
+export const ecarteDuBond = (wan: WanRadioStatus): boolean =>
+  wan.tunnel !== null && wan.tunnel.state !== null && !wan.tunnel.in_bond
+
 /**
  * Ce que le ROUTEUR dit des liens tombés, en une incise.
  *
@@ -464,17 +475,6 @@ function describeLatency(outliers: LatencyOutlier[]): string {
  * nous ne saurions pas énumérer, et les traduire reviendrait à les ranger dans
  * des catégories inventées ici.
  */
-/** Un lien ÉCARTÉ du bond : tunnel connu, état connu, et hors du bond.
- *
- *  `state === null` est un état INCONNU, ni dedans ni dehors — le tunnel n'a
- *  pas été sondé à ce cycle — et n'écarte personne. Cette définition vivait en
- *  trois copies, dans le plan, la table et le bandeau ; le module se souvient
- *  de ce qu'une copie divergente a coûté (« 1 hors du bond » ici, « — » là,
- *  pour le même lien). Une seule, pour que les trois écrans tombent d'accord
- *  sur un rail en pointillé, une ligne grisée et un grief. */
-export const ecarteDuBond = (wan: WanRadioStatus): boolean =>
-  wan.tunnel !== null && wan.tunnel.state !== null && !wan.tunnel.in_bond
-
 function describeCause(down: RadioSample[]): string | null {
   if (down.length === 0) return null
   const premier = down[0].wan.status_message

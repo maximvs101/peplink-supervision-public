@@ -26,11 +26,6 @@ const FENETRES = [
 
 const REFRESH_MS = 15000
 
-
-/** Un volume non mesuré s'écrit « — », jamais « 0.0 » : sur cet outil, un zéro
- *  affiché à la place d'une absence de mesure a déjà menti cinq fois. */
-
-
 interface Props {
   /** Les épisodes du journal de la fenêtre relue, à poser sur la courbe (A-4). */
   episodes?: Episode[]
