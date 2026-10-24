@@ -1950,3 +1950,49 @@ async def test_the_lan_clients_travel_from_the_client_to_the_summary(poller):
     record.client.lan_clients = compte
     await p._poll_once()
     assert _summary(p.latest, record.config, p).lan_clients == compte
+
+
+async def test_une_base_qui_fait_attendre_n_est_pas_imputee_a_l_equipement(poller):
+    """Une écriture qui attend la base (VACUUM, clé USB lente, lecteur qui
+    traîne) passait dans le budget RÉSEAU de l'équipement : toute la flotte
+    devenait « injoignable : pas de réponse en 20 s », reculait, et les
+    relevés lus étaient perdus. L'attente de la base ne compte pas."""
+    p, registry = poller
+    p._device_budget = 0.4
+    record = await registry.add(_config("patient"))
+    libere = asyncio.Event()
+
+    async def tenir_la_base():
+        async with p._repo.transaction():
+            libere.set()
+            await asyncio.sleep(1.2)   # trois budgets
+
+    tenue = asyncio.create_task(tenir_la_base())
+    await libere.wait()
+    await p._poll_once()
+    await tenue
+    assert record.status == "connecté", record.error
+    assert "patient" in p.latest
+    assert (await p._repo.current_session("patient"))["samples"] > 0
+
+
+async def test_une_base_qui_fait_attendre_ne_prive_pas_les_autres_de_place(poller):
+    """Les places de scrutation bornent le RÉSEAU : un équipement qui attend la
+    base rend la sienne, sinon huit équipements bloqués sur la base faisaient
+    passer les suivants « injoignables » faute de place."""
+    p, registry = poller
+    p._device_budget = 0.4
+    p._slots = asyncio.Semaphore(1)
+    records = [await registry.add(_config(f"e{i}")) for i in range(3)]
+    libere = asyncio.Event()
+
+    async def tenir_la_base():
+        async with p._repo.transaction():
+            libere.set()
+            await asyncio.sleep(1.2)
+
+    tenue = asyncio.create_task(tenir_la_base())
+    await libere.wait()
+    await p._poll_once()
+    await tenue
+    assert [r.status for r in records] == ["connecté"] * 3, [r.error for r in records]

@@ -8,8 +8,11 @@ la boucle : les erreurs sont journalisées et la scrutation continue.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import inspect
 import logging
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import NamedTuple
@@ -209,6 +212,118 @@ def _cause_injoignable(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+# --- l'attente de la base n'est pas celle de l'équipement --------------------
+#
+# Le budget d'un équipement (`_device_budget`) borne le RÉSEAU : un routeur
+# muet dont l'adresse reste routée. Il enveloppait pourtant tout le tour, base
+# comprise : une écriture qui attendait le verrou du dépôt — un VACUUM, une clé
+# USB lente — faisait passer TOUTE la flotte « injoignable : pas de réponse en
+# 20 s », reculer, et perdre les relevés déjà lus. Une attente de la base n'est
+# jamais imputée à l'équipement : le dépôt, vu de la scrutation, suspend le
+# budget le temps de chaque appel et rend la place de scrutation, qui borne les
+# interrogations réseau simultanées et non les écritures.
+
+
+class _Tour:
+    """Le tour d'UN équipement : son budget, et la place qu'il tient."""
+
+    def __init__(self, places: asyncio.Semaphore) -> None:
+        self.places = places
+        self.budget: asyncio.Timeout | None = None
+        self.tient_place = False
+        # Le temps passé à attendre la base : l'échéance des compléments
+        # recule d'autant, comme le budget.
+        self.suspendu_s = 0.0
+
+    async def prendre_place(self) -> None:
+        await self.places.acquire()
+        self.tient_place = True
+
+    def rendre_place(self) -> None:
+        if self.tient_place:
+            self.tient_place = False
+            self.places.release()
+
+
+_TOUR: contextvars.ContextVar[_Tour | None] = contextvars.ContextVar("tour", default=None)
+
+
+@asynccontextmanager
+async def _hors_budget():
+    """Le temps passé dans le bloc ne compte pas dans le budget du tour.
+
+    Imbriqué (une écriture dans une transaction), le bloc intérieur ne fait
+    rien : l'extérieur a déjà suspendu. Le budget reprend où il en était ; la
+    place se reprend AVEC le budget en marche — l'attendre est une contention
+    réseau, comptée comme avant.
+    """
+    tour = _TOUR.get()
+    if tour is None or tour.budget is None or tour.budget.when() is None:
+        yield
+        return
+    boucle = asyncio.get_running_loop()
+    echeance = tour.budget.when()
+    tour.budget.reschedule(None)
+    rendue = tour.tient_place
+    tour.rendre_place()
+    debut = boucle.time()
+    try:
+        yield
+    finally:
+        attente = boucle.time() - debut
+        tour.suspendu_s += attente
+        tour.budget.reschedule(echeance + attente)
+        if rendue:
+            await tour.prendre_place()
+
+
+class _DepotHorsBudget:
+    """Le dépôt, vu de la scrutation : ses attentes sont hors budget.
+
+    Toute méthode qui rend un objet à attendre est attendue sous
+    `_hors_budget` ; `transaction()` l'est pour tout son bloc, qui n'écrit
+    qu'en base. Le reste passe tel quel (`_conn` pour les tests…).
+    """
+
+    def __init__(self, depot: SampleRepository) -> None:
+        self._depot = depot
+
+    def __getattr__(self, nom: str):
+        valeur = getattr(self._depot, nom)
+        if not callable(valeur):
+            return valeur
+
+        def appel(*args, **kwargs):
+            resultat = valeur(*args, **kwargs)
+            if inspect.isawaitable(resultat):
+                return _attendre_hors_budget(resultat)
+            if hasattr(resultat, "__aenter__"):
+                return _bloc_hors_budget(resultat)
+            return resultat
+
+        return appel
+
+
+def _decalee(echeance: float | None) -> float | None:
+    """L'échéance des compléments, reculée du temps passé à attendre la base."""
+    tour = _TOUR.get()
+    if echeance is None or tour is None:
+        return echeance
+    return echeance + tour.suspendu_s
+
+
+async def _attendre_hors_budget(attente):
+    async with _hors_budget():
+        return await attente
+
+
+@asynccontextmanager
+async def _bloc_hors_budget(bloc):
+    async with _hors_budget():
+        async with bloc as valeur:
+            yield valeur
+
+
 class Poller:
     """Scrute la flotte en continu et tient à jour l'état courant."""
 
@@ -219,7 +334,8 @@ class Poller:
         interval_seconds: float,
     ) -> None:
         self._registry = registry
-        self._repo = repo
+        # Ses attentes ne sont pas imputées à l'équipement (`_DepotHorsBudget`).
+        self._repo = _DepotHorsBudget(repo)
         self._interval = max(0.5, interval_seconds)
 
         # router_id -> wan_id -> dernier relevé
@@ -1188,15 +1304,22 @@ class Poller:
         #
         # Le budget couvre désormais l'attente elle-même : un équipement qui
         # n'obtient pas sa place à temps abandonne son tour au lieu de la retenir.
+        #
+        # La place est prise et rendue à la main, et non par `async with` :
+        # une attente de la base la rend et la reprend en cours de tour
+        # (`_hors_budget`), et seul le tour sait s'il la tient encore.
+        tour = _Tour(self._slots)
+        jeton = _TOUR.set(tour)
         try:
             async with asyncio.timeout(self._device_budget) as budget:
-                async with self._slots:
-                    # Les lectures complémentaires s'arrêtent AVANT le budget,
-                    # avec de quoi écrire et publier le relevé WAN déjà lu : le
-                    # budget les couvrait, et deux compléments lents faisaient
-                    # jeter un relevé lu en 0,4 s (C-5).
-                    reserve = min(_RESERVE_PUBLICATION_S, self._device_budget / 4)
-                    await self._poll_device_once(record, echeance=budget.when() - reserve)
+                tour.budget = budget
+                await tour.prendre_place()
+                # Les lectures complémentaires s'arrêtent AVANT le budget,
+                # avec de quoi écrire et publier le relevé WAN déjà lu : le
+                # budget les couvrait, et deux compléments lents faisaient
+                # jeter un relevé lu en 0,4 s (C-5).
+                reserve = min(_RESERVE_PUBLICATION_S, self._device_budget / 4)
+                await self._poll_device_once(record, echeance=budget.when() - reserve)
         except TimeoutError:
             message = f"pas de réponse en {self._device_budget:.0f} s"
             if record.status != "injoignable":
@@ -1204,6 +1327,9 @@ class Poller:
             record.status, record.error = "injoignable", message
         except Exception:
             logger.exception("Erreur inattendue sur %s", record.id)
+        finally:
+            tour.rendre_place()
+            _TOUR.reset(jeton)
 
     async def _poll_device_once(self, record: DeviceRecord, echeance: float | None = None) -> None:
         router, client = record.config, record.client
@@ -1331,7 +1457,7 @@ class Poller:
         # relevé déjà lu. Une identification interrompue ne compte pas comme
         # une tentative — elle sera reprise au cycle suivant.
         if not record.identified:
-            fait, identifie = await avant_echeance(echeance, self._identify(record))
+            fait, identifie = await avant_echeance(_decalee(echeance), self._identify(record))
             if fait:
                 record.identify_attempts += 1
             if identifie:
@@ -1354,7 +1480,7 @@ class Poller:
             record.cycles_since_info += 1
             if record.cycles_since_info >= _INFO_REFRESH_CYCLES:
                 record.cycles_since_info = 0
-                await avant_echeance(echeance, self._refresh_info(record))
+                await avant_echeance(_decalee(echeance), self._refresh_info(record))
 
         # Le suivi de session vient APRÈS l'identification, et c'est tout
         # l'objet : il s'exécutait avant, si bien qu'au premier cycle de chaque
