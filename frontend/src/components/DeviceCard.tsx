@@ -225,7 +225,10 @@ export function DeviceCard({
       <div className="card-body">
         <div className="details" style={{ marginTop: 0 }}>
           <Field label="Code produit" value={device.product_code} />
-          <Field label="Numéro de série" value={device.serial} />
+          {/* `null` : le serveur ne publie la série qu'au poste local. La ligne
+              reste, avec « — » : disparue, l'absence se lirait comme un châssis
+              sans série. */}
+          <Field label="Numéro de série" value={device.serial ?? '—'} />
           <Field label="Révision matérielle" value={device.hardware_revision} />
           <Field label="MAC LAN" value={device.mac_lan} />
           <Field label="Position GPS" value={position} />

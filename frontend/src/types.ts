@@ -567,7 +567,8 @@ export interface LinkChurn {
    *  « 0 changement » n'est pas une stabilité : c'est une absence de grandeur. */
   has_cells: boolean
   cell_changes: number
-  station_changes: number
+  /** `null` : station non identifiable sur la fenêtre — inconnu, pas zéro. */
+  station_changes: number | null
   /** Coupures et rétablissements de la FENÊTRE. L'écran les cumulait depuis le
    *  démarrage du processus superviseur — une base de temps qui n'apparaissait
    *  nulle part et qui se remettait à zéro à chaque relance — dans un panneau
@@ -727,8 +728,9 @@ export interface SessionLink {
   /** La succession des opérateurs du lien, dans l'ordre, un nom par réseau. */
   operators: string[]
   /** Manœuvres de l'exploitant (bascule de SIM, configuration, désactivation),
-   *  lues dans le journal du routeur — à part des coupures. */
-  maneuvers: number
+   *  lues dans le journal du routeur — à part des coupures. `null` : journal
+   *  non lu, on ne sait pas — jamais zéro. */
+  maneuvers: number | null
   samples: number
   /** Volumes INTÉGRÉS depuis les débits relevés : le routeur ne publie qu'un
    *  cumul depuis son installation, qui ne borne aucune session. À 5,3 s de
@@ -839,7 +841,9 @@ export interface SessionSummary {
   lat: number | null
   lon: number | null
   radius_m: number | null
-  sites: number
+  /** Stations de base distinctes. `null` : aucune n'est identifiable — on ne
+   *  sait pas, ce n'est pas « zéro station ». */
+  sites: number | null
   /** La fiche porte-t-elle sur TOUTE la session ? Une session de trois semaines
    *  — un châssis allumé depuis trois semaines et supervisé pour la première
    *  fois — ne se relit pas en entier sans faire tomber le superviseur : on en

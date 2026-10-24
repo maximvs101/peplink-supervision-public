@@ -125,7 +125,8 @@ export function Rapport() {
           {complet && (appareil?.name ?? routeur?.name) && <><b>{appareil?.name ?? routeur?.name}</b> · </>}
           {appareil?.model ?? 'Équipement'}
           {appareil?.firmware && <> · firmware {appareil.firmware}</>}
-          {complet && appareil?.serial && <> · série {appareil.serial}</>}
+          {/* Série non publiée (client non local) : « — », pas une omission. */}
+          {complet && appareil && <> · série {appareil.serial ?? '—'}</>}
         </p>
         {!complet && (
           <p className="disclaimer">
