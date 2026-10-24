@@ -1585,6 +1585,40 @@ async def test_a_switch_to_standby_is_not_a_micro_outage(tmp_path):
     await repo.close()
 
 
+async def test_journal_and_sheet_agree_on_a_padded_standby(tmp_path):
+    """Une ancienne ligne écrite « ␣Standby␣ » : la fiche de session y voyait
+    un passage en secours (elle retirait les blancs), le journal et le brassage
+    une micro-coupure (ils ne les retiraient pas). Les deux suivent maintenant
+    les mêmes règles, et la fiche de la même fenêtre rend le même compte."""
+    from datetime import datetime, timedelta
+
+    from app.models import Session
+    from app.sessions import build_summary
+
+    repo = SampleRepository(str(tmp_path / "s.db"))
+    await repo.connect()
+    t0 = datetime.fromisoformat("2026-09-24T16:08:30+00:00")
+    releves = [("3", 0, 78, "Connected to SFR"), ("3", 5, 0, " Standby "),
+               ("3", 10, 40, "\tSTANDBY"), ("3", 15, 0, "Connected to SFR")]
+    await repo._conn.executemany(
+        "INSERT INTO samples (router_id, wan_id, ts, connected, kind, uptime_s, status_message) "
+        "VALUES ('r1', ?, ?, 1, 'cellular', ?, ?)",
+        [(w, (t0 + timedelta(seconds=t)).isoformat(), u, m) for w, t, u, m in releves],
+    )
+    await repo._conn.commit()
+    debut, fin = t0 - timedelta(minutes=1), t0 + timedelta(hours=1)
+    episodes, brassage = await repo.events("r1", debut, fin, 1000.0)
+    assert [e for e in episodes if e["genre"] == "micro-coupure"] == []
+    assert brassage[0]["micro"] == 0
+    async with repo._conn.execute(
+        "SELECT * FROM samples WHERE router_id = 'r1' ORDER BY ts"
+    ) as cursor:
+        lignes = [dict(r) for r in await cursor.fetchall()]
+    session = Session(id=1, router_id="r1", started_at=debut, last_seen=fin, samples=4)
+    assert build_summary(session, lignes, None).links[0].outages == 0
+    await repo.close()
+
+
 async def test_a_cell_change_across_an_outage_is_counted(tmp_path):
     """Scénario 2 de la revue : bascule de SIM, 76 s de coupure, retour sur un
     autre opérateur, une autre cellule, une autre station — le brassage

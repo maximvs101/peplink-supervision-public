@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, PlainSerializer, computed_field
+from pydantic import BaseModel, Field, PlainSerializer, computed_field, field_validator
+
+# Les règles de coupure vivent dans `regles_coupure` ; `en_secours` et
+# `STATUT_DESACTIVE` restent importables d'ici pour les appelants existants.
+from .regles_coupure import STATUT_DESACTIVE as STATUT_DESACTIVE
+from .regles_coupure import en_secours as en_secours
+from .regles_coupure import normaliser_message
 
 
 def nommer(valeur: int | None) -> str | None:
@@ -39,17 +45,6 @@ def _horloge() -> datetime:
 # exportations des mêmes captures sont alors identiques à l'octet près, sur
 # n'importe quelle machine. Sans cela, les millisecondes entre deux cycles
 # faisaient différer un Mac et la machine Windows de GitHub.
-def en_secours(message: object) -> bool:
-    """Le routeur dit-il ce lien EN SECOURS (« Standby ») ?
-
-    Passer un WAN en priorité de secours remet son uptime à 0 sans le couper :
-    l'uptime qui recule, seul témoin des micro-coupures, y voyait une panne. Une
-    manœuvre de l'exploitant n'en est pas une. Même prédicat en SQL : voir
-    les conditions `standby%` de `storage/db.py`.
-    """
-    return isinstance(message, str) and message.strip().lower().startswith("standby")
-
-
 def utcnow() -> datetime:
     return _horloge()
 
@@ -319,17 +314,19 @@ class WanRadioStatus(BaseModel):
     priority: int | None = None
     uptime_s: int | None = None
     status_message: str | None = None  # ex : "Connected to Orange F"
+
+    # Le message entre en base NET : sans blancs autour, `None` s'il est vide.
+    # Les règles de coupure tolèrent les blancs à la lecture (anciennes lignes,
+    # relevés du témoin), mais un relevé neuf n'a pas à compter sur elles.
+    @field_validator("status_message", mode="before")
+    @classmethod
+    def _message_net(cls, valeur: object) -> object:
+        return normaliser_message(valeur)
     # Désactivé par l'exploitant pendant la session (`enable: false`). Un lien
     # désactivé n'est pas une panne : il reste nommé, sans mesure, et ne pèse
     # pas sur le verdict. Sans ce drapeau, il sortait de la table et le journal
     # écrivait « absent du relevé », comme pour une SIM évanouie.
     disabled: bool = False
-
-
-# Le message du relevé d'adieu d'un WAN désactivé. La base n'a pas de colonne
-# `disabled` : c'est ce libellé, écrit par le collecteur et reconnu par la bande
-# (C-20), qui distingue une désactivation d'une panne. Une seule écriture.
-STATUT_DESACTIVE = "désactivé"
 
 
 class GnssFix(BaseModel):
