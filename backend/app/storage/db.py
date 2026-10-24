@@ -797,8 +797,13 @@ class SampleRepository:
         copie = sqlite3.connect(cible)
         try:
             await self._conn.backup(copie)
-        finally:
+        except BaseException:
+            # Un fichier entamé (disque plein…) passerait au lancement suivant
+            # pour la copie déjà faite, et la migration tournerait sans elle.
             copie.close()
+            cible.unlink(missing_ok=True)
+            raise
+        copie.close()
 
     async def commit(self) -> None:
         """Valide ce que `insert(..., commit=False)` a écrit HORS de

@@ -423,3 +423,22 @@ def test_a_hot_journal_is_rolled_back_before_the_backup(tmp_path):
     with sqlite3.connect(copie) as v:
         assert v.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 1, "l'écriture interrompue a été annulée"
     assert not copie.with_name(copie.name + "-journal").exists()
+
+
+def test_le_journal_d_acces_n_ecrit_pas_les_adresses_demandees(monkeypatch, tmp_path):
+    """Le journal d'accès d'uvicorn écrivait chaque adresse demandée, dont
+    `/api/devices/known/<série>/reconnect` : la série passait à la console."""
+    import uvicorn
+
+    appel = {}
+    monkeypatch.setattr(lancer, "preparer", lambda sauvegarde=True: {
+        "hote": "127.0.0.1", "port": "8000", "base": str(tmp_path / "samples.db"),
+        "env": "", "sauvegarde": "",
+    })
+    monkeypatch.setattr(lancer, "port_disponible", lambda hote, port: True)
+    monkeypatch.setattr(lancer, "sauvegarder", lambda base: None)
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "samples.db"))
+    monkeypatch.setenv("OUVRIR_NAVIGATEUR", "0")
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: appel.update(kw))
+    lancer.main()
+    assert appel["access_log"] is False

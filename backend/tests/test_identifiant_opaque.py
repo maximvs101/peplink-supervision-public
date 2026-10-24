@@ -313,3 +313,19 @@ async def test_une_migration_qui_echoue_ne_laisse_rien_a_moitie(tmp_path):
     with sqlite3.connect(chemin) as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == 1
         assert c.execute("SELECT device_id FROM devices WHERE serial = ?", (SERIE,)).fetchone()[0] == ANCIEN
+
+
+async def test_une_copie_ratee_ne_passe_pas_pour_bonne(tmp_path):
+    """Disque plein pendant la copie : le démarrage s'arrête, et le fichier
+    entamé est effacé. Sinon, au lancement suivant, il passait pour la copie
+    déjà faite et la migration tournait sans copie valide."""
+    chemin = tmp_path / "samples.db"
+    await _base_d_avant(chemin)
+    copie = tmp_path / "samples.db.avant-identifiants-opaques.bak"
+    with patch("aiosqlite.Connection.backup", AsyncMock(side_effect=sqlite3.OperationalError("disque plein"))):
+        with pytest.raises(sqlite3.OperationalError):
+            async with SampleRepository(str(chemin)):
+                pass
+    assert not copie.exists()
+    for table in _TABLES:
+        assert ANCIEN in _ids(chemin, table), table

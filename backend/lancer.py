@@ -349,6 +349,9 @@ def main() -> None:
         host=decision["hote"],
         port=int(decision["port"]),
         log_level="info",
+        # Le journal d'accès écrirait chaque adresse demandée, dont celles qui
+        # portent une série (`/api/devices/known/<série>/reconnect`).
+        access_log=False,
         ws_per_message_deflate=True,
     )
 

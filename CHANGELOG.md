@@ -10,7 +10,19 @@ Correctifs pas encore étiquetés ; la section prendra le numéro de la prochain
 
 - **Identifiant d'équipement opaque** dans l'API, et **série masquée** pour tout client qui
   n'est pas le poste local.
-- **Une grandeur absente reste une absence** (« — », « inconnu »), plus jamais un zéro.
+  Au premier lancement, la base est migrée en une transaction, après une copie
+  `samples.db.avant-identifiants-opaques.bak` ; les liens `#/e/…` d'avant ne mènent plus à
+  l'équipement. Plus aucune série dans les journaux.
+- **Une grandeur absente reste une absence** (« — », « inconnu »), plus jamais un zéro :
+  manœuvres quand le journal du routeur n'a pas été lu, stations en 5G SA, latence d'un lien
+  sorti du relevé.
+- **Un refus passager du routeur n'éteint plus une fonction** jusqu'au redémarrage : il est
+  redemandé, seul un endpoint inconnu du firmware est mis de côté, une heure.
+- **Écritures en base sous verrou**, annulées proprement en cas d'échec ; appairage et
+  reconnexion automatique ne se chevauchent plus sur un même routeur.
+- **Interface** : un équipement qui n'a pas pu être chargé se rétablit seul, la découverte
+  n'affirme plus « aucun équipement » avant d'avoir lu, la fiche de la session en cours se
+  relit, avis d'erreur annoncés aux lecteurs d'écran.
 - **Robustesse face aux firmwares** : réponses incomplètes ou inattendues tolérées.
 - **Garde de version à la publication** : l'étiquette, la section du CHANGELOG, les deux
   paquets Python et l'interface doivent dire le même numéro, sinon rien n'est publié.
