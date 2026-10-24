@@ -501,21 +501,86 @@ c'est une mesure de l'équipement, sans rapport avec l'ANFR.
 
 ## API
 
+Toutes les routes du superviseur (`app.main`) ; `tests/test_reference_api.py` compare
+cette table aux routes servies. `{id}` est l'identifiant d'équipement que rendent
+`/api/devices` et `/api/routers` ; `{session}` le numéro d'une session. « Poste local » :
+refusée à tout client qui n'est pas la machine elle-même, et à une page d'une autre origine.
+
 | Méthode | Route | Rôle |
 |---|---|---|
 | `GET` | `/api/health` | État, mode, nombre d'équipements, période de scrutation |
-| `GET` | `/api/discover` | Équipements Peplink détectés sur le réseau (poste local uniquement) |
-| `GET` | `/api/devices` | État de chaque équipement supervisé |
-| `POST` | `/api/devices/pair` | Met un équipement en supervision (poste local uniquement) |
-| `DELETE` | `/api/devices/{id}` | Le retire (poste local uniquement) |
+| `GET` | `/api/discover` | Équipements Peplink détectés sur le réseau (poste local) |
+| `GET` | `/api/devices` | État de chaque équipement supervisé (en attente, connecté, identifiants refusés, injoignable…) |
+| `POST` | `/api/devices/pair` | Met un équipement en supervision (poste local) |
+| `GET` | `/api/devices/known` | Équipements déjà appairés depuis ce poste, et si le trousseau garde leurs identifiants — un booléen, jamais leur contenu (poste local) |
+| `POST` | `/api/devices/known/{id}/reconnect` | Réappaire un équipement connu avec les identifiants du trousseau, en une tentative : 401 refus, 502 injoignable, 409 rien de retenu (poste local) |
+| `POST` | `/api/devices/{id}/reauth` | Autorise une nouvelle tentative après un refus d'identifiants — rien ne retente sans cette action (poste local) |
+| `DELETE` | `/api/devices/{id}` | Retire un équipement de la supervision ; les mesures enregistrées restent (poste local) |
+| `GET` | `/api/devices/{id}/capture/{endpoint}` | Réponse BRUTE d'un endpoint de la liste de capture, pour archiver une fixture — non anonymisée (poste local) |
 | `GET` | `/api/routers` | Flotte + dernier relevé par WAN |
 | `GET` | `/api/routers/{id}` | Détail d'un routeur |
 | `GET` | `/api/routers/{id}/history` | Série temporelle (`wan`, `metric`, `minutes` ou `since`/`until` ; `min_packets` pour un taux : la règle de publication de l’écran, appliquée avant l’allègement) |
+| `GET` | `/api/routers/{id}/timeline` | Frise : ce que chaque lien a fait, en tranches égales (`minutes` ou `since`/`until`) |
+| `GET` | `/api/routers/{id}/events` | Événements datés de la fenêtre : coupures, rétablissements, épisodes de latence |
+| `GET` | `/api/routers/{id}/sessions` | Mises sous tension de l'équipement, de la plus récente à la plus ancienne (`limit`) |
+| `GET` | `/api/sessions/{session}/summary` | Fiche d'une session : ce qui la rend comparable à une autre |
+| `POST` | `/api/sessions/{session}/label` | Nomme une session (poste local) |
+| `GET` | `/api/sessions/{session}/export.csv` | Relevés de la session en CSV, envoyés au fil de l'eau ; `complet=true` (SSID, BSSID, position exacte) réservé au poste local |
+| `GET` | `/api/sessions/{session}/export-routeur.csv` | Historique gardé par le routeur sur la session, à 10 s, en CSV à part |
 | `WS` | `/ws/routers/{id}` | Flux temps réel des relevés |
 
 Métriques d'historique : `rsrp`, `rsrq`, `sinr`, `rssi`, `rx_kbps`, `tx_kbps`,
 `rtt_ms`, `loss_percent`. Les deux dernières viennent du tunnel SpeedFusion et
 n'existent que là : ce sont elles qui font geler une image en bonding.
+
+---
+
+## Témoin de lien Ethernet
+
+Un second exécutable (`temoin-ethernet-*`, `backend/temoin/`), pour une seule question :
+ce lien Ethernet est-il stable ? Depuis les sources : `cd backend && .venv/bin/python -m
+temoin`.
+
+- **Écoute** sur `127.0.0.1` seulement — même si `HOST` est posé pour le superviseur, le
+  témoin ne s'ouvre jamais au réseau. Port **8010** par défaut (`PORT` le change), le
+  superviseur gardant 8000 : les deux tournent ensemble. Port pris : le suivant libre (jusqu'à
+  vingt plus loin), et il le dit. `OUVRIR_NAVIGATEUR=0` n'ouvre pas le navigateur. L'en-tête Host
+  n'accepte que `localhost` et les adresses IP littérales (DNS rebinding).
+- **Base** `data/temoin.db`, à côté de l'exécutable (sous `backend/data` depuis le dépôt),
+  distincte de celle du superviseur ; copie `temoin.<horodatage>.db.bak` à chaque
+  lancement, deux gardées, rien de copié si la base n'a pas bougé. Illisible : le témoin
+  s'arrête et liste les copies disponibles.
+- **Verrou** `data/temoin.db.verrou` (verrou du système, relâché à la mort du processus) :
+  un seul témoin par base. Un second lancement depuis le même dossier lit le port du premier
+  dans `data/temoin.db.port` et rouvre son écran au lieu de mesurer en double.
+- **Identifiants** au trousseau du système (comme le superviseur), quand la case « Retenir sur ce
+  poste » est cochée (elle l'est par défaut). Jamais de série, de nom de WAN ni d'identifiant dans une réponse ou le
+  journal : le lien se dit « WAN n », l'équipement par son modèle.
+
+Routes (`temoin.api`) ; l'écran statique (`temoin/ecran`) est servi à la racine. Celles qui
+écrivent sont réservées au poste lui-même et refusées à une page d'une autre origine : une
+connexion déclenchée par un tiers consommerait des essais d'identifiants (cinq refus
+bloquent l'administration du routeur cinq minutes).
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| `GET` | `/api/sante` | `status`, `version`, nom du trousseau — ce que vérifie la CI après construction |
+| `GET` | `/api/etat` | Phase de l'écran : `recherche` (équipements trouvés), `identifiants`, `choix_lien` (WAN Ethernet proposés), `mesure` |
+| `POST` | `/api/connexion` | Se connecte à un équipement (`hote`, identifiants facultatifs, `retenir`) : 401 refus, 502 injoignable, 422 identifiants incomplets — refusés avant le routeur (poste local) |
+| `POST` | `/api/lien` | Choisit le WAN Ethernet à suivre (`wan_id`) et reprend ou ouvre son observation (poste local) |
+| `POST` | `/api/observations/nouvelle` | Clôt l'observation en cours et en ouvre une neuve sur le même lien (poste local) |
+| `GET` | `/api/observations` | Les observations : modèle, lien, début, dernier relevé, en cours ou non |
+| `GET` | `/api/observation` | Verdict, bande et coupures d'une observation (`id`, la courante sinon ; `fenetre` : `tout`, `1h`, `24h`) |
+| `GET` | `/api/observations/{id}/coupures.csv` | Export des coupures : début, fin, durée, type, cause |
+| `GET` | `/api/observations/{id}/releves.csv` | Export des relevés : instant, mesuré, connecté, message, ancienneté, latence |
+
+**Exports CSV** : même convention que le superviseur — BOM UTF-8, séparateur `;`, virgule
+décimale, heure locale du poste (`# fuseau;UTC+02:00` en en-tête), pour s'ouvrir tel quel
+dans Excel en français. L'en-tête ne porte que modèle, firmware (observation en cours
+seulement), lien (« WAN n »), début et fin : ni série, ni position, ni nom de WAN. Une
+grandeur absente est une cellule vide, jamais 0 ; une cellule de texte qui commencerait par
+`= + - @` est neutralisée. Une coupure dont la fin n'a pas été vue est marquée
+« (fin non observée) » — sa durée est un minimum —, une coupure ouverte « (en cours) ».
 
 ---
 
