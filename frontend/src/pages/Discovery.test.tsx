@@ -168,3 +168,25 @@ describe('un équipement déjà vu et déjà supervisé (A-11)', () => {
     expect(screen.queryByRole('button', { name: 'Reconnecter' })).toBeNull()
   })
 })
+
+describe('avant la première lecture de la flotte', () => {
+  it('n’affirme ni « aucun équipement » ni « mettre en supervision »', async () => {
+    // `supervised` démarrait à `[]` : le temps de la première réponse, l'écran
+    // affirmait « Aucun équipement en supervision » et, si la recherche
+    // répondait avant la liste, proposait d'appairer un équipement que le
+    // serveur supervisait déjà.
+    let rendre: ((l: DeviceStatus[]) => void) | undefined
+    vi.mocked(fetchDevices).mockImplementation(() => new Promise((r) => { rendre = r }))
+    vi.mocked(fetchDiscovery).mockResolvedValue([detecte({ already_configured: false })])
+    monter()
+    expect(await screen.findByText('vérification…')).toBeInTheDocument()
+    expect(screen.queryByText(/Aucun équipement en supervision/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mettre en supervision' })).toBeNull()
+    expect(screen.getByRole('status').textContent).toMatch(/Lecture des équipements supervisés/)
+
+    // La réponse arrive : l'équipement détecté est déjà supervisé.
+    rendre!([supervise()])
+    expect(await screen.findByRole('link', { name: /déjà supervisé/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Mettre en supervision' })).toBeNull()
+  })
+})
