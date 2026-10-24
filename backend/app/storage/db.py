@@ -21,6 +21,9 @@ import aiosqlite
 
 from ..identite import FORME_ANCIEN_IDENTIFIANT, ancien_identifiant, identifiant_opaque
 from ..models import HistoryPoint, RadioSample, RouterEvent, STATUT_DESACTIVE, nom_du_reseau, utcnow
+from ..regles_coupure import (
+    sql_coupure, sql_ecart_ms, sql_micro_coupure, sql_voisins, sql_voisins_entre,
+)
 from ..sessions import _TROU_MAX_S
 
 # Fenêtre pendant laquelle un pic de latence est rapporté au changement de
@@ -1798,8 +1801,16 @@ class SampleRepository:
         #
         # Le brassage de cellules, plus bas, est un AGRÉGAT par lien et non une
         # liste : il garde sa propre passe.
+        # Coupure, micro-coupure, voisinage : les règles de `regles_coupure`,
+        # celles de la fiche de session et du collecteur, en fragments à
+        # paramètres liés — et non plus une copie qui en divergeait.
+        micro = sql_micro_coupure(
+            "connecte_avant", "connected", "uptime_avant", "uptime_s",
+            "message_avant", "status_message",
+        )
+        voisin = sql_voisins("ecart_ms")
         async with lecteur.execute(
-            """
+            f"""
             WITH f AS (
               SELECT wan_id, kind, ts, connected, uptime_s, status_message, tunnel_state,
                      LAG(connected)      OVER w AS connecte_avant,
@@ -1812,7 +1823,7 @@ class SampleRepository:
                      -- 30 août au 11 septembre datait une coupure, un retour ou
                      -- une bascule du premier relevé revu — un fait inventé.
                      -- Même garde que `bascules`.
-                     (julianday(ts) - julianday(LAG(ts) OVER w)) * 86400.0 AS ecart_s
+                     {sql_ecart_ms("LAG(ts) OVER w", "ts")} AS ecart_ms
               FROM samples
               WHERE router_id = ? AND ts >= ? AND ts <= ?
               WINDOW w AS (PARTITION BY wan_id ORDER BY ts)
@@ -1821,12 +1832,8 @@ class SampleRepository:
                    status_message, message_avant, tunnel_state,
                    (connecte_avant = 1 AND connected = 0) AS coupure,
                    (connecte_avant = 0 AND connected = 1) AS retour,
-                   (connected = 1 AND connecte_avant = 1
-                    AND uptime_s IS NOT NULL AND uptime_avant IS NOT NULL
-                    AND uptime_s < uptime_avant
-                    -- Passage en secours : uptime remis à 0 sans coupure.
-                    AND LOWER(COALESCE(status_message, '')) NOT LIKE 'standby%'
-                    AND LOWER(COALESCE(message_avant, '')) NOT LIKE 'standby%') AS micro,
+                   -- Passage en secours : uptime remis à 0 sans coupure.
+                   {micro.sql} AS micro,
                    -- Seulement quand l'état de connexion NE CHANGE PAS : sinon la
                    -- coupure ou le retour porte déjà le message dans sa propre
                    -- colonne, et la ligne ferait doublon.
@@ -1837,10 +1844,10 @@ class SampleRepository:
                     AND (tunnel_avant = 'ACTIVE') <> (tunnel_state = 'ACTIVE')
                     AND connected = connecte_avant)       AS bascule_bond
             FROM f
-            WHERE ecart_s <= ? AND (coupure OR retour OR micro OR signalement OR bascule_bond)
+            WHERE {voisin.sql} AND (coupure OR retour OR micro OR signalement OR bascule_bond)
             ORDER BY ts
             """,
-            (*bornes, _TROU_MAX_S),
+            (*bornes, *micro.params, *voisin.params),
         ) as cursor:
             voisins = [dict(r) for r in await cursor.fetchall()]
 
@@ -1989,13 +1996,19 @@ class SampleRepository:
 
 
         # --- ce qui est trop fréquent pour être listé : le brassage de cellules ---
+        voisin = sql_voisins_entre("LAG(ts) OVER w", "ts")
+        coupure = sql_coupure("f.avant", "f.connected", "f.status_message")
+        micro = sql_micro_coupure(
+            "f.avant", "f.connected", "f.uptime_avant", "f.uptime_s",
+            "f.message_avant", "f.status_message",
+        )
         async with lecteur.execute(
-            """
+            f"""
             WITH f0 AS (
               SELECT wan_id, kind, ts, connected, cell_id, enb_id, uptime_s, status_message,
                      -- Même garde de trou que `voisins` et `bascules` : au-delà,
                      -- chaque WAN comptait un changement de cellule fantôme.
-                     ((julianday(ts) - julianday(LAG(ts) OVER w)) * 86400.0 <= ?) AS voisin
+                     {voisin.sql} AS voisin
               FROM samples
               WHERE router_id = ? AND ts >= ? AND ts <= ?
               WINDOW w AS (PARTITION BY wan_id ORDER BY ts)
@@ -2055,18 +2068,14 @@ class SampleRepository:
                    -- remettait à zéro à chaque relance — dans un panneau intitulé
                    -- « depuis la mise sous tension ».
                    -- Une désactivation par l'exploitant n'en est pas une (C-20).
-                   SUM(f.voisin AND f.avant = 1 AND f.connected = 0
-                       AND COALESCE(f.status_message, '') <> ?)              AS coupures,
-                   SUM(f.voisin AND f.connected = 1 AND f.avant = 1
-                       AND f.uptime_s IS NOT NULL AND f.uptime_avant IS NOT NULL
-                       AND f.uptime_s < f.uptime_avant
-                       AND LOWER(COALESCE(f.status_message, '')) NOT LIKE 'standby%'
-                       AND LOWER(COALESCE(f.message_avant, '')) NOT LIKE 'standby%') AS micro
+                   -- Règles de `regles_coupure`, comme la fiche de session.
+                   SUM(f.voisin AND {coupure.sql})           AS coupures,
+                   SUM(f.voisin AND {micro.sql})             AS micro
             FROM f LEFT JOIN changements ch ON ch.wan_id = f.wan_id
             GROUP BY f.wan_id
             ORDER BY f.wan_id
             """,
-            (_TROU_MAX_S, *bornes, STATUT_DESACTIVE),
+            (*voisin.params, *bornes, *coupure.params, *micro.params),
         ) as cursor:
             brassage = [dict(r) for r in await cursor.fetchall()]
 

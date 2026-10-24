@@ -17,7 +17,8 @@ from typing import NamedTuple
 from .devices.registry import DeviceRecord, DeviceRegistry
 from .fleet import RouterConfig
 from . import alerts as regles_alerte
-from .models import STATUT_DESACTIVE, Alert, RadioSample, en_secours, utcnow
+from .models import STATUT_DESACTIVE, Alert, RadioSample, utcnow
+from .regles_coupure import est_coupure, est_micro_coupure, sont_voisins
 import httpx
 
 from .peplink.router_api import (
@@ -1489,25 +1490,22 @@ class Poller:
                 if connue is not None and connue != status.cell_id:
                     self._cell_changes[key] += 1
                 self._derniere_cellule[key] = status.cell_id
-            if previous is not None:
-                if previous.wan.connected and not status.connected:
+            # Les règles de `regles_coupure`, celles de la fiche et du journal.
+            # Une coupure PLUS COURTE QUE LE CYCLE ne se voit pas en `connected` :
+            # le lien est reparti avant qu'on le relise, et les deux relevés
+            # l'encadrant le montrent connecté. Seul l'`uptime` trahit le
+            # rétablissement — il recule. À 5,3 s de période, c'est un angle mort
+            # de plusieurs secondes à chaque cycle, et les micro-coupures sont
+            # précisément ce qui fait décrocher un flux sans jamais apparaître
+            # dans un compteur. Rien ne se compte à travers un trou de lecture :
+            # ce qui s'y est passé n'a pas été observé.
+            if previous is not None and sont_voisins(previous.ts, lu_a):
+                if est_coupure(previous.wan.connected, status.connected, status.status_message):
                     self._disconnects[key] += 1
-                # Une coupure PLUS COURTE QUE LE CYCLE ne se voit jamais ainsi :
-                # le lien est reparti avant qu'on le relise, et les deux
-                # relevés l'encadrant le montrent connecté. Seul l'`uptime`
-                # trahit le rétablissement — il recule. À 5,3 s de période,
-                # c'est un angle mort de plusieurs secondes à chaque cycle, et
-                # les micro-coupures sont précisément ce qui fait décrocher un
-                # flux sans jamais apparaître dans un compteur.
-                elif (
-                    status.connected
-                    and previous.wan.connected
-                    and status.uptime_s is not None
-                    and previous.wan.uptime_s is not None
-                    and status.uptime_s < previous.wan.uptime_s
-                    # Passage en secours : l'uptime repart de 0 sans coupure.
-                    and not en_secours(status.status_message)
-                    and not en_secours(previous.wan.status_message)
+                elif est_micro_coupure(
+                    previous.wan.connected, status.connected,
+                    previous.wan.uptime_s, status.uptime_s,
+                    previous.wan.status_message, status.status_message,
                 ):
                     self._disconnects[key] += 1
                     logger.info(

@@ -422,6 +422,28 @@ def test_a_switch_to_standby_is_not_counted_as_an_outage():
     assert liens["2"].outages == 1
 
 
+def test_no_outage_is_counted_across_a_supervision_gap():
+    """Lien vu debout, trou de supervision de dix minutes, lien revu coupé —
+    ou revu debout avec un uptime plus court. Ce qui s'est passé dans le trou
+    n'a pas été observé : le journal de la session ne le liste pas, la fiche ne
+    le compte plus (règles communes de `regles_coupure`)."""
+    chute = [_ligne("1", 0, uptime_s=500), _ligne("1", 120, connected=0, uptime_s=None)]
+    recul = [_ligne("2", 0, uptime_s=500), _ligne("2", 120, uptime_s=30)]
+    liens = {l.wan_id: l for l in build_summary(_session(), chute + recul, None).links}
+    assert liens["1"].outages == 0
+    assert liens["2"].outages == 0
+
+
+def test_a_standby_message_with_stray_spaces_is_still_standby():
+    """Les anciennes lignes peuvent porter des blancs autour du message : la
+    fiche les tolère — exactement comme le journal, désormais."""
+    lignes = [
+        _ligne("3", 0, uptime_s=78, status_message="Connected to SFR"),
+        _ligne("3", 1, uptime_s=0, status_message="  Standby "),
+    ]
+    assert build_summary(_session(), lignes, None).links[0].outages == 0
+
+
 def test_a_cell_change_across_an_outage_is_counted_on_the_sheet():
     """La fiche disait « 0 changement » d'un lien revenu sur une autre cellule."""
     lignes = [_ligne("3", 0, cell_id=25698582)]

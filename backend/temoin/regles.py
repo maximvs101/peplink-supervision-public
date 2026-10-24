@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.models import en_secours
+from app.regles_coupure import en_secours
 
 # Écart au-delà duquel deux relevés ne se suivent pas (veille du PC, réseau perdu).
 TROU_S = 15.0

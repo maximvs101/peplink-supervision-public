@@ -18,9 +18,10 @@ from datetime import datetime
 from math import atan2, cos, degrees, radians, sin, sqrt
 
 from .models import (
-    STATUT_DESACTIVE, BondAvailability, CellLatency, PathDiversity, Session, SessionLink,
-    SessionSummary, en_secours, nom_du_reseau,
+    BondAvailability, CellLatency, PathDiversity, Session, SessionLink, SessionSummary,
+    nom_du_reseau,
 )
+from .regles_coupure import TROU_MAX_S, est_coupure, est_micro_coupure, sont_voisins
 
 # Rayon de la Terre en mètres, pour ramener des degrés à une distance.
 _RAYON_TERRE_M = 6_371_000.0
@@ -28,8 +29,8 @@ _RAYON_TERRE_M = 6_371_000.0
 # Au-delà de cet écart entre deux relevés consécutifs, on cesse d'intégrer : le
 # superviseur s'est arrêté, ou l'équipement n'a pas répondu. Prolonger le dernier
 # débit connu sur un trou de cinq minutes inventerait des mégaoctets qui n'ont
-# jamais circulé.
-_TROU_MAX_S = 60.0
+# jamais circulé. Le seuil est celui des règles de coupure : un seul trou.
+_TROU_MAX_S = TROU_MAX_S
 
 
 # Relevés qu'une cellule doit réunir avant qu'on publie ses percentiles.
@@ -443,23 +444,23 @@ def _resume_lien(
                     mb_down += float(precedent["rx_kbps"]) * ecart / 8_000.0
                     mesure_down = True
 
-            # Une désactivation par l'exploitant n'est pas une coupure (C-20).
-            if (precedent["connected"] and not ligne["connected"]
-                    and ligne.get("status_message") != STATUT_DESACTIVE):
-                coupures += 1
-            elif (
-                precedent["connected"]
-                and ligne["connected"]
-                and ligne["uptime_s"] is not None
-                and precedent["uptime_s"] is not None
-                and ligne["uptime_s"] < precedent["uptime_s"]
-                # Passage en secours : l'uptime repart de 0 sans coupure.
-                and not en_secours(ligne.get("status_message"))
-                and not en_secours(precedent.get("status_message"))
-            ):
+            # Les règles de `regles_coupure`, celles du journal et du brassage :
+            # une désactivation n'est pas une coupure (C-20), un passage en
+            # secours n'est pas une micro-coupure, et rien ne se compte À
+            # TRAVERS un trou de supervision — la fiche comptait une coupure
+            # entre un lien vu debout avant le trou et coupé après, que le
+            # journal de la même session ne listait pas.
+            if sont_voisins(precedent["ts"], ligne["ts"]) and (
+                est_coupure(precedent["connected"], ligne["connected"], ligne.get("status_message"))
                 # Rétablissement entre deux relevés : les deux montrent le lien
                 # debout, seul l'uptime qui recule trahit la coupure. À 5,3 s de
                 # période, c'est l'angle mort où se cachent les micro-coupures.
+                or est_micro_coupure(
+                    precedent["connected"], ligne["connected"],
+                    precedent["uptime_s"], ligne["uptime_s"],
+                    precedent.get("status_message"), ligne.get("status_message"),
+                )
+            ):
                 coupures += 1
         if ligne["connected"] and ligne["cell_id"] is not None:
             cellule = int(ligne["cell_id"])

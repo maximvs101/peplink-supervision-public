@@ -979,6 +979,27 @@ async def test_a_switch_to_standby_does_not_count_a_disconnect(poller):
     assert p.latest["dome"]["3"].disconnects == 1
 
 
+async def test_no_disconnect_is_counted_across_a_read_gap(poller, monkeypatch):
+    """Deux lectures séparées de plus d'une minute ne sont plus voisines : une
+    chute ou un uptime qui recule entre elles n'a pas été observé, et le
+    compteur du collecteur ne le compte plus — même règle que le journal."""
+    from datetime import timedelta
+
+    from app import models
+
+    p, registry = poller
+    record = await registry.add(_config("dome"))
+    wan = lambda up: WanRadioStatus(wan_id="3", wan_name="SIM 3", kind="cellular",
+                                    connected=True, uptime_s=up, status_message="Connected")
+    instant = models.utcnow()
+    for decalage, up in ((0, 500), (120, 30), (125, 2)):
+        monkeypatch.setattr(models, "_horloge", lambda d=decalage: instant + timedelta(seconds=d))
+        record.client.get_radio_status = AsyncMock(return_value=[wan(up)])
+        await p._poll_once()
+    # Le recul à travers le trou ne compte pas ; celui d'après, entre voisins, si.
+    assert p.latest["dome"]["3"].disconnects == 1
+
+
 async def test_a_cell_change_across_an_outage_is_counted_live(poller):
     """Le compteur en direct du collecteur suivait le même défaut."""
     p, registry = poller
