@@ -19,12 +19,12 @@ export function SansMesure({ status, sessions }: { status: DeviceLinkStatus; ses
     <>
       <div className="notice">
         {status === 'connecté' || status === 'en attente'
-          ? 'Connexion à l’équipement et première mesure en cours…'
+          ? 'Connexion et première mesure en cours…'
           : status === 'identifiants refusés'
             // Un refus n'est pas un silence : « ne répond pas » envoyait
             // chercher une panne de réseau (C-42).
-            ? 'Aucune mesure : les identifiants ont été refusés — voir ci-dessus.'
-            : 'Aucune mesure : l’équipement ne répond pas — voir le bandeau.'}
+            ? 'Aucune mesure — identifiants refusés.'
+            : 'Aucune mesure — équipement injoignable.'}
       </div>
       {sessions.length > 0 && (
         <div className="notice">

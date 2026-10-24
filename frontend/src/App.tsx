@@ -67,11 +67,9 @@ function Panne({ panne, premiere }: { panne: string | null; premiere: boolean })
   return (
     <div className="page is-narrow" style={{ paddingBottom: 0 }}>
       <div className="notice is-error" role="alert">
-        <strong>Le service de supervision ne répond pas.</strong> {panne}. Nouvelle
-        tentative toutes les quinze secondes
-        {premiere
-          ? ' ; rien n’a encore été lu — il tourne sur cette machine et sert aussi cette interface.'
-          : ' ; ce qui est affiché date de la dernière réponse.'}
+        <strong>Le service de supervision ne répond pas.</strong> {panne}. Nouvel essai
+        toutes les 15 s
+        {premiere ? ' ; aucune réponse reçue.' : ' ; affichage : dernière réponse.'}
       </div>
     </div>
   )
@@ -100,8 +98,8 @@ function Frame({ routers, health, panne, santePanne }: {
           <div className="notice is-warn" role="status">
             <strong>État de santé du service illisible :</strong> {santePanne}.{' '}
             {health !== null
-              ? 'La période de scrutation retenue date de la dernière lecture aboutie.'
-              : 'Aucune période de scrutation du service n’est connue.'}
+              ? 'Période de scrutation : dernière lecture aboutie.'
+              : 'Période de scrutation inconnue.'}
           </div>
         </div>
       )}

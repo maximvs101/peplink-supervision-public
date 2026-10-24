@@ -172,7 +172,7 @@ describe('une panne du service', () => {
     render(<App />)
     await act(async () => { await vi.advanceTimersByTimeAsync(20) })
     const alerte = screen.getAllByRole('alert').find((a) => /ne répond pas/.test(a.textContent ?? ''))
-    expect(alerte?.textContent).toMatch(/rien n’a encore été lu/)
+    expect(alerte?.textContent).toMatch(/aucune réponse reçue/)
     expect(alerte?.textContent).not.toMatch(/dernière réponse/)
   })
 })

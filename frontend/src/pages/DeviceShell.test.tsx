@@ -184,7 +184,7 @@ describe('la cause d’un tunnel à terre (R-1.5)', () => {
     }))
     monter()
     expect(await screen.findByText(
-      /jamais établi dans cette session \(profil PROFIL-B : le routeur tente de joindre le pair, 0 pair connecté\)/,
+      /jamais établi dans cette session \(profil PROFIL-B : tentative en cours \(START\), 0 pair connecté\)/,
     )).toBeInTheDocument()
   })
 })

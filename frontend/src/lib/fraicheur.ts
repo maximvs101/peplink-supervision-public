@@ -53,6 +53,5 @@ export function phraseFraicheur(nom: string, f: Fraicheur, maintenant: number): 
     ? 'aucune réponse obtenue'
     : `dernière réponse il y a ${duree(maintenant - f.lueA)}`
   const cause = f.echec !== null ? ` — dernière relecture en échec : ${f.echec}` : ''
-  const suite = f.lueA === null ? '' : '. Ce qui est affiché date de cette réponse'
-  return `${nom} : ${age}${cause}${suite}.`
+  return `${nom} : ${age}${cause}.`
 }

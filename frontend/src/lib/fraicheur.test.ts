@@ -14,10 +14,9 @@ describe('fraîcheur d’une partie', () => {
 
   it('parle au-delà de deux périodes, ou dès un échec', () => {
     expect(phraseFraicheur('Bande', lue(0), 61_000))
-      .toBe('Bande : dernière réponse il y a 61 s. Ce qui est affiché date de cette réponse.')
+      .toBe('Bande : dernière réponse il y a 61 s.')
     expect(phraseFraicheur('Journal', lue(0, '503'), 5_000))
-      .toBe('Journal : dernière réponse il y a 5 s — dernière relecture en échec : 503. '
-        + 'Ce qui est affiché date de cette réponse.')
+      .toBe('Journal : dernière réponse il y a 5 s — dernière relecture en échec : 503.')
     expect(phraseFraicheur('Journal', { ...fraicheurNeuve(30_000), echec: 'ECONNRESET' }, 0))
       .toBe('Journal : aucune réponse obtenue — dernière relecture en échec : ECONNRESET.')
   })
