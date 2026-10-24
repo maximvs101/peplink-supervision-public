@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from ..discovery.probe import discover
 from .. import coffre
 from ..pairing.service import PairingError, pair, reconnecter
+from ..poller import _JOURNAL_INTERVALLE_S
 from ..peplink.router_api import (
     CredentialsRefusedError, EndpointRefusedError, hote_canonique, parse_peers, redact,
 )
@@ -503,13 +504,23 @@ async def session_summary(
     faits = await repo.router_events(
         session.router_id, datetime.fromisoformat(lu_de), datetime.fromisoformat(lu_a),
     )
+    # Encore faut-il que le journal ait été LU sur cette fenêtre : refusé,
+    # absent du client, ou écarté pour une horloge décalée, il ne prouve
+    # aucune absence — la fiche disait « 0 » sur un journal jamais ouvert.
+    # Un fait retenu dans la fenêtre vaut preuve de lecture (bases d'avant le
+    # suivi des lectures) ; sinon, une lecture notée entre le début relu et
+    # la fin, à un intervalle de lecture près.
+    journal_lu = bool(faits) or await repo.journal_read_between(
+        session.router_id, datetime.fromisoformat(lu_de),
+        datetime.fromisoformat(lu_a) + timedelta(seconds=_JOURNAL_INTERVALLE_S),
+    )
     manoeuvres: dict[str, int] = {}
     for f in faits:
         if f.wan_id and (f.kind in ("bascule de SIM", "configuration modifiée")
                          or (f.kind == "coupure" and (f.detail or "").lower() == "disabled")):
             manoeuvres[f.wan_id] = manoeuvres.get(f.wan_id, 0) + 1
     for lien in fiche.links:
-        lien.maneuvers = manoeuvres.get(lien.wan_id, 0)
+        lien.maneuvers = manoeuvres.get(lien.wan_id, 0) if journal_lu else None
     return fiche
 
 
@@ -790,7 +801,7 @@ async def get_events(
                 link_kind=str(c["kind"] or "cellular"),
                 has_cells=bool(c["avec_cellule"]),
                 cell_changes=int(c["cellules"] or 0),
-                station_changes=int(c["stations"] or 0),
+                station_changes=None if c["stations"] is None else int(c["stations"]),
                 outages=int(c["coupures"] or 0) + int(c["micro"] or 0),
             )
             for c in sorted(brassage, key=lambda c: _wan_order(str(c["wan_id"])))

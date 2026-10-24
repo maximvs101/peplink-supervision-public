@@ -577,7 +577,9 @@ def build_summary(
         cells=_latence_par_cellule(lignes),
         availability=_disponibilite(lignes),
         diversity=_diversite(lignes),
-        sites=len(stations),
+        # Aucune station identifiable (5G SA, lignes sans `enb_id`) : le nombre
+        # de sites est inconnu, pas nul.
+        sites=len(stations) or None,
         partial=fenetre is not None,
         window_start=fenetre[0] if fenetre else None,
         window_end=fenetre[1] if fenetre else None,

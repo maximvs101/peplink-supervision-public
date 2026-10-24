@@ -367,8 +367,18 @@ class Poller:
         faits = await lire(noms)
         if not self._still_supervised(record):
             return
+        # Une lecture ABOUTIE se note : sans elle, la fiche ne sait pas si
+        # « aucune manœuvre » est un constat ou un journal jamais lu. Un client
+        # qui n'a pas pu le lire rend `None` ; un refus définitif du firmware
+        # éteint `_supports_log` et rend `[]` — ni l'un ni l'autre n'est une
+        # lecture. (Une panne passagère rend encore `[]` côté client : seul
+        # `None` permettrait de la distinguer.)
+        lu = faits is not None and getattr(record.client, "_supports_log", True) is not False
+        faits = faits or []
         await self._repo.insert_router_events(record.id, faits)
         maintenant = utcnow()
+        if lu:
+            await self._repo.note_journal_read(record.id, maintenant)
         refus = await self._repo.router_events(
             record.id, maintenant - timedelta(seconds=_ADMIN_FENETRE_S), maintenant,
             kinds=("connexion admin refusée",),

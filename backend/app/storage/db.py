@@ -409,6 +409,18 @@ CREATE TABLE IF NOT EXISTS router_events (
 CREATE INDEX IF NOT EXISTS idx_router_events_ts ON router_events (router_id, ts);
 """
 
+# Les LECTURES abouties du journal du routeur, une ligne par lecture. Un fait
+# absent de `router_events` ne dit rien tant qu'on ignore si le journal a été
+# lu : refus, client sans journal, horloge décalée — la fiche affichait alors
+# « 0 manœuvre » sur un journal que personne n'avait ouvert.
+_JOURNAL_LECTURES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS router_journal_reads (
+    router_id TEXT NOT NULL,
+    ts        TEXT NOT NULL,
+    PRIMARY KEY (router_id, ts)
+);
+"""
+
 _SESSIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -621,6 +633,7 @@ class SampleRepository:
         await self._conn.executescript(_DEVICES_SCHEMA)
         await self._conn.executescript(_SESSIONS_SCHEMA)
         await self._conn.executescript(_ROUTER_EVENTS_SCHEMA)
+        await self._conn.executescript(_JOURNAL_LECTURES_SCHEMA)
         await self._conn.executescript(_ROUTER_HISTORY_SCHEMA)
         await self._migrate()
         await self._conn.commit()
@@ -929,6 +942,27 @@ class SampleRepository:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 [(router_id, f.ts.isoformat(), f.kind, f.wan_id, f.detail, f.empreinte) for f in faits],
             )
+
+    async def note_journal_read(self, router_id: str, lu_a: datetime) -> None:
+        """Retient qu'une lecture du journal du routeur a ABOUTI à `lu_a`."""
+        if self._conn is None:
+            return
+        async with self.transaction():
+            await self._conn.execute(
+                "INSERT OR IGNORE INTO router_journal_reads (router_id, ts) VALUES (?, ?)",
+                (router_id, lu_a.isoformat()),
+            )
+
+    async def journal_read_between(self, router_id: str, debut: datetime, fin: datetime) -> bool:
+        """Le journal du routeur a-t-il été lu au moins une fois entre `debut`
+        et `fin` ? Sans cela, l'absence d'un fait n'en est pas la preuve."""
+        if self._conn is None:
+            return False
+        async with self._conn.execute(
+            "SELECT 1 FROM router_journal_reads WHERE router_id = ? AND ts >= ? AND ts <= ? LIMIT 1",
+            (router_id, debut.isoformat(), fin.isoformat()),
+        ) as cursor:
+            return await cursor.fetchone() is not None
 
     async def router_events(
         self, router_id: str, debut: datetime, fin: datetime, kinds: tuple[str, ...] | None = None,
@@ -1883,7 +1917,11 @@ class SampleRepository:
                    -- zéro serait une vraie stabilité.
                    SUM(f.cell_id IS NOT NULL)                AS avec_cellule,
                    COALESCE(MAX(ch.cellules), 0)             AS cellules,
-                   COALESCE(MAX(ch.stations), 0)             AS stations,
+                   -- Même règle pour la STATION : sans aucune station
+                   -- relevée (5G SA, lignes sans `enb_id`), le compte est
+                   -- inconnu, pas nul.
+                   CASE WHEN SUM(f.station IS NOT NULL) > 0
+                        THEN COALESCE(MAX(ch.stations), 0) END AS stations,
                    -- Les coupures de CETTE fenêtre. Le compteur de l'écran les
                    -- cumulait depuis le démarrage du processus superviseur : une
                    -- base de temps qui n'apparaissait nulle part, et qui se

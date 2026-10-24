@@ -594,7 +594,7 @@
     "link_kind": "ethernet",
     "has_cells": false,
     "cell_changes": 0,
-    "station_changes": 0,
+    "station_changes": null,
     "outages": 0
    },
    {
@@ -618,7 +618,7 @@
     "link_kind": "wifi",
     "has_cells": false,
     "cell_changes": 0,
-    "station_changes": 0,
+    "station_changes": null,
     "outages": 0
    }
   ],
@@ -641,7 +641,7 @@
     "kind": "ethernet",
     "operator": null,
     "operators": [],
-    "maneuvers": 0,
+    "maneuvers": null,
     "samples": 2,
     "mb_up": null,
     "mb_down": null,
@@ -667,7 +667,7 @@
     "operators": [
      "Orange"
     ],
-    "maneuvers": 0,
+    "maneuvers": null,
     "samples": 2,
     "mb_up": null,
     "mb_down": null,
@@ -693,7 +693,7 @@
     "operators": [
      "Orange"
     ],
-    "maneuvers": 0,
+    "maneuvers": null,
     "samples": 2,
     "mb_up": null,
     "mb_down": null,
@@ -719,7 +719,7 @@
     "operators": [
      "EQUIPEMENT-DEMO"
     ],
-    "maneuvers": 0,
+    "maneuvers": null,
     "samples": 2,
     "mb_up": null,
     "mb_down": null,
