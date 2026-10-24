@@ -980,24 +980,29 @@ def test_a_model_without_the_endpoint_is_asked_only_once():
     from app.fleet import RouterConfig
     from app.models import WanRadioStatus
     from app.peplink.router_api import (
-        EndpointRefusedError,
         RouterApiError,
         RouterApiPeplinkClient,
     )
 
     client = RouterApiPeplinkClient(RouterConfig(id="r", name="R", host="h"))
 
-    # Refus du firmware : ce modèle ne le propose pas. On cesse de demander.
-    with patch.object(client, "_get", AsyncMock(side_effect=EndpointRefusedError("999"))):
-        asyncio.run(client._attach_path_latency([WanRadioStatus(wan_id="4", wan_name="W")]))
-    assert client._supports_wan_latency is False
+    # Refus du firmware : ce modèle ne le propose pas. On cesse de demander —
+    # jusqu'à l'échéance de la mémoire des refus de `_get`, ici sous elle.
+    inconnu = {"stat": "fail", "code": 999, "message": "unknown function"}
+    transport = AsyncMock(return_value=inconnu)
+    with patch.object(client, "_request", transport), \
+         patch.object(client, "_ensure_authenticated", AsyncMock(return_value=1)):
+        for _ in range(2):
+            asyncio.run(client._attach_path_latency([WanRadioStatus(wan_id="4", wan_name="W")]))
+    assert transport.await_count == 1
+    assert client._retenu("status.wan.latency") is not None
     assert client._wan_latency_at is None
 
     # Panne de transport : la sonde reste vivante, et l'instant n'est pas marqué.
     autre = RouterApiPeplinkClient(RouterConfig(id="r", name="R", host="h"))
     with patch.object(autre, "_get", AsyncMock(side_effect=RouterApiError("réseau"))):
         asyncio.run(autre._attach_path_latency([WanRadioStatus(wan_id="4", wan_name="W")]))
-    assert autre._supports_wan_latency is True
+    assert autre._retenu("status.wan.latency") is None
     assert autre._wan_latency_at is None, (
         "un échec ne consomme pas l'intervalle : sinon trois secondes de coupure "
         "coûteraient une minute de mesure"

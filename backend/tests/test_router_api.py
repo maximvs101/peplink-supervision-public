@@ -798,6 +798,73 @@ async def test_capabilities_out_of_scope_are_probed_once_and_settled():
     await client.aclose()
 
 
+async def test_a_login_cut_by_the_deadline_still_records_its_refusal():
+    """L'échéance des compléments annule leur coroutine — y compris une
+    reconnexion en vol. Le `POST /api/login` partait, le routeur comptait
+    l'échec, mais l'annulation tombait avant la lecture de la réponse : le
+    refus n'était pas mémorisé, et le cycle suivant retentait un login. Cinq
+    cycles coupés ainsi suffisaient à suspendre l'accès admin cinq minutes.
+
+    La reconnexion va désormais à son terme quoi qu'il arrive à l'appelant, et
+    un appel concurrent attend LA MÊME tentative au lieu d'en ouvrir une autre.
+    """
+    from app.peplink.router_api import avant_echeance
+
+    logins = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal logins
+        if request.url.path == "/api/login":
+            logins += 1
+            await asyncio.sleep(0.2)
+            return httpx.Response(200, json={"stat": "fail", "message": "mauvais mot de passe"})
+        return httpx.Response(200, json={"stat": "ok", "response": {}})
+
+    client = await _client(handler)
+    boucle = asyncio.get_running_loop()
+    fait, _ = await avant_echeance(boucle.time() + 0.05, client._get("status.traffic"))
+    assert fait is False, "l'échéance a bien coupé l'appelant"
+
+    # Pendant que la tentative est encore en vol, un autre appel la rejoint.
+    with pytest.raises(CredentialsRefusedError):
+        await client._get("status.wan.connection")
+    assert logins == 1
+    assert client._credentials_refused is True
+
+    # Et le refus tient : plus aucun login.
+    with pytest.raises(CredentialsRefusedError):
+        await client._get("status.wan.connection")
+    assert logins == 1
+    await client.aclose()
+
+
+async def test_a_cancelled_caller_alone_does_not_lose_the_refusal():
+    """Même scénario sans appel concurrent : le refus est mémorisé par la
+    tentative elle-même, une fois la réponse arrivée."""
+    from app.peplink.router_api import avant_echeance
+
+    logins = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal logins
+        if request.url.path == "/api/login":
+            logins += 1
+            await asyncio.sleep(0.1)
+            return httpx.Response(200, json={"stat": "fail", "message": "refusé"})
+        return httpx.Response(200, json={"stat": "ok", "response": {}})
+
+    client = await _client(handler)
+    boucle = asyncio.get_running_loop()
+    fait, _ = await avant_echeance(boucle.time() + 0.02, client._get("status.traffic"))
+    assert fait is False
+    await asyncio.sleep(0.2)
+    assert client._credentials_refused is True
+    with pytest.raises(CredentialsRefusedError):
+        await client._get("status.wan.connection")
+    assert logins == 1
+    await client.aclose()
+
+
 async def test_concurrent_first_reads_share_a_single_login():
     """Identité, fiche et relevé partent ensemble au premier cycle.
 
@@ -1055,7 +1122,7 @@ async def test_unsupported_traffic_stops_being_requested():
     for _ in range(3):
         await client.get_radio_status()
     assert calls["traffic"] == 1
-    assert client._supports_traffic is False
+    assert client._retenu("status.traffic") is not None
     await client.aclose()
 
 
@@ -1211,7 +1278,7 @@ def test_a_CREDENTIALS_refusal_does_not_condemn_the_per_wan_throughput():
         raise CredentialsRefusedError("identifiants refusés", code=403)
 
     client._get = refus  # type: ignore[method-assign]
-    assert client._supports_traffic is True
+    assert client._retenu("status.traffic") is None
 
     async def scenario() -> None:
         try:
@@ -1222,7 +1289,7 @@ def test_a_CREDENTIALS_refusal_does_not_condemn_the_per_wan_throughput():
             raise AssertionError("le refus d'identifiants a été avalé")
 
     asyncio.run(scenario())
-    assert client._supports_traffic is True, "un refus d'identifiants a condamné la sonde"
+    assert client._retenu("status.traffic") is None, "un refus d'identifiants a condamné la sonde"
 
 
 def test_new_credentials_revive_what_the_refusal_had_condemned():
@@ -1235,17 +1302,20 @@ def test_new_credentials_revive_what_the_refusal_had_condemned():
     from app.fleet import RouterConfig
     from app.peplink.router_api import RouterApiPeplinkClient
 
+    import time
+
     client = RouterApiPeplinkClient(RouterConfig(id="r", name="R", host="h"))
-    client._supports_traffic = False
-    client._supports_tunnel = False
+    loin = time.monotonic() + 3600
+    client._retenus["status.traffic"] = (loin, "droits", 401)
+    client._retenus["status.pepvpn?infoType=peer"] = (loin, "non proposé", 999)
     client._tunnel_skip = 10
     client._credentials_refused = True
 
     client.allow_new_credentials()
 
     assert client._credentials_refused is False
-    assert client._supports_traffic is True
-    assert client._supports_tunnel is True
+    assert client._retenu("status.traffic") is None
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is None
     assert client._tunnel_skip == 0
 
 
@@ -1344,7 +1414,7 @@ def test_an_unreadable_payload_never_costs_the_whole_reading():
     assert len(statuses) == 1 and statuses[0].wan_id == "4"
     assert statuses[0].rx_kbps is None and statuses[0].tx_kbps is None
     # Et la sonde n'est pas condamnée : c'est une charge illisible, pas un refus.
-    assert client._supports_traffic is True
+    assert client._retenu("status.traffic") is None
 
 
 def test_a_lone_carrier_at_pci_zero_is_read_as_not_reported():

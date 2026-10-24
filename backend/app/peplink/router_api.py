@@ -106,10 +106,6 @@ _KBPS_FROM = {"bps": 0.001, "kbps": 1.0, "mbps": 1000.0, "gbps": 1_000_000.0}
 # 401 = pas de session ; 301 = requête d'authentification rejetée ; 403 = interdit.
 _AUTH_FAIL_CODES = {301, 401, 403}
 
-# Refus de DROITS : les identifiants sont bons, mais le client API n'a pas accès
-# à CET endpoint. À distinguer d'un 401, qui condamne tout le relevé.
-_FORBIDDEN_CODE = 403
-
 # Ce qu'aucun refus ne retient hors du périmètre (C-1). Sans le relevé WAN ni
 # la fiche système, il n'y a plus d'équipement supervisé : les retenir sur un
 # refus passager — le serveur web du routeur qui redémarre juste après un
@@ -122,6 +118,34 @@ _JAMAIS_HORS_PERIMETRE = frozenset({"status.wan.connection", "status.system.info
 # login toutes les dix minutes sur un vrai refus de droits, plutôt qu'une
 # lecture condamnée jusqu'au redémarrage du serveur sur un refus passager.
 _HORS_PERIMETRE_REESSAI_S = 600.0
+
+# Les trois natures d'un `stat: fail`, qui décident de ce qu'on en retient.
+#
+# Chaque complément tenait son propre drapeau `_supports_*`, passé à faux sur
+# N'IMPORTE quel refus — un 999 « occupé », un 401 juste après une reconnexion
+# — et jamais réarmé : la fonction disparaissait jusqu'au redémarrage du
+# serveur, sans rien à l'écran pour le dire. Il n'y a plus qu'une mémoire, celle
+# de `_get`, et tout ce qu'elle retient expire.
+_DROITS = "droits"            # 401/403 qui survit à un login réussi
+_NON_PROPOSE = "non proposé"  # le firmware dit explicitement ne pas connaître la requête
+_PASSAGER = "passager"        # tout le reste : rien n'est retenu
+# « Non proposé » ne se conclut que sur un refus EXPLICITE : le 404
+# « Unsupported request » mesuré sur le Dome (température d'un WAN non
+# cellulaire), ou un message qui nomme la fonction inconnue. Un 999 « Internal
+# Error » n'en est pas un — c'est un routeur occupé.
+_NON_PROPOSE_CODES = frozenset({404})
+_NON_PROPOSE_MOTS = ("unknown function", "unsupported", "not supported")
+# Durable, mais pas éternel : une mise à jour du firmware peut ajouter
+# l'endpoint, et une requête par heure ne pèse rien.
+_NON_PROPOSE_REESSAI_S = 3600.0
+
+
+def _requete_inconnue(payload: dict) -> bool:
+    """Le firmware dit-il explicitement ne pas connaître cette requête ?"""
+    if _to_int(payload.get("code")) in _NON_PROPOSE_CODES:
+        return True
+    message = str(payload.get("message") or "").lower()
+    return any(mot in message for mot in _NON_PROPOSE_MOTS)
 
 
 async def avant_echeance(echeance: float | None, coro):
@@ -194,6 +218,31 @@ def _corps(payload: object) -> dict:
     return reponse if isinstance(reponse, dict) else {}
 
 
+def _bloc(conteneur: object, cle: str) -> dict:
+    """Le sous-bloc `cle` de `conteneur` s'il est un OBJET, sinon un objet vide.
+
+    `_corps` ne protège que le premier niveau. En dessous, chaque analyseur
+    écrivait `x.get("cellular") or {}` : le `or` couvre `None` et le vide, pas
+    une chaîne. Un `carrier: "Orange"` à la place de `carrier: {"name": …}`
+    levait `AttributeError` dans `parse_wan_connection` — le relevé ENTIER
+    était perdu, et le poller étiquetait « injoignable » un équipement qui
+    venait de répondre. Un bloc d'un autre type est un bloc absent : ce qu'il
+    portait n'est pas lu, le reste l'est.
+    """
+    if not isinstance(conteneur, dict):
+        return {}
+    valeur = conteneur.get(cle)
+    return valeur if isinstance(valeur, dict) else {}
+
+
+def _liste(conteneur: object, cle: str) -> list:
+    """Le pendant de `_bloc` pour une LISTE : `peer: 7` n'est pas itérable."""
+    if not isinstance(conteneur, dict):
+        return []
+    valeur = conteneur.get(cle)
+    return valeur if isinstance(valeur, list) else []
+
+
 def redact(text: str) -> str:
     """Masque la valeur des paramètres de requête qui portent un secret.
 
@@ -228,9 +277,10 @@ class AuthenticationError(RouterApiError):
     minutes. Une erreur de ce type ne doit JAMAIS déclencher de nouvelle
     tentative automatique — c'est à l'utilisateur de corriger et de relancer.
 
-    Attention : un `code` à 403 n'est PAS un refus d'identifiants. Le firmware
-    l'emploie pour dire que le client API n'a pas les droits sur cet endpoint,
-    alors que la session est parfaitement valide.
+    Ce module ne la lève jamais « nue » : seule sa sous-classe
+    `CredentialsRefusedError` l'est. Un refus de DROITS (401/403 qui survit à
+    un login réussi) est une `EndpointRefusedError`, pas une erreur
+    d'identifiants. La classe reste le nom commun que les appelants attrapent.
     """
 
 
@@ -291,12 +341,24 @@ def hote_canonique(host: str | None) -> str | None:
 
 
 class EndpointRefusedError(RouterApiError):
-    """Le firmware a explicitement refusé l'endpoint (`stat: fail`).
+    """Le firmware a refusé la requête (`stat: fail`).
 
-    C'est la seule forme de refus qui autorise à condamner définitivement une
-    fonctionnalité : l'équipement a répondu, et sa réponse dit non. Une erreur de
-    transport ou une réponse illisible restent, elles, des pannes passagères.
+    `nature` dit ce que vaut ce refus : `_DROITS`, `_NON_PROPOSE` ou
+    `_PASSAGER` (voir leur déclaration). Seules les deux premières autorisent
+    à conclure quelque chose de l'équipement, et encore pour un temps : un
+    refus passager ne dit rien de plus qu'une erreur de transport.
+
+    `memoire` : levée depuis la mémoire des refus, sans requête — le refus a
+    déjà été constaté et journalisé.
     """
+
+    def __init__(
+        self, message: str, code: int | None = None, *,
+        nature: str = _PASSAGER, memoire: bool = False,
+    ) -> None:
+        super().__init__(message, code=code)
+        self.nature = nature
+        self.memoire = memoire
 
 
 def _is_auth_failure(payload: dict) -> bool:
@@ -521,11 +583,11 @@ def _parse_bands(cellular: dict) -> list[BandMeasurement]:
     """Aplatit `cellular.rat[].band[]` en une liste de porteuses mesurées."""
     bands: list[BandMeasurement] = []
     for rat in _rat_entries(cellular):
-        rat_name = str(rat.get("name") or "").strip()
-        for band in rat.get("band") or []:
+        rat_name = _texte(rat.get("name")) or ""
+        for band in _liste(rat, "band"):
             if not isinstance(band, dict):
                 continue
-            signal = band.get("signal") or {}
+            signal = _bloc(band, "signal")
             label = _texte(band.get("name"))
             if not label:
                 # Sans libellé, une porteuse n'a pas d'identité : pendant une
@@ -731,19 +793,16 @@ class RouterApiPeplinkClient:
         # qui a vu sa session expirer si un autre l'a déjà renouvelée.
         self._auth_lock = asyncio.Lock()
         self._auth_generation = 0
+        # La tentative d'authentification en cours, s'il y en a une. Voir
+        # `_ensure_authenticated` : elle survit à l'annulation de qui l'a lancée.
+        self._auth_en_vol: asyncio.Future | None = None
         self._credentials_refused = False
-        # Passe à False si l'équipement refuse `status.traffic` : inutile de le
-        # redemander à chaque cycle sur un modèle qui ne le propose pas.
-        self._supports_traffic = True
-        self._supports_tunnel = True
-        self._supports_wan_latency = True
-        self._supports_log = True
-        # Endpoints que CES identifiants ne couvrent pas — un refus d'accès qui
-        # survit à une authentification réussie. Retenus pour ne pas les
-        # redemander : chaque tentative coûterait une ré-authentification.
-        # L'instant du refus, en horloge monotone : la mémoire s'efface passé
-        # `_HORS_PERIMETRE_REESSAI_S`.
-        self._hors_perimetre: dict[str, float] = {}
+        # La SEULE mémoire des refus : clé de requête -> (échéance en horloge
+        # monotone, nature, code du firmware). Un refus de droits survit à une
+        # authentification réussie et coûterait un login à chaque tentative ;
+        # un refus « non proposé » est explicite. Les deux sont retenus, et
+        # redemandés à l'échéance ; un refus passager n'est pas retenu.
+        self._retenus: dict[str, tuple[float, str, int | None]] = {}
         # Instant de la dernière lecture de `status.wan.latency`, en horloge
         # MONOTONE : elle ne recule pas quand le système se synchronise, ce que
         # `utcnow()` fait — et une horloge qui recule d'une minute suspendrait
@@ -766,23 +825,18 @@ class RouterApiPeplinkClient:
         # L'heure de radio du routeur, en attente d'écriture (R-3.1).
         self.serie_qualite: dict[str, list[tuple[datetime, dict]]] | None = None
         self._qualite_at: float | None = None
-        self._supports_qualite = True
         # La dernière série de latence lue, en attente d'écriture (R-3.2).
         self.serie_latence: dict[str, list[tuple[datetime, float | None]]] | None = None
         # Profils SpeedFusion, relus une fois par minute (R-1.5).
         self.bond_profiles: list[BondProfile] = []
         self._profils_at: float | None = None
-        self._supports_profils = True
         # Clients actifs du LAN, relus une fois par minute (R-1.10).
         self.lan_clients: LanClients | None = None
         self._clients_at: float | None = None
-        self._supports_clients = True
-        # Température des modems (R-1.11) : dernière mesure par WAN, et les
-        # WAN que le firmware refuse — un refus vaut pour UN WAN.
+        # Température des modems (R-1.11) : dernière mesure par WAN. Un WAN
+        # que le firmware refuse est retenu par `_get`, pour lui seul.
         self._temperatures: dict[str, tuple[float, datetime]] = {}
         self._temperature_at: float | None = None
-        self._temperature_refusee: set[str] = set()
-        self._supports_temperature = True
         # Seuil de latence du bond, tel que le PROFIL le configure. Arrive avec
         # la liste des pairs, dans une charge utile déjà téléchargée.
         self._latency_cutoff: float | None = None
@@ -847,7 +901,23 @@ class RouterApiPeplinkClient:
                 self._authenticated = False
                 self._token = None
             if not self._authenticated:
-                await self._authenticate()
+                # La tentative vit dans sa PROPRE tâche, protégée de l'annulation
+                # de l'appelant. Un complément coupé par l'échéance du cycle
+                # (`avant_echeance`) annulait sinon un `POST /api/login` déjà
+                # parti : le routeur comptait l'échec, mais la réponse n'était
+                # jamais lue — le refus n'était pas mémorisé, et le cycle suivant
+                # retentait. Cinq cycles ainsi coupés suspendaient l'accès admin.
+                # L'appelant annulé s'en va ; la tentative va à son terme et
+                # arme elle-même `_credentials_refused`. Un appel suivant qui la
+                # trouve encore en vol l'attend au lieu d'en ouvrir une seconde.
+                if self._auth_en_vol is None or self._auth_en_vol.done():
+                    self._auth_en_vol = asyncio.ensure_future(self._authenticate())
+                    # Une issue que plus personne n'attend ne doit pas finir en
+                    # « Task exception was never retrieved » : on la consomme.
+                    self._auth_en_vol.add_done_callback(
+                        lambda t: t.cancelled() or t.exception()
+                    )
+                await asyncio.shield(self._auth_en_vol)
             return self._auth_generation
 
     async def _authenticate(self) -> None:
@@ -874,29 +944,15 @@ class RouterApiPeplinkClient:
     def allow_new_credentials(self) -> None:
         """Lève le verrou : l'exploitant a corrigé les identifiants.
 
-        ET RELÈVE CE QUE LE REFUS AVAIT CONDAMNÉ. Un refus d'identifiants arrivé
-        sur `/api/login` porte un statut HTTP 403, que les gardes prenaient pour
-        un refus de DROITS : `_supports_traffic` et `_supports_tunnel` passaient
-        à faux pour la vie du processus. L'exploitant corrigeait ses identifiants,
-        la supervision repartait — et le débit par WAN restait éteint jusqu'au
-        redémarrage du serveur, sans rien qui le signale.
-
-        Les deux causes sont corrigées, celle-ci en est le filet : après une
-        reprise d'identifiants, on redonne sa chance à chaque sonde.
+        ET OUBLIE LES REFUS RETENUS : d'autres identifiants ont un autre
+        périmètre, et ce qu'un compte restreint se voyait refuser peut être
+        permis au nouveau. Chaque sonde a sa chance tout de suite, sans
+        attendre l'échéance de sa mémoire.
         """
         self._credentials_refused = False
         self._authenticated = False
         self._token = None
-        self._supports_traffic = True
-        self._supports_tunnel = True
-        self._supports_wan_latency = True
-        self._supports_log = True
-        self._supports_profils = True
-        self._supports_clients = True
-        self._supports_qualite = True
-        self._supports_temperature = True
-        self._temperature_refusee = set()
-        self._hors_perimetre = {}   # d'autres identifiants, un autre périmètre
+        self._retenus = {}   # d'autres identifiants, un autre périmètre
         self._tunnel_skip = 0
 
     def adopter(self, router: RouterConfig) -> None:
@@ -1007,6 +1063,48 @@ class RouterApiPeplinkClient:
                 f"Routeur {self.router_id} : réponse non-JSON sur /api/{endpoint}"
             ) from exc
 
+    @staticmethod
+    def _cles(endpoint: str, params: dict | None, corps: dict | None) -> tuple[str, str]:
+        """Les deux clés de la mémoire des refus : (endpoint, requête précise).
+
+        La première est indexée par l'endpoint ET son `infoType` (C-6) :
+        `status.pepvpn` sert trois lectures — peer, profile, tunnel —, et un
+        refus de `profile` condamnait les deux autres, donc toute la
+        supervision du bond. C'est la clé des refus de DROITS, qui portent sur
+        l'endpoint : un client API sans accès à la température des modems n'y a
+        accès pour aucun WAN.
+
+        La seconde ajoute les autres paramètres et le corps : c'est la clé des
+        refus « non proposé ». Le firmware refuse la température d'un WAN non
+        cellulaire (« Unsupported request ») et la donne pour les autres — ce
+        refus-là porte sur le `connId`, pas sur l'endpoint.
+        """
+        params = params or {}
+        cle = endpoint if "infoType" not in params else f"{endpoint}?infoType={params['infoType']}"
+        precisions = sorted((str(k), str(v)) for k, v in params.items() if k != "infoType")
+        precisions += sorted((str(k), str(v)) for k, v in (corps or {}).items())
+        return cle, cle + "".join(f"&{k}={v}" for k, v in precisions)
+
+    def _retenu(
+        self, endpoint: str, params: dict | None = None, corps: dict | None = None,
+    ) -> tuple[str, int | None] | None:
+        """(nature, code) du refus retenu pour cette requête, ou None.
+
+        Un refus échu est oublié ici même : c'est l'expiration qui manquait aux
+        drapeaux `_supports_*`, et qui rendait un refus passager définitif.
+        """
+        maintenant = time.monotonic()
+        for cle in dict.fromkeys(self._cles(endpoint, params, corps)):
+            retenu = self._retenus.get(cle)
+            if retenu is None:
+                continue
+            echeance, nature, code = retenu
+            if maintenant >= echeance:
+                del self._retenus[cle]
+                continue
+            return nature, code
+        return None
+
     async def _get(
         self, endpoint: str, params: dict | None = None, corps: dict | None = None,
     ) -> dict:
@@ -1017,27 +1115,32 @@ class RouterApiPeplinkClient:
         sur MBX). Sans inspecter ce corps, une session expirée passait inaperçue et
         `parse_wan_connection` renvoyait une liste vide : les WAN disparaissaient de
         la supervision en silence, sans reconnexion ni trace dans les journaux.
+
+        Un `stat: fail` lève `EndpointRefusedError`, avec sa NATURE ; seuls les
+        refus de droits et « non proposé » sont retenus, chacun avec son
+        échéance.
         """
-        # Indexé par l'endpoint ET son `infoType` (C-6) : `status.pepvpn` sert
-        # trois lectures — peer, profile, tunnel —, et un refus de `profile`
-        # condamnait les deux autres, donc toute la supervision du bond.
-        cle = endpoint if not params or "infoType" not in params else f"{endpoint}?infoType={params['infoType']}"
-        refuse_a = self._hors_perimetre.get(cle)
-        if refuse_a is not None and time.monotonic() - refuse_a >= _HORS_PERIMETRE_REESSAI_S:
-            del self._hors_perimetre[cle]
-            refuse_a = None
-        if refuse_a is not None:
+        retenu = self._retenu(endpoint, params, corps)
+        if retenu is not None:
+            nature, code = retenu
             raise EndpointRefusedError(
-                f"Routeur {self.router_id} : /api/{endpoint} hors du périmètre de ces identifiants",
-                code=401,
+                f"Routeur {self.router_id} : /api/{endpoint} refusé ({nature}), "
+                "refus retenu — redemandé à son échéance",
+                code=code, nature=nature, memoire=True,
             )
         generation = await self._ensure_authenticated(None)
 
         payload = await self._request(endpoint, params, corps)
+        if not isinstance(payload, dict):
+            # Une liste ou un scalaire : `payload.get` levait `AttributeError`,
+            # qui traversait les `except` des compléments. Panne passagère.
+            raise RouterApiError(f"Routeur {self.router_id} : réponse inattendue sur /api/{endpoint}")
 
         if _is_auth_failure(payload):
             await self._ensure_authenticated(generation)
             payload = await self._request(endpoint, params, corps)
+            if not isinstance(payload, dict):
+                raise RouterApiError(f"Routeur {self.router_id} : réponse inattendue sur /api/{endpoint}")
 
         if payload.get("stat") == "fail":
             # Un refus qui survit à une ré-authentification n'est pas une session
@@ -1047,54 +1150,91 @@ class RouterApiPeplinkClient:
             # `api.read-only`, qui lit les WAN et se voit refuser
             # `info.capability` ; 401 malgré un login qui vient de réussir,
             # observé au rejeu sur `info.capability` avec un compte restreint.
-            # Classer ce second cas en `AuthenticationError` ré-authentifiait à
-            # chaque lecture et laissait la fiche « provisoire » pour toujours —
-            # sept logins pour trois lectures, reproduit à l'audit, sur un
-            # firmware qui suspend l'accès cinq minutes au bout de cinq échecs.
-            # Le code voyage avec l'erreur, pour que l'appelant sache si le
-            # refus condamne le relevé ou un seul détail.
+            # Le redemander coûterait un login par cycle : il est retenu. Les
+            # identifiants mauvais, eux, ne passent pas le login et sont dits
+            # par `CredentialsRefusedError` avant d'arriver ici.
             code = _to_int(payload.get("code"))
             message = (
                 f"Routeur {self.router_id} : /api/{endpoint} refusé "
                 f"(code {payload.get('code')} — {payload.get('message') or 'sans message'})"
             )
-            if _is_auth_failure(payload) and endpoint not in _JAMAIS_HORS_PERIMETRE:
-                # Retenu : le redemander coûterait un login par cycle. Les
-                # identifiants mauvais, eux, ne passent pas le login et sont
-                # dits par `CredentialsRefusedError` avant d'arriver ici.
+            cle, precise = self._cles(endpoint, params, corps)
+            if _is_auth_failure(payload):
+                nature, retenir, delai = _DROITS, cle, _HORS_PERIMETRE_REESSAI_S
+            elif _requete_inconnue(payload):
+                nature, retenir, delai = _NON_PROPOSE, precise, _NON_PROPOSE_REESSAI_S
+            else:
+                nature, retenir, delai = _PASSAGER, None, 0.0
+            if retenir is not None and endpoint not in _JAMAIS_HORS_PERIMETRE:
                 logger.info(
-                    "Routeur %s : /api/%s hors du périmètre de ces identifiants (code %s)",
-                    self.router_id, endpoint, payload.get("code"),
+                    "Routeur %s : /api/%s refusé (%s, code %s) — redemandé dans %.0f s",
+                    self.router_id, endpoint, nature, payload.get("code"), delai,
                 )
-                self._hors_perimetre[cle] = time.monotonic()
-            raise EndpointRefusedError(message, code=code)
+                self._retenus[retenir] = (time.monotonic() + delai, nature, code)
+            raise EndpointRefusedError(message, code=code, nature=nature)
         return payload
+
+    async def _lire_complement(
+        self, quoi: str, endpoint: str, params: dict | None = None,
+        corps: dict | None = None, *, parametre_volatil: bool = False,
+    ) -> dict | None:
+        """La charge utile d'un COMPLÉMENT, ou None s'il n'est pas lisible.
+
+        Un complément ne doit jamais détruire les états déjà lus : tout échec
+        rend None — transport, réponse illisible, refus de quelque nature. Seul
+        un refus d'IDENTIFIANTS remonte : il condamne de toute façon le relevé,
+        et le poller doit armer son verrou pour ne JAMAIS le rejouer. Ce qui
+        mérite d'être retenu l'est par `_get`, avec son échéance ; l'appelant
+        n'a plus de drapeau à tenir.
+
+        Remplace sept copies du même bloc, dont chacune attrapait aussi une
+        `AuthenticationError` « nue » que plus rien ne lève — seule
+        `CredentialsRefusedError` l'est —, avec une garde `exc.code != 403`
+        devenue lettre morte.
+
+        `parametre_volatil` : la requête vise un objet qui peut disparaître
+        entre deux lectures (un pair du tunnel). Un refus « non proposé » le
+        concerne lui, ne dit rien de l'endpoint, et n'est pas retenu.
+        """
+        # Même forme d'appel qu'avant la factorisation : `corps` nommé, `params`
+        # seulement s'il existe.
+        args = (endpoint,) if params is None else (endpoint, params)
+        nommes = {} if corps is None else {"corps": corps}
+        try:
+            return await self._get(*args, **nommes)
+        except CredentialsRefusedError:
+            raise
+        except EndpointRefusedError as exc:
+            if exc.memoire:
+                logger.debug("%s : refus retenu sur %s", quoi, self.router_id)
+                return None
+            if parametre_volatil and exc.nature == _NON_PROPOSE:
+                self._retenus.pop(self._cles(endpoint, params, corps)[1], None)
+            logger.info("%s refusé par %s (%s)", quoi, self.router_id, exc)
+            return None
+        except (RouterApiError, httpx.HTTPError) as exc:
+            logger.debug("%s illisible sur %s : %s", quoi, self.router_id, exc)
+            return None
 
     # --- lectures ---
     async def get_router_events(self, noms: dict[str, str]) -> list[RouterEvent]:
         """Les faits reconnus du journal du routeur, datés par son horloge.
 
         Complément, comme le débit et le tunnel : un échec ne touche à rien, et
-        un refus explicite (droits, endpoint absent) ne se redemande pas.
-        `status.log` n'est pas documenté — c'est l'endpoint de l'interface web.
+        un refus retenu (droits, endpoint inconnu) ne se redemande qu'à son
+        échéance. `status.log` n'est pas documenté — c'est l'endpoint de
+        l'interface web.
         """
-        if not self._supports_log:
+        # Le journal retenu, l'horloge n'a pas à être relue pour rien.
+        if self._retenu("status.log") is not None:
             return []
-        try:
-            horloge = horloge_routeur(await self._get("status.system.info"))
-            journal = await self._get("status.log")
-        except AuthenticationError as exc:
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            self._supports_log = False
+        info = await self._lire_complement("Horloge du routeur", "status.system.info")
+        if info is None:
             return []
-        except EndpointRefusedError as exc:
-            logger.info("Journal du routeur non proposé par %s (%s)", self.router_id, exc)
-            self._supports_log = False
+        journal = await self._lire_complement("Journal du routeur", "status.log")
+        if journal is None:
             return []
-        except (RouterApiError, httpx.HTTPError) as exc:
-            logger.debug("Journal du routeur illisible sur %s : %s", self.router_id, exc)
-            return []
+        horloge = horloge_routeur(info)
         try:
             return parse_router_log(journal, horloge, noms)
         except Exception:
@@ -1152,8 +1292,6 @@ class RouterApiPeplinkClient:
         Complément, comme le débit et le tunnel : rien de ce qui s'y passe ne
         doit détruire des états WAN déjà lus.
         """
-        if not self._supports_wan_latency:
-            return
         maintenant = time.monotonic()
         if (
             self._wan_latency_at is not None
@@ -1161,34 +1299,10 @@ class RouterApiPeplinkClient:
         ):
             return
 
-        try:
-            brut = await self._get("status.wan.latency")
-        except AuthenticationError as exc:
-            # Même règle qu'ailleurs : le TYPE, et non le numéro. Un refus
-            # d'identifiants condamne le relevé entier et doit remonter ; un 403
-            # ne dit que « cet endpoint est hors des droits de ce client API ».
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            self._supports_wan_latency = False
-            logger.info(
-                "Latence par WAN hors des droits du client API sur %s (%s) : plus de tentative",
-                self.router_id, exc,
-            )
-            return
-        except EndpointRefusedError as exc:
-            # Refus explicite du firmware : ce modèle ne propose pas l'endpoint.
-            # C'est le seul cas qui autorise à le condamner.
-            self._supports_wan_latency = False
-            logger.info(
-                "Latence par WAN non proposée par %s (%s) : plus de tentative",
-                self.router_id, exc,
-            )
-            return
-        except (RouterApiError, httpx.HTTPError) as exc:
-            # Panne passagère : on retentera au prochain intervalle. Ne PAS
-            # marquer l'instant, sinon une coupure de trois secondes coûterait
-            # une minute de mesure.
-            logger.debug("Latence par WAN illisible sur %s : %s", self.router_id, exc)
+        brut = await self._lire_complement("Latence par WAN", "status.wan.latency")
+        if brut is None:
+            # On retentera au prochain cycle. Ne PAS marquer l'instant, sinon
+            # une coupure de trois secondes coûterait une minute de mesure.
             return
 
         self._wan_latency_at = maintenant
@@ -1218,8 +1332,6 @@ class RouterApiPeplinkClient:
         # de tunnel connecté la réécrit. Gardée d'un cycle à l'autre, elle
         # affichait « Monté depuis 2 h 03 » sous « Tunnel tombé » (C-7).
         self.tunnel_uptime_s = None
-        if not self._supports_tunnel:
-            return
         if self._tunnel_skip > 0:
             # Sonde espacée : le DERNIER cycle n'a déclaré aucun pair. Le
             # commentaire disait « n'a jamais déclaré le moindre pair », ce qui
@@ -1230,45 +1342,20 @@ class RouterApiPeplinkClient:
             self._tunnel_skip -= 1
             return
 
-        try:
-            brut = await self._get("status.pepvpn", {"infoType": "peer"})
-            peers = parse_peers(brut)
-            # Le seuil que le ROUTEUR applique lui-même pour écarter un lien du
-            # bond. Il arrive dans une charge utile déjà téléchargée.
-            self._latency_cutoff = parse_latency_cutoff(brut)
-            # Ce que le tunnel achemine : sans cette liste, un débit nul dans le
-            # bond ne se distingue pas d'une panne.
-            self.bond_routes = self._retenir_routes(brut)
-        except AuthenticationError as exc:
-            # Le TYPE, et non le numéro. `RouterApiError.code` porte deux
-            # choses selon le chemin : le statut HTTP quand `_raise_for_status`
-            # lève, le code du firmware quand `_get` lève. Un refus
-            # d'identifiants sur `/api/login` arrive donc avec `code = 403`,
-            # indistinguable d'un refus de DROITS sur un endpoint — et éteignait
-            # le débit par WAN pour toute la durée du processus. C'est exactement
-            # la régression que le commentaire ci-dessus dit empêcher.
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            # Refus de DROITS, pas d'identifiants : la session est bonne, cet
-            # endpoint est simplement hors du périmètre du client API. Le laisser
-            # remonter jetait des états WAN valides, et `_get` réauthentifiait
-            # avant chaque relevé — un POST /api/login PAR CYCLE, sur un firmware
-            # qui suspend l'accès cinq minutes au bout de cinq échecs :
-            # l'application pouvait se verrouiller elle-même hors de l'équipement.
-            self._disable_tunnel("droits insuffisants", exc)
+        # Un refus de droits ou un endpoint inconnu est retenu par `_get`, et
+        # redemandé à son échéance ; une panne passagère, au cycle suivant. La
+        # condamnation était irréversible pour la vie du client : une coupure de
+        # quelques secondes suffisait à éteindre le tunnel jusqu'au redémarrage.
+        brut = await self._lire_complement("Tunnel SpeedFusion", "status.pepvpn", {"infoType": "peer"})
+        if brut is None:
             return
-        except EndpointRefusedError as exc:
-            # Refus explicite du firmware au PREMIER appel : ce modèle ne propose
-            # pas l'endpoint. C'est le seul cas qui autorise à le condamner.
-            self._disable_tunnel("endpoint refusé", exc)
-            return
-        except (RouterApiError, httpx.HTTPError) as exc:
-            # Panne de transport ou réponse illisible : passager par nature. La
-            # condamnation était irréversible pour la vie du client, une coupure
-            # de quelques secondes suffisait donc à éteindre le tunnel jusqu'au
-            # redémarrage du processus.
-            logger.debug("Lecture des pairs impossible sur %s : %s", self.router_id, exc)
-            return
+        peers = parse_peers(brut)
+        # Le seuil que le ROUTEUR applique lui-même pour écarter un lien du
+        # bond. Il arrive dans une charge utile déjà téléchargée.
+        self._latency_cutoff = parse_latency_cutoff(brut)
+        # Ce que le tunnel achemine : sans cette liste, un débit nul dans le
+        # bond ne se distingue pas d'une panne.
+        self.bond_routes = self._retenir_routes(brut)
 
         if not peers:
             self.bond_profiles = []
@@ -1301,27 +1388,14 @@ class RouterApiPeplinkClient:
         # Un seul tunnel porte le flux dans le cas courant. S'il y en a
         # plusieurs, le premier connecté fait foi — et on le dit.
         peer_id, peer_name = connected[0]
-        try:
-            payload = await self._get(
-                "status.pepvpn", {"infoType": "tunnel", "tunnelOption": peer_id}
-            )
-        except AuthenticationError as exc:
-            # Le TYPE, et non le numéro. `RouterApiError.code` porte deux
-            # choses selon le chemin : le statut HTTP quand `_raise_for_status`
-            # lève, le code du firmware quand `_get` lève. Un refus
-            # d'identifiants sur `/api/login` arrive donc avec `code = 403`,
-            # indistinguable d'un refus de DROITS sur un endpoint — et éteignait
-            # le débit par WAN pour toute la durée du processus. C'est exactement
-            # la régression que le commentaire ci-dessus dit empêcher.
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            logger.debug("Détail du tunnel refusé sur %s : %s", self.router_id, exc)
-            return
-        except (RouterApiError, httpx.HTTPError) as exc:
-            # Ce second appel porte sur un pair qui peut disparaître entre les
-            # deux requêtes : son échec ne dit rien de la présence de l'endpoint
-            # et ne doit jamais condamner la sonde.
-            logger.debug("Détail du tunnel illisible sur %s : %s", self.router_id, exc)
+        # Ce second appel porte sur un pair qui peut disparaître entre les deux
+        # requêtes : un refus « inconnu » ne dit rien de la présence de
+        # l'endpoint, et n'est pas retenu (`parametre_volatil`).
+        payload = await self._lire_complement(
+            "Détail du tunnel", "status.pepvpn",
+            {"infoType": "tunnel", "tunnelOption": peer_id}, parametre_volatil=True,
+        )
+        if payload is None:
             return
 
         # L'ANALYSE AUSSI est sous filet. `_corps` ne protège que le premier
@@ -1426,39 +1500,26 @@ class RouterApiPeplinkClient:
 
         `status.cellularModule.temperature` se lit en POST pour un `connId`. Le
         firmware REFUSE un WAN non cellulaire (« Unsupported request », 404,
-        mesuré sur le Dome) : seuls les cellulaires sont demandés, et un refus
-        ne retire que le WAN concerné. Entre deux lectures, la dernière mesure
-        est reportée AVEC son heure, 90 s au plus. Complément : rien de ce qui
-        s'y passe ne détruit les états WAN déjà lus.
+        mesuré sur le Dome) : seuls les cellulaires sont demandés, et un tel
+        refus n'est retenu par `_get` que pour le WAN concerné — un refus de
+        droits, lui, vaut pour l'endpoint. Entre deux lectures, la dernière
+        mesure est reportée AVEC son heure, 90 s au plus. Complément : rien de
+        ce qui s'y passe ne détruit les états WAN déjà lus.
         """
-        if not self._supports_temperature:
-            return
         maintenant = time.monotonic()
         if self._temperature_at is None or maintenant - self._temperature_at >= _TEMPERATURE_INTERVAL_S:
             lu = False
             for status in statuses:
-                if status.kind != "cellular" or status.wan_id in self._temperature_refusee:
+                if status.kind != "cellular":
                     continue
                 connid = _to_int(status.wan_id)
                 if connid is None:
                     continue
-                try:
-                    brut = await self._get("status.cellularModule.temperature", corps={"connId": connid})
-                except AuthenticationError as exc:
-                    if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                        raise
-                    self._supports_temperature = False
-                    logger.info("Température des modems hors des droits sur %s (%s) : plus de tentative",
-                                self.router_id, exc)
-                    return
-                except EndpointRefusedError as exc:
-                    self._temperature_refusee.add(status.wan_id)
-                    logger.info("Température du modem du WAN %s refusée par %s (%s) : plus de tentative",
-                                status.wan_id, self.router_id, exc)
-                    continue
-                except (RouterApiError, httpx.HTTPError) as exc:
-                    logger.debug("Température du modem du WAN %s illisible sur %s : %s",
-                                 status.wan_id, self.router_id, exc)
+                brut = await self._lire_complement(
+                    f"Température du modem du WAN {status.wan_id}",
+                    "status.cellularModule.temperature", corps={"connId": connid},
+                )
+                if brut is None:
                     continue
                 # Une réponse LUE compte pour la minute, qu'elle porte une
                 # valeur ou non : sans cela, un firmware qui répond sans
@@ -1479,27 +1540,11 @@ class RouterApiPeplinkClient:
     async def _lire_qualite(self) -> None:
         """L'heure de radio du routeur, tout de suite puis toutes les 10 min.
         Complément : rien de ce qui s'y passe ne touche aux états WAN lus."""
-        if not self._supports_qualite:
-            return
         maintenant = time.monotonic()
         if self._qualite_at is not None and maintenant - self._qualite_at < _QUALITE_INTERVAL_S:
             return
-        try:
-            brut = await self._get("status.wan.quality")
-        except AuthenticationError as exc:
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            self._supports_qualite = False
-            logger.info("Historique radio hors des droits sur %s (%s) : plus de tentative",
-                        self.router_id, exc)
-            return
-        except EndpointRefusedError as exc:
-            self._supports_qualite = False
-            logger.info("Historique radio non proposé par %s (%s) : plus de tentative",
-                        self.router_id, exc)
-            return
-        except (RouterApiError, httpx.HTTPError) as exc:
-            logger.debug("Historique radio illisible sur %s : %s", self.router_id, exc)
+        brut = await self._lire_complement("Historique radio", "status.wan.quality")
+        if brut is None:
             return
         self._qualite_at = maintenant
         try:
@@ -1510,8 +1555,6 @@ class RouterApiPeplinkClient:
     async def _lire_clients(self) -> None:
         """Les clients actifs du LAN, une fois par minute. Complément : rien de
         ce qui s'y passe ne doit détruire les états WAN déjà lus."""
-        if not self._supports_clients:
-            return
         maintenant = time.monotonic()
         # Deux intervalles sans lecture réussie : le dernier décompte ne dit
         # plus l'état du LAN, il s'efface plutôt que de rester figé (C-33).
@@ -1519,22 +1562,8 @@ class RouterApiPeplinkClient:
             self.lan_clients = None
         if self._clients_at is not None and maintenant - self._clients_at < _CLIENTS_INTERVAL_S:
             return
-        try:
-            brut = await self._get("status.client")
-        except AuthenticationError as exc:
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            self._supports_clients = False
-            logger.info("Clients du LAN hors des droits sur %s (%s) : plus de tentative",
-                        self.router_id, exc)
-            return
-        except EndpointRefusedError as exc:
-            self._supports_clients = False
-            logger.info("Clients du LAN non proposés par %s (%s) : plus de tentative",
-                        self.router_id, exc)
-            return
-        except (RouterApiError, httpx.HTTPError) as exc:
-            logger.debug("Clients du LAN illisibles sur %s : %s", self.router_id, exc)
+        brut = await self._lire_complement("Clients du LAN", "status.client")
+        if brut is None:
             return
         self._clients_at = maintenant
         self.lan_clients = parse_lan_clients(brut, ip_locale_vers(self._base))
@@ -1544,40 +1573,17 @@ class RouterApiPeplinkClient:
     async def _lire_profils(self) -> None:
         """Les profils SpeedFusion, une fois par minute. Complément : rien de
         ce qui s'y passe ne doit détruire l'état du bond déjà lu."""
-        if not self._supports_profils:
-            return
         maintenant = time.monotonic()
         if self._profils_at is not None and maintenant - self._profils_at < _PROFIL_INTERVAL_S:
             return
-        try:
-            brut = await self._get("status.pepvpn", {"infoType": "profile"})
-        except AuthenticationError as exc:
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            self._supports_profils = False
-            logger.info("Profils SpeedFusion hors des droits sur %s (%s) : plus de tentative",
-                        self.router_id, exc)
-            return
-        except EndpointRefusedError as exc:
-            self._supports_profils = False
-            logger.info("Profils SpeedFusion non proposés par %s (%s) : plus de tentative",
-                        self.router_id, exc)
-            return
-        except (RouterApiError, httpx.HTTPError) as exc:
-            # Passager : on retentera au prochain cycle, sans marquer l'instant.
-            logger.debug("Profils SpeedFusion illisibles sur %s : %s", self.router_id, exc)
+        brut = await self._lire_complement(
+            "Profils SpeedFusion", "status.pepvpn", {"infoType": "profile"}
+        )
+        if brut is None:
+            # On retentera au prochain cycle, sans marquer l'instant.
             return
         self._profils_at = maintenant
         self.bond_profiles = parse_bond_profiles(brut)
-
-    def _disable_tunnel(self, reason: str, exc: Exception) -> None:
-        """Condamne la sonde `status.pepvpn` et le dit une fois."""
-        logger.info(
-            "Tunnel SpeedFusion indisponible sur %s (%s : %s) : plus de tentative",
-            self.router_id, reason, exc,
-        )
-        self._supports_tunnel = False
-        self._forget_tunnel_counters()
 
     def _forget_tunnel_counters(self) -> None:
         """Oublie la référence : la prochaine lecture sera une première lecture."""
@@ -1663,62 +1669,26 @@ class RouterApiPeplinkClient:
         """Complète les états avec le débit par WAN, si l'équipement le fournit.
 
         `status.traffic` est un endpoint distinct de `status.wan.connection`. Un
-        refus applicatif (stat=fail) signifie que ce modèle ne le propose pas :
-        on cesse alors de le demander à chaque cycle. Une erreur réseau, elle,
-        est passagère et ne doit pas condamner la fonctionnalité.
+        modèle qui dit ne pas le proposer n'est plus sollicité à chaque cycle —
+        `_get` retient ce refus, et le redemande à son échéance. Une erreur
+        réseau ou un refus passager ne condamnent pas la fonctionnalité.
         """
-        if not self._supports_traffic:
+        brut = await self._lire_complement("Débit par WAN", "status.traffic")
+        if brut is None:
             return
+        # L'ANALYSE sous son propre filet, comme pour le tunnel. Une charge
+        # utile inattendue faisait lever `parse_traffic` d'une exception qui
+        # remontait au poller, et l'équipement était étiqueté « injoignable »
+        # alors qu'il venait de répondre.
         try:
-            brut = await self._get("status.traffic")
-            # L'ANALYSE sous son propre filet, comme pour le tunnel. Le
-            # `try` ci-dessous n'attrape que `RouterApiError` et `httpx.HTTPError`
-            # — les fautes du TRANSPORT. Une charge utile inattendue fait lever
-            # `parse_traffic` d'un `TypeError` qui traverse tout, remonte au
-            # poller, et l'équipement est étiqueté « injoignable » alors qu'il
-            # vient de répondre. C'est la confusion de diagnostic que `_corps` et
-            # le filet de `parse_tunnel` disent combattre, laissée ouverte ici.
-            try:
-                apply_traffic(statuses, parse_traffic(brut))
-                # Le SECOND bloc de la même réponse : zéro requête de plus.
-                apply_usage(statuses, parse_usage(brut))
-            except Exception:
-                logger.warning(
-                    "Débit par WAN illisible sur %s : relevé conservé sans débit",
-                    self.router_id, exc_info=True,
-                )
-        except AuthenticationError as exc:
-            # `AuthenticationError` hérite de `RouterApiError` : sans ce cas
-            # placé AVANT, un refus d'identifiants passager éteindrait le débit
-            # par WAN pour toute la durée du processus. On la laisse remonter,
-            # le poller sait la traiter.
-            #
-            # Un 403 est autre chose : les identifiants sont bons, seuls les
-            # droits du client API ne couvrent pas cet endpoint. Le faire remonter
-            # jetterait un relevé WAN valide et ferait réauthentifier à chaque
-            # cycle, alors que la réponse ne changera jamais.
-            # Le TYPE, et non le numéro. `RouterApiError.code` porte deux
-            # choses selon le chemin : le statut HTTP quand `_raise_for_status`
-            # lève, le code du firmware quand `_get` lève. Un refus
-            # d'identifiants sur `/api/login` arrive donc avec `code = 403`,
-            # indistinguable d'un refus de DROITS sur un endpoint — et éteignait
-            # le débit par WAN pour toute la durée du processus. C'est exactement
-            # la régression que le commentaire ci-dessus dit empêcher.
-            if isinstance(exc, CredentialsRefusedError) or exc.code != _FORBIDDEN_CODE:
-                raise
-            logger.info(
-                "Débit par WAN hors des droits du client API sur %s (%s) : plus de tentative",
-                self.router_id, exc,
+            apply_traffic(statuses, parse_traffic(brut))
+            # Le SECOND bloc de la même réponse : zéro requête de plus.
+            apply_usage(statuses, parse_usage(brut))
+        except Exception:
+            logger.warning(
+                "Débit par WAN illisible sur %s : relevé conservé sans débit",
+                self.router_id, exc_info=True,
             )
-            self._supports_traffic = False
-        except EndpointRefusedError as exc:
-            logger.info(
-                "Débit par WAN indisponible sur %s (%s) : plus de tentative", self.router_id, exc
-            )
-            self._supports_traffic = False
-        except (RouterApiError, httpx.HTTPError) as exc:
-            # Transport en défaut ou réponse illisible : passager, on retentera.
-            logger.debug("Lecture du débit impossible sur %s : %s", self.router_id, exc)
 
     async def identify(self) -> DeviceInfo | None:
         """Identité de l'équipement, en laissant remonter les erreurs.
@@ -1769,13 +1739,17 @@ class RouterApiPeplinkClient:
                 lan_networks = []
             caps = parse_capability(declared, ports, lan_networks)
         except EndpointRefusedError as exc:
-            # Refus explicite : `info.capability` n'est pas couvert par le scope
-            # `api.read-only`, et il ne le sera pas davantage au prochain tour.
+            # Refus de droits ou endpoint inconnu : `info.capability` n'est pas
+            # couvert par le scope `api.read-only`, et il ne le sera pas davantage
+            # au prochain tour — la fiche sondée est définitive. Un refus
+            # PASSAGER (999 « occupé ») ne tranche rien : elle reste à confirmer.
             logger.info(
-                "Capacités déclarées hors du périmètre sur %s (%s) : reconstitution par sondage",
+                "Capacités déclarées refusées sur %s (%s) : reconstitution par sondage",
                 self.router_id, exc,
             )
             caps = await self._probe_capabilities()
+            if exc.nature == _PASSAGER:
+                caps.provisional = True
         except (httpx.HTTPError, RouterApiError) as exc:
             # Panne passagère : le sondage donne une fiche utilisable tout de
             # suite, mais elle reste à confirmer — `info.capability` déclare tout
@@ -1786,7 +1760,9 @@ class RouterApiPeplinkClient:
             )
             caps = await self._probe_capabilities()
             caps.provisional = True
-        caps.per_wan_throughput = self._supports_traffic
+        # Nié tant qu'un refus de `status.traffic` est retenu, et seulement
+        # alors : un refus passager ne dit rien de l'équipement.
+        caps.per_wan_throughput = self._retenu("status.traffic") is None
         return caps
 
     def _retenir_routes(self, brut: dict) -> list[str]:
@@ -1815,13 +1791,17 @@ class RouterApiPeplinkClient:
         non. `None` : on n'a pas pu conclure. Un délai dépassé, un transport en
         défaut, une session momentanément illisible ne disent RIEN du matériel, et
         les confondre avec un refus gravait `gps=False` pour la vie du processus
-        sur un routeur qui finissait simplement de démarrer.
+        sur un routeur qui finissait simplement de démarrer. Un refus PASSAGER
+        (999 « occupé ») est de ceux-là.
         """
         try:
             await self._get(endpoint)
             return True
-        except EndpointRefusedError:
-            return False
+        except EndpointRefusedError as exc:
+            if exc.nature != _PASSAGER:
+                return False
+            logger.debug("Sonde de %s sans conclusion sur %s : %s", endpoint, self.router_id, exc)
+            return None
         except (httpx.HTTPError, RouterApiError) as exc:
             logger.debug(
                 "Sonde de %s sans conclusion sur %s : %s", endpoint, self.router_id, exc
@@ -1914,7 +1894,7 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
             statuses.append(_parse_wired_wan(str(wan_id), wan))
             continue
 
-        cellular = wan.get("cellular") or wan.get("gobi") or {}
+        cellular = _bloc(wan, "cellular") or _bloc(wan, "gobi")
         emplacements = _parse_sim_slots(cellular)
         bands = _parse_bands(cellular)
         # Le Telit LM960 du MAX HD4 MBX remonte `pci: 0` sur TOUTES les porteuses :
@@ -1935,8 +1915,8 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
         network = _texte(cellular.get("network"))
         primary = _primary_band(bands, network)
         _effacer_signal_non_mesure(bands, primary)
-        cell_tower = cellular.get("cellTower") or {}
-        carrier = cellular.get("carrier") or {}
+        cell_tower = _bloc(cellular, "cellTower")
+        carrier = _bloc(cellular, "carrier")
         led = str(wan.get("statusLed") or "").lower()
         technology = _technology_label(cellular)
         cell_id = _identite_cellule(cell_tower)
@@ -1948,12 +1928,12 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
         statuses.append(
             WanRadioStatus(
                 wan_id=str(wan_id),
-                wan_name=wan.get("name") or f"WAN {wan_id}",
+                wan_name=_texte(wan.get("name")) or f"WAN {wan_id}",
                 connected=led in _LED_UP,
-                operator=carrier.get("name"),
+                operator=_texte(carrier.get("name")),
                 plmn=_plmn(cellular),
                 # Quatre champs de la même charge utile, jusqu'ici jetés.
-                roaming_status=_texte((cellular.get("roamingStatus") or {}).get("message")),
+                roaming_status=_texte(_bloc(cellular, "roamingStatus").get("message")),
                 modem_vendor=_texte(cellular.get("manufacturer")),
                 modem_model=_texte(cellular.get("model")),
                 modem_firmware=_texte(cellular.get("firmware")),
@@ -1988,10 +1968,10 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
                 signal_bars=_to_int(cellular.get("signalLevel")),
                 bands=bands,
                 sim_slots=emplacements,
-                ip=wan.get("ip"),
+                ip=_texte(wan.get("ip")),
                 priority=_to_int(wan.get("priority")),
                 uptime_s=_to_int(wan.get("uptime")),
-                status_message=wan.get("message"),
+                status_message=_texte(wan.get("message")),
             )
         )
 
@@ -2009,13 +1989,13 @@ def _parse_wired_wan(wan_id: str, wan: dict) -> WanRadioStatus:
     return WanRadioStatus(
         kind="ethernet",
         wan_id=wan_id,
-        wan_name=wan.get("name") or f"WAN {wan_id}",
+        wan_name=_texte(wan.get("name")) or f"WAN {wan_id}",
         connected=led in _LED_UP,
         rat="Ethernet",
-        ip=wan.get("ip"),
+        ip=_texte(wan.get("ip")),
         priority=_to_int(wan.get("priority")),
         uptime_s=_to_int(wan.get("uptime")),
-        status_message=wan.get("message"),
+        status_message=_texte(wan.get("message")),
     )
 
 
@@ -2025,8 +2005,8 @@ def _parse_wifi_wan(wan_id: str, wan: dict) -> WanRadioStatus:
     Le routeur ne fournit qu'une force de signal et un niveau : pas de RSRP/RSRQ/SINR,
     qui n'ont pas de sens ici. La force est rangée dans `rssi`, grandeur homogène.
     """
-    wifi = wan.get("wifi") or {}
-    signal = wifi.get("signal") or {}
+    wifi = _bloc(wan, "wifi")
+    signal = _bloc(wifi, "signal")
     channel = _to_int(wifi.get("channel"))
     led = str(wan.get("statusLed") or "").lower()
     strength = _to_float(signal.get("strength"))
@@ -2034,7 +2014,7 @@ def _parse_wifi_wan(wan_id: str, wan: dict) -> WanRadioStatus:
     return WanRadioStatus(
         kind="wifi",
         wan_id=wan_id,
-        wan_name=wan.get("name") or f"WAN {wan_id}",
+        wan_name=_texte(wan.get("name")) or f"WAN {wan_id}",
         connected=led in _LED_UP,
         operator=_texte(wifi.get("ssid")),  # le SSID tient lieu de « réseau »
         rat="Wi-Fi",
@@ -2049,15 +2029,15 @@ def _parse_wifi_wan(wan_id: str, wan: dict) -> WanRadioStatus:
         rssi=strength,
         signal_bars=_to_int(signal.get("level")),
         wifi=WifiLink(
-            ssid=wifi.get("ssid"),
-            bssid=wifi.get("bssid"),
+            ssid=_texte(wifi.get("ssid")),
+            bssid=_texte(wifi.get("bssid")),
             channel=channel,
             band=_wifi_band(channel),
             signal_dbm=strength,
             signal_level=_to_int(signal.get("level")),
         ),
         uptime_s=_to_int(wan.get("uptime")),
-        status_message=wan.get("message"),
+        status_message=_texte(wan.get("message")),
     )
 
 
@@ -2073,76 +2053,78 @@ def parse_system_info(payload: dict) -> DeviceInfo | None:
     if not isinstance(device, dict):
         return None
 
-    cpu = (payload["response"].get("cpuLoad") or {})
-    load = _to_float(cpu.get("percentage")) if isinstance(cpu, dict) else None
+    corps = _corps(payload)
+    cpu = _bloc(corps, "cpuLoad")
+    load = _to_float(cpu.get("percentage"))
 
     # L'ancienneté du châssis, à la source. Elle décide des sessions
     # d'alimentation, et elle était jusqu'ici déduite du maximum des liens.
-    horloge = payload["response"].get("uptime")
-    depuis = _to_int(horloge.get("second")) if isinstance(horloge, dict) else None
+    depuis = _to_int(_bloc(corps, "uptime").get("second"))
 
     # `powerUsage` est une liste d'entrées d'alimentation ; on somme les actives.
     watts = None
-    for entry in payload["response"].get("powerUsage") or []:
+    for entry in _liste(corps, "powerUsage"):
         if isinstance(entry, dict) and entry.get("active"):
             value = _to_float(entry.get("value"))
             if value is not None:
                 watts = (watts or 0.0) + value
 
+    # Une entrée sans `connect` n'est PAS listée : `bool(e.get("connect"))` la
+    # déclarait débranchée, et l'écran signalait une alimentation perdue dont
+    # le firmware ne disait rien. Le modèle ne connaît que branchée/débranchée ;
+    # une source d'état inconnu n'y a pas sa place — la taire vaut mieux que
+    # l'affirmer coupée.
     sources = [
-        PowerSource(name=str(e.get("name") or "?"), connected=bool(e.get("connect")))
-        for e in payload["response"].get("powerState") or []
-        if isinstance(e, dict)
+        PowerSource(name=_texte(e.get("name")) or "?", connected=bool(e["connect"]))
+        for e in _liste(corps, "powerState")
+        if isinstance(e, dict) and "connect" in e
     ]
 
     # Le premier capteur thermique. Absent du Dome Pro Duo : `None` y vaut
     # « ce modèle n'en publie pas », et non « zéro degré ».
-    capteurs = payload["response"].get("thermalSensor") or []
     temperature = next(
-        (_to_float(c.get("temperature")) for c in capteurs if isinstance(c, dict)), None
+        (_to_float(c.get("temperature")) for c in _liste(corps, "thermalSensor")
+         if isinstance(c, dict)),
+        None,
     )
 
     # La CHARGE de l'alimentation, en pourcentage de son budget. La tension et le
     # courant restent dehors — voir `DeviceInfo.power_load_percent`.
     charge = next(
         (_to_float(e.get("percentage"))
-         for e in payload["response"].get("powerUsage") or []
+         for e in _liste(corps, "powerUsage")
          if isinstance(e, dict) and e.get("active")),
         None,
     )
 
-    abonnement = payload["response"].get("subscription") or {}
-    plan = abonnement.get("carePlan") if isinstance(abonnement, dict) else None
-    plan = plan if isinstance(plan, dict) else {}
-    horaire = payload["response"].get("systemTime") or {}
-    activation = payload["response"].get("configActivation") or {}
-    assistance = payload["response"].get("remoteAssistance") or {}
+    plan = _bloc(_bloc(corps, "subscription"), "carePlan")
+    horaire = _bloc(corps, "systemTime")
+    activation = _bloc(corps, "configActivation")
+    assistance = _bloc(corps, "remoteAssistance")
 
     mac_lan = next(
-        (e.get("mac") for e in payload["response"].get("macInfo") or []
+        (_texte(e.get("mac")) for e in _liste(corps, "macInfo")
          if isinstance(e, dict) and e.get("interfaceType") == "lan"),
         None,
     )
 
     return DeviceInfo(
-        model=device.get("model"),
-        product_code=device.get("productCode"),
-        serial=device.get("serialNumber"),
-        firmware=device.get("firmwareVersion"),
-        hardware_revision=str(device["hardwareRevision"]) if device.get("hardwareRevision") else None,
+        model=_texte(device.get("model")),
+        product_code=_texte(device.get("productCode")),
+        serial=_texte(device.get("serialNumber")),
+        firmware=_texte(device.get("firmwareVersion")),
+        hardware_revision=_texte(device.get("hardwareRevision")),
         temperature_c=temperature,
         power_load_percent=charge,
         care_plan=_texte(plan.get("name")),
-        care_plan_active=bool(plan["active"]) if "active" in plan else None,
+        care_plan_active=_drapeau(plan, "active"),
         pepvpn_version=_texte(device.get("pepvpnVersion")),
-        timezone=_texte(horaire.get("timezone")) if isinstance(horaire, dict) else None,
-        config_activating=bool(activation.get("activating")) if isinstance(activation, dict) else False,
-        remote_assistance=(
-            bool(assistance["enable"])
-            if isinstance(assistance, dict) and "enable" in assistance
-            else None
-        ),
-        name=device.get("name"),
+        timezone=_texte(horaire.get("timezone")),
+        # Bloc ou clé absents : on ne sait pas. `False` affirmait qu'aucune
+        # configuration ne s'appliquait, sur un firmware qui n'en dit rien.
+        config_activating=_drapeau(activation, "activating"),
+        remote_assistance=_drapeau(assistance, "enable"),
+        name=_texte(device.get("name")),
         uptime_s=depuis,
         cpu_load_percent=round(load, 1) if load is not None else None,
         power_watts=watts,
@@ -2164,9 +2146,12 @@ def _parse_allowance(bloc: object) -> BandwidthAllowance | None:
     un plafond non configuré rend `None` partout, jamais `0`. Et le bloc entier
     peut manquer — il manque sur le port basculé en LAN du matériel de référence.
     """
-    if not isinstance(bloc, dict):
+    if not isinstance(bloc, dict) or "enable" not in bloc:
+        # Sans `enable`, le bloc ne dit pas si un plafond s'applique : c'est
+        # un plafond INCONNU, pas un plafond désactivé. `bool(bloc.get(…))`
+        # rendait `enabled=False`, et l'écran taisait un plafond peut-être actif.
         return None
-    actif = bool(bloc.get("enable"))
+    actif = bool(bloc["enable"])
     plafond = bloc.get("monthlyAllowance")
     valeur = None
     if actif and isinstance(plafond, dict):
@@ -2240,7 +2225,7 @@ def parse_ports(payload: dict) -> dict[str, bool]:
     l'inventaire déclaré. Sans cette lecture, le décompte annoncé dépasse celui
     que voit l'exploitant.
     """
-    wan_ports = _corps(payload).get("wan") or {}
+    wan_ports = _bloc(_corps(payload), "wan")
     return {
         str(port_id): bool(entry.get("asLan"))
         for port_id, entry in wan_ports.items()
@@ -2257,9 +2242,9 @@ def parse_lan_networks(payload: dict) -> list[LanNetwork]:
     (1) ; le MBX un seul, « local ». Rien d'autre n'est lu ici : les adresses
     sont dans `config.lan`.
     """
-    reference = (_corps(payload).get("lan") or {}).get("reference") or {}
+    reference = _bloc(_bloc(_corps(payload), "lan"), "reference")
     reseaux: list[LanNetwork] = []
-    for entry in (reference.get("vlanIdInfo") or {}).values():
+    for entry in _bloc(reference, "vlanIdInfo").values():
         if not isinstance(entry, dict):
             continue
         vlan_id = _to_int(entry.get("id"))
@@ -2282,8 +2267,8 @@ def parse_capability(
     ne montre pas. C'est l'inventaire matériel, indépendant de la configuration.
     """
     response = _corps(payload)
-    feature = response.get("feature") or {}
-    supplementary = response.get("featureSupplementary") or {}
+    feature = _bloc(response, "feature")
+    supplementary = _bloc(response, "featureSupplementary")
 
     as_lan = ports or {}
     wan_types: dict[str, str] = {}
@@ -2295,9 +2280,9 @@ def parse_capability(
     # licence de cet équipement. Le niveau et les plafonds de profils sont un
     # cran AU-DESSUS, sous `pepvpn` : ils décrivent le PepVPN en général, pas la
     # licence Cloud.
-    pepvpn_bloc = supplementary.get("pepvpn") or {}
-    nuage = (pepvpn_bloc.get("speedfusionCloud") or {}).get("local") or {}
-    plafond_debit = nuage.get("throughputLimit") or {}
+    pepvpn_bloc = _bloc(supplementary, "pepvpn")
+    nuage = _bloc(_bloc(pepvpn_bloc, "speedfusionCloud"), "local")
+    plafond_debit = _bloc(nuage, "throughputLimit")
     debit = _to_float(plafond_debit.get("value"))
     if debit is not None and str(plafond_debit.get("unit") or "mbps").lower() != "mbps":
         logger.warning(
@@ -2320,7 +2305,7 @@ def parse_capability(
         logger.warning("Unité de quota SpeedFusion inconnue « %s » : quota non publié",
                        quota.get("unit"))
 
-    connections = ((supplementary.get("wan") or {}).get("connection")) or {}
+    connections = _bloc(_bloc(supplementary, "wan"), "connection")
     for wan_id, entry in connections.items():
         if not isinstance(entry, dict) or not entry.get("type"):
             continue
@@ -2363,7 +2348,7 @@ def parse_traffic(payload: dict) -> dict[str, tuple[float | None, float | None]]
     que `status.wan.connection` — la jointure est directe. L'unité est déclarée
     par le routeur (kbps sur les matériels validés) et convertie si besoin.
     """
-    bandwidth = _corps(payload).get("bandwidth") or {}
+    bandwidth = _bloc(_corps(payload), "bandwidth")
     # Une unité INCONNUE ne vaut pas kbit/s. Le repli à 1.0 publiait « 10 » pour
     # dix mégabits déclarés en « Mibps » — un débit faux, cent fois trop bas, et
     # présenté comme une mesure. Ne rien rendre laisse `apply_traffic` mettre les
@@ -2413,7 +2398,7 @@ def parse_usage(payload: dict) -> dict[str, tuple[float | None, float | None]]:
     donc châssis et non WAN, et il court depuis février 2022 — 828 To sur ce
     matériel. Il ne borne aucune exploitation.
     """
-    traffic = _corps(payload).get("traffic") or {}
+    traffic = _bloc(_corps(payload), "traffic")
     unite = str(traffic.get("unit") or "mb").lower()
     if unite not in _MB_FROM:
         logger.warning(
@@ -2624,7 +2609,7 @@ def horloge_routeur(system_info: dict) -> tuple[datetime, datetime] | None:
     un horodatage) : leur écart convertit l'heure locale du journal en UTC sans
     base de fuseaux horaires, et reste juste quel que soit le fuseau réglé.
     """
-    horaire = (_corps(system_info) or {}).get("systemTime") if isinstance(system_info, dict) else None
+    horaire = _bloc(_corps(system_info), "systemTime")
     if not isinstance(horaire, dict):
         return None
     m = _HORLOGE_RE.match(str(horaire.get("string") or "").strip())
@@ -2718,11 +2703,11 @@ def parse_peers(payload: dict) -> list[tuple[str, str | None, bool]]:
     profil PepVPN, et empêchait d'espacer la sonde. Un pair déclaré porte un
     état ; un emplacement vide n'en porte pas.
     """
-    peers = _corps(payload).get("peer") or []
+    peers = _liste(_corps(payload), "peer")
     return [
-        (str(p.get("peerId")), p.get("name") or None, p.get("status") == "CONNECTED")
+        (str(p.get("peerId")), _texte(p.get("name")), p.get("status") == "CONNECTED")
         for p in peers
-        if isinstance(p, dict) and p.get("peerId") and (p.get("status") or "").strip()
+        if isinstance(p, dict) and p.get("peerId") and _texte(p.get("status"))
     ]
 
 
@@ -2782,7 +2767,7 @@ def peer_state(payload: dict) -> str | None:
     """
     mots = {
         str(p["status"]).strip()
-        for p in _corps(payload).get("peer") or []
+        for p in _liste(_corps(payload), "peer")
         if isinstance(p, dict) and p.get("peerId") and str(p.get("status") or "").strip()
     }
     return mots.pop() if len(mots) == 1 else None
@@ -2798,7 +2783,7 @@ def parse_bond_profiles(payload: dict) -> list[BondProfile]:
     if not isinstance(corps, dict):
         return []
     profils: list[BondProfile] = []
-    for pid in corps.get("order") or []:
+    for pid in _liste(corps, "order"):
         bloc = corps.get(str(pid))
         if not isinstance(bloc, dict):
             continue
@@ -2825,12 +2810,12 @@ def parse_bond_routes(payload: dict) -> list[str]:
     Sans cette liste, l'écran ne pouvait que constater un débit nul et le
     présenter comme une anomalie. Avec elle, il dit ce que le bond transporte.
     """
-    peers = _corps(payload).get("peer") or []
+    peers = _liste(_corps(payload), "peer")
     routes: list[str] = []
     for p in peers:
         if not isinstance(p, dict) or p.get("status") != "CONNECTED":
             continue
-        for r in p.get("route") or []:
+        for r in _liste(p, "route"):
             if isinstance(r, str) and r and r not in routes:
                 routes.append(r)
     return routes
@@ -2856,7 +2841,7 @@ def parse_latency_cutoff(payload: dict) -> float | None:
     et l'écran l'affirmait. Le seuil retenu est le plus PETIT des pairs
     connectés : c'est celui qui s'applique en premier.
     """
-    peers = _corps(payload).get("peer") or []
+    peers = _liste(_corps(payload), "peer")
     seuils = [
         _to_float(p.get("latencyDiffCutoff"))
         for p in peers
@@ -2912,11 +2897,10 @@ def parse_tunnel(payload: dict, peer_id: str, peer_name: str | None = None) -> T
     ils ne disent rien d'un instant. Le calcul des taux se fait ailleurs, par
     différence entre deux relevés (voir `RouterApiPeplinkClient._tunnel_rates`).
     """
-    tunnels = (_corps(payload).get("tunnel")) or {}
-    entry = tunnels.get(peer_id) or {}
+    entry = _bloc(_bloc(_corps(payload), "tunnel"), peer_id)
 
     links: dict[str, TunnelLink] = {}
-    for wan_id, wan in (entry.get("wan") or {}).items():
+    for wan_id, wan in _bloc(entry, "wan").items():
         if not isinstance(wan, dict):
             continue
         links[str(wan_id)] = TunnelLink(
@@ -2929,7 +2913,7 @@ def parse_tunnel(payload: dict, peer_id: str, peer_name: str | None = None) -> T
     # recopie la même valeur sur les cinq liens actifs : le lire comme
     # « ce lien est dans le bond depuis… » serait faux dès qu'un lien rejoint le
     # bond après coup.
-    duree = ((entry.get("overall") or {}).get("time") or {}).get("second")
+    duree = _bloc(_bloc(entry, "overall"), "time").get("second")
 
     return TunnelStatus(
         peer_id=peer_id,
@@ -2953,11 +2937,10 @@ def tunnel_counters(
     Un lien sans aucun compteur est absent du résultat plutôt que ramené à zéro :
     voir `_counters`.
     """
-    tunnels = (_corps(payload).get("tunnel")) or {}
-    entry = tunnels.get(peer_id) or {}
+    entry = _bloc(_bloc(_corps(payload), "tunnel"), peer_id)
 
     counters: dict[str, tuple[_Counters | None, _Counters | None]] = {}
-    for wan_id, wan in (entry.get("wan") or {}).items():
+    for wan_id, wan in _bloc(entry, "wan").items():
         if not isinstance(wan, dict):
             continue
         up = _counters(wan.get("transmit"))
@@ -2983,7 +2966,7 @@ def parse_location(payload: dict) -> GnssFix | None:
     response = _corps(payload)
     if not response.get("gps"):
         return None
-    location = response.get("location") or {}
+    location = _bloc(response, "location")
     lat = _to_float(location.get("latitude"))
     lon = _to_float(location.get("longitude"))
     if lat is None or lon is None:

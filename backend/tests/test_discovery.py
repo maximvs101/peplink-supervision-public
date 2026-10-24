@@ -385,3 +385,38 @@ async def test_api_joignable_des_que_l_api_repond_ok():
     assert trouve is not None
     assert trouve.api_reachable is True
     assert trouve.firmware is None
+
+
+@pytest.mark.parametrize(
+    ("charge", "joignable"),
+    [
+        ([{"version": "8.5.4"}], False),                       # réponse en LISTE
+        ("ok", False),
+        ({"stat": "ok", "response": [{"version": "8.5.4", "inUse": True}]}, True),
+        ({"stat": "ok", "response": {"1": {"version": {"x": 1}, "inUse": True}}}, True),
+    ],
+)
+async def test_une_reponse_de_forme_inattendue_ne_fait_pas_disparaitre_l_equipement(
+    charge, joignable
+):
+    """`payload.get` et `banks.values()` étaient HORS du `try` : une réponse en
+    liste levait, `discover` rangeait l'exception parmi les sondes interrompues,
+    et l'équipement disparaissait des résultats — alors que son certificat
+    venait d'être reconnu."""
+    class _Bizarre:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): return False
+        async def get(self, url, **kwargs):
+            class _R:
+                @staticmethod
+                def json(): return charge
+            return _R()
+
+    with patch("app.discovery.probe.httpx.AsyncClient", return_value=_Bizarre()), \
+         patch("app.discovery.probe._certificate_name", return_value="Peplink"):
+        trouve = await probe("10.0.0.1")
+
+    assert trouve is not None, "le certificat reconnu suffit à rapporter l'équipement"
+    assert any("certificat" in e for e in trouve.evidence)
+    assert trouve.api_reachable is joignable
+    assert trouve.firmware is None

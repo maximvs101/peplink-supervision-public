@@ -429,7 +429,7 @@ async def test_an_unsupported_tunnel_is_asked_only_once():
     for _ in range(3):
         await client.get_radio_status()
     assert calls["pepvpn"] == 1
-    assert client._supports_tunnel is False
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is not None
     await client.aclose()
 
 
@@ -458,7 +458,7 @@ async def test_a_bond_entirely_down_is_visible_on_every_link():
     assert statuses[0].tunnel is not None
     assert statuses[0].tunnel.state == "PEER_DOWN"
     assert statuses[0].tunnel.in_bond is False
-    assert client._supports_tunnel is True     # l'endpoint répond, il n'est pas condamné
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is None     # l'endpoint répond, il n'est pas condamné
     await client.aclose()
 
 
@@ -508,7 +508,7 @@ async def test_a_device_without_any_peer_is_probed_sparingly():
     for _ in range(5):
         await client.get_radio_status()
     assert calls["pepvpn"] == 1
-    assert client._supports_tunnel is True
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is None
     await client.aclose()
 
 
@@ -542,7 +542,7 @@ async def test_a_rights_refusal_keeps_the_wan_reading():
 
     assert [s.wan_id for s in statuses] == ["4"]     # le relevé WAN survit
     assert statuses[0].tunnel is None
-    assert client._supports_tunnel is False
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is not None
     # Une seule tentative, rejouée une fois après ré-authentification, puis plus rien.
     assert calls["pepvpn"] == 2
     assert calls["login"] == 2
@@ -564,7 +564,7 @@ async def test_refused_credentials_still_stop_everything():
     client = await _client(handler)
     with pytest.raises(CredentialsRefusedError):
         await client.get_radio_status()
-    assert client._supports_tunnel is True
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is None
     await client.aclose()
 
 
@@ -590,7 +590,7 @@ async def test_a_tunnel_out_of_scope_is_condemned_like_a_403():
     client = await _client(handler)
     await client.get_radio_status()
     await client.get_radio_status()
-    assert client._supports_tunnel is False
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is not None
     assert logins == 2
     await client.aclose()
 
@@ -615,7 +615,7 @@ async def test_a_transport_failure_never_condemns_the_tunnel():
     for _ in range(2):
         await client.get_radio_status()
     assert calls["pepvpn"] == 2
-    assert client._supports_tunnel is True
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is None
     await client.aclose()
 
 
@@ -645,7 +645,7 @@ async def test_a_failure_on_the_second_call_never_condemns_the_endpoint():
     for _ in range(2):
         await client.get_radio_status()
     assert calls["detail"] == 2
-    assert client._supports_tunnel is True
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is None
     await client.aclose()
 
 

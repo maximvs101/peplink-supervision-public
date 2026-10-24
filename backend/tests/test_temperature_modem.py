@@ -21,7 +21,6 @@ from app.models import WanRadioStatus, utcnow
 from app.peplink.router_api import (
     _TEMPERATURE_INTERVAL_S,
     CredentialsRefusedError,
-    EndpointRefusedError,
     RouterApiError,
     RouterApiPeplinkClient,
     parse_modem_temperature,
@@ -106,16 +105,32 @@ def test_a_measure_older_than_90_s_is_dropped(monkeypatch):
         assert liens[1].modem_temperature_c is None and liens[1].modem_temperature_at is None
 
 
+def _transport(par_wan: dict):
+    """Faux TRANSPORT, sous `_get` : la mémoire des refus de `_get` joue."""
+    async def requete(endpoint, params=None, corps=None):
+        reponse = par_wan[corps["connId"]]
+        if isinstance(reponse, dict):
+            return reponse
+        return {"stat": "ok", "response": {"temperature": reponse}}
+    return AsyncMock(side_effect=requete)
+
+
+def _demandes_transport(faux: AsyncMock) -> list[int]:
+    return [c.args[2]["connId"] for c in faux.await_args_list]
+
+
 def test_a_refusal_removes_one_modem_not_the_device():
     client = RouterApiPeplinkClient(RouterConfig(id="d", name="D", host="h"))
-    faux = _routeur({2: EndpointRefusedError("404 Unsupported request", code=404), 3: 35})
-    with patch.object(client, "_get", faux):
+    refus = {"stat": "fail", "code": 404, "message": "Unsupported request"}
+    faux = _transport({2: refus, 3: 35})
+    with patch.object(client, "_request", faux), \
+         patch.object(client, "_ensure_authenticated", AsyncMock(return_value=1)):
         liens = _liens()
         asyncio.run(client._attach_modem_temperature(liens))
         assert liens[2].modem_temperature_c == 35.0
         client._temperature_at -= _TEMPERATURE_INTERVAL_S + 1
         asyncio.run(client._attach_modem_temperature(_liens()))
-    assert _demandes(faux) == [2, 3, 3], "le WAN refusé n'est plus demandé, l'autre si"
+    assert _demandes_transport(faux) == [2, 3, 3], "le WAN refusé n'est plus demandé, l'autre si"
 
 
 def test_a_transient_failure_does_not_cost_a_minute():
@@ -143,14 +158,18 @@ def test_the_temperature_is_never_written_to_the_samples_table():
 
 
 def test_a_rights_refusal_stops_asking_every_modem():
-    from app.peplink.router_api import AuthenticationError
+    """Le test d'origine injectait une `AuthenticationError(code=403)` que rien
+    ne lève : un refus de droits sort de `_get` en `EndpointRefusedError`, et
+    c'est sa mémoire qui épargne le second modem."""
     client = RouterApiPeplinkClient(RouterConfig(id="d", name="D", host="h"))
-    faux = _routeur({2: AuthenticationError("403", code=403), 3: 35})
-    with patch.object(client, "_get", faux):
+    droits = {"stat": "fail", "code": 403, "message": "Forbidden"}
+    faux = _transport({2: droits, 3: 35})
+    with patch.object(client, "_request", faux), \
+         patch.object(client, "_ensure_authenticated", AsyncMock(return_value=1)):
         asyncio.run(client._attach_modem_temperature(_liens()))
         client._temperature_at = None
         asyncio.run(client._attach_modem_temperature(_liens()))
-    assert _demandes(faux) == [2]
+    assert _demandes_transport(faux) == [2, 2], "relu une fois après relogin, puis plus rien"
 
 
 def test_a_reply_without_temperature_still_counts_as_the_minute_s_reading():

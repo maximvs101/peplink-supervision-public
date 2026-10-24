@@ -444,8 +444,8 @@ class DeviceInfo(BaseModel):
     clock_offset_s: float | None = None
 
     # Une configuration est en cours d'application. Explique un transitoire
-    # qu'on prendrait sinon pour une panne.
-    config_activating: bool = False
+    # qu'on prendrait sinon pour une panne. `None` : le firmware ne le dit pas.
+    config_activating: bool | None = None
 
     # Un tunnel d'assistance est ouvert vers l'éditeur. Fait de SÉCURITÉ : un
     # `true` inattendu mérite d'être vu.

@@ -156,8 +156,12 @@ def test_the_profile_read_is_a_complement_that_never_breaks_the_bond_state():
         return await base(endpoint, params)
 
     with patch.object(client, "_get", AsyncMock(side_effect=refus)):
-        asyncio.run(client._attach_tunnel([WanRadioStatus(wan_id="4", wan_name="W", connected=True)]))
-    assert client._supports_profils is False
+        liens = [WanRadioStatus(wan_id="4", wan_name="W", connected=True)]
+        asyncio.run(client._attach_tunnel(liens))
+    # Le refus ne casse pas l'état du bond ; ce qu'on en retient — et
+    # jusqu'à quand — est l'affaire de `_get` (voir test_refus_passagers).
+    assert liens[0].tunnel.state == PEER_DOWN
+    assert client._profils_at is None
 
     async def mot_de_passe(endpoint, params=None):
         if (params or {}).get("infoType") == "profile":
@@ -187,17 +191,22 @@ def test_profiles_are_forgotten_when_no_peer_is_declared_any_more():
     assert client.bond_profiles == []
 
 
-def test_a_refused_profile_endpoint_is_never_asked_again():
+def test_a_profile_endpoint_said_unknown_is_not_asked_again_at_once():
+    """Sous `_get` (faux transport) : la mémoire des refus joue. Un endpoint
+    que le firmware dit inconnu n'est pas redemandé au cycle suivant — il
+    l'est à l'échéance, voir test_refus_passagers."""
     client = RouterApiPeplinkClient(RouterConfig(id="hd2", name="HD2", host="h"))
-    base = _routeur(HD2)
+    demandes: list[str] = []
 
-    async def refus(endpoint, params=None):
-        if (params or {}).get("infoType") == "profile":
-            raise EndpointRefusedError("999")
-        return await base(endpoint, params)
+    async def requete(endpoint, params=None, corps=None):
+        info = (params or {}).get("infoType")
+        demandes.append(info)
+        if info == "profile":
+            return {"stat": "fail", "code": 999, "message": "unknown function"}
+        return HD2[f"status.pepvpn.{info}"]
 
-    faux = AsyncMock(side_effect=refus)
-    with patch.object(client, "_get", faux):
+    with patch.object(client, "_request", AsyncMock(side_effect=requete)), \
+         patch.object(client, "_ensure_authenticated", AsyncMock(return_value=1)):
         for _ in range(2):
             asyncio.run(client._attach_tunnel([WanRadioStatus(wan_id="4", wan_name="W", connected=True)]))
-    assert _profils_demandes(faux) == 1
+    assert demandes.count("profile") == 1
