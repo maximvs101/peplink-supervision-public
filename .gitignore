@@ -34,6 +34,12 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
+# Couverture des tests (CI : pytest --cov, vitest --coverage)
+backend/.coverage
+backend/.coverage.*
+backend/rapport-pytest.xml
+frontend/coverage/
+
 # journaux de développement
 *.log
 

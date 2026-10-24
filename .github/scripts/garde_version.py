@@ -1,6 +1,8 @@
-"""Garde de version, lancée par le job `publier` avant tout envoi.
+"""Garde de version, lancée avant toute construction (job `garde`), puis par
+le job `publier` avant tout envoi.
 
     python3 .github/scripts/garde_version.py v0.2.1 > notes.md
+    python3 .github/scripts/garde_version.py --coherence
 
 Écrit sur la sortie standard la section de CHANGELOG.md qui porte l'étiquette
 — le texte de la Release —, et échoue (code 1, rien sur la sortie) si l'un de
@@ -12,6 +14,11 @@ ces numéros diverge de l'étiquette sans son « v » :
   - `backend/app/__init__.__version__` (le superviseur, et son API) ;
   - `backend/temoin/__init__.__version__` (le témoin Ethernet) ;
   - `frontend/package.json` (l'interface).
+
+`--coherence`, pour un lancement manuel sans étiquette : seuls les trois
+numéros du code (les deux paquets Python, package.json) doivent concorder
+entre eux ; le CHANGELOG n'est pas lu — l'« À venir » n'a pas encore de
+numéro, et un exécutable de test n'a pas de Release. Rien sur la sortie.
 
 Avant, `awk` ne trouvait rien pour une étiquette sans section et un texte de
 secours partait en Release ; et v0.1.1 a été publiée avec des exécutables qui
@@ -79,32 +86,59 @@ def verifier(etiquette: str, racine: Path) -> tuple[list[str], str]:
             erreurs.append(f"CHANGELOG.md : la section en tête est v{numerotees[0][0]}, "
                            f"pas v{version}")
 
-    for nom, lu in (
+    for nom, lu in _versions_du_code(racine):
+        if lu != version:
+            erreurs.append(f"{nom} : version {lu}, l'étiquette dit {version}")
+    return erreurs, notes
+
+
+def _versions_du_code(racine: Path) -> list[tuple[str, str | None]]:
+    """(fichier, numéro lu) des trois endroits qui portent la version."""
+    return [
         ("backend/app/__init__.py", _version_python(racine / "backend" / "app" / "__init__.py")),
         ("backend/temoin/__init__.py",
          _version_python(racine / "backend" / "temoin" / "__init__.py")),
         ("frontend/package.json",
          json.loads((racine / "frontend" / "package.json").read_text(encoding="utf-8"))
          .get("version")),
-    ):
-        if lu != version:
-            erreurs.append(f"{nom} : version {lu}, l'étiquette dit {version}")
-    return erreurs, notes
+    ]
+
+
+def verifier_coherence(racine: Path) -> list[str]:
+    """Les trois numéros du code concordent entre eux — sans étiquette, sans
+    CHANGELOG. Une erreur par numéro qui s'écarte du superviseur (la référence),
+    chacune nommant les deux numéros."""
+    lus = _versions_du_code(racine)
+    reference_nom, reference = lus[0]
+    if reference is None:
+        return [f"{reference_nom} : aucun __version__ lisible"]
+    return [f"{nom} : version {lu}, {reference_nom} dit {reference}"
+            for nom, lu in lus[1:] if lu != reference]
 
 
 def main() -> int:
     analyse = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    analyse.add_argument("etiquette", help="l'étiquette publiée, ex. v0.2.1")
+    analyse.add_argument("etiquette", nargs="?", help="l'étiquette publiée, ex. v0.2.1")
+    analyse.add_argument("--coherence", action="store_true",
+                         help="sans étiquette : les numéros du code concordent entre eux")
     analyse.add_argument("--racine", type=Path, default=Path(__file__).resolve().parents[2])
     args = analyse.parse_args()
-    erreurs, notes = verifier(args.etiquette, args.racine)
+    # L'une ou l'autre, jamais les deux ni aucune : une étape qui perdrait son
+    # étiquette (variable vide) doit échouer, pas glisser vers la cohérence.
+    if (args.etiquette is None) == (not args.coherence):
+        analyse.error("une étiquette vX.Y.Z, ou --coherence — l'une ou l'autre")
+    if args.coherence:
+        erreurs, notes = verifier_coherence(args.racine), ""
+    else:
+        erreurs, notes = verifier(args.etiquette, args.racine)
     if erreurs:
         for erreur in erreurs:
             # Une annotation par divergence : lisible sans ouvrir les journaux.
             print(f"::error title=Garde de version::{erreur}", file=sys.stderr)
         return 1
-    sys.stdout.reconfigure(encoding="utf-8")
-    print(notes)
+    if not args.coherence:
+        sys.stdout.reconfigure(encoding="utf-8")
+        print(notes)
     return 0
 
 

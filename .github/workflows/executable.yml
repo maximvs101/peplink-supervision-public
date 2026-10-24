@@ -17,12 +17,19 @@
 # et chaque exécutable est LANCÉ après construction : serveur, interface, base à
 # côté — la vérification qui a manqué au premier essai du 19 septembre.
 #
+# Avant toute construction, le job `garde` vérifie les numéros de version
+# (secondes, sur une machine Linux, sans rien installer) ; en parallèle, le job
+# `audits` cherche les failles connues des dépendances d'exécution. Une Release
+# attend les deux. Elle porte aussi `SHA256SUMS`, les empreintes des six
+# fichiers.
+#
 # Les fichiers ne sont pas signés : un avertissement au premier lancement
 # (Gatekeeper, SmartScreen), qui se lève sans droits d'administrateur.
 #
 # Chaque action est épinglée par l'empreinte complète de son commit, la
-# majeure qu'elle représente en commentaire (`# v7`) : une étiquette se
-# déplace, une empreinte non. Empreintes relevées le 24/10/2026 par l'API
+# majeure qu'elle représente en commentaire (`# v7`, ou `# v7.1.0` une fois
+# que Dependabot l'a montée — .github/dependabot.yml, chaque mois) : une
+# étiquette se déplace, une empreinte non. Empreintes relevées le 24/10/2026 par l'API
 # publique de GitHub (`git/ref/tags/vN`, étiquette annotée déréférencée
 # jusqu'au commit). Pour monter de version : relever la nouvelle empreinte
 # de la même façon, changer l'empreinte ET le commentaire — tests/test_ci.py
@@ -51,7 +58,66 @@ permissions:
   contents: read
 
 jobs:
+  # La garde de version, d'abord : une étiquette sans section de CHANGELOG, ou
+  # des numéros qui divergent, arrêtent tout ici — et non après vingt minutes
+  # de trois constructions. Sur une étiquette `v*` (la condition même de
+  # `publier`), la garde complète ; sans étiquette (lancement manuel depuis une
+  # branche), la cohérence seule : les trois numéros du code concordent, le
+  # CHANGELOG n'est pas lu — l'« À venir » n'a pas de numéro, un exécutable de
+  # test pas de Release. Bibliothèque standard seule : rien à installer.
+  garde:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Garde de version — avant toute construction
+        env:
+          ETIQUETTE: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: |
+          if [ -n "$ETIQUETTE" ]; then
+            python3 .github/scripts/garde_version.py "$ETIQUETTE"
+          else
+            python3 .github/scripts/garde_version.py --coherence
+          fi
+
+  # Les failles connues des dépendances d'EXÉCUTION — ce que l'exécutable
+  # embarque (backend/requirements.txt), ce que le navigateur charge (les
+  # `dependencies` du verrou npm). Une faille de gravité haute ou critique côté
+  # interface, toute faille connue côté serveur, font échouer le run, donc
+  # bloquent la Release ; les outils de développement ne sont pas audités. En
+  # parallèle des constructions : un audit qui échoue ne retient pas un
+  # exécutable de test, il retient la publication. `--no-deps` : tout est
+  # épinglé à l'identique, pip-audit lit les versions telles quelles au lieu de
+  # résoudre un environnement (les dépendances propres à un système, non
+  # épinglées — pywin32-ctypes de keyring —, échappent donc à l'audit).
+  audits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+      - name: Serveur — failles connues (pip-audit)
+        run: |
+          python -m pip install -r backend/requirements-dev.txt
+          python -m pip_audit --no-deps --progress-spinner off -r backend/requirements.txt
+      # Le verrou suffit : `npm audit` n'a pas besoin de node_modules.
+      - name: Interface — failles connues (npm audit)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
   construire:
+    needs: garde
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +129,10 @@ jobs:
             temoin_nom: temoin-ethernet-windows-x64.exe
             temoin_produit: dist/temoin-ethernet.exe
             temoin_livraison: temoin-ethernet-windows-x64.exe
+          # La couverture des tests, sur cette machine seule (la plus rapide) :
+          # affichée dans le journal et le résumé du run, sans seuil.
           - os: macos-latest
+            couverture: true
             nom: superviseur-macos-arm64
             produit: dist/superviseur
             livraison: superviseur-macos-arm64.tar.gz
@@ -124,7 +193,19 @@ jobs:
           node --version && npm --version
           npm ci
           npx tsc --noEmit -p .
-          npm test
+          if [ "${{ matrix.couverture }}" = true ]; then
+            npx vitest run --coverage.enabled --coverage.include='src/**' \
+              --coverage.reporter=text-summary --coverage.reporter=json-summary
+            node -e '
+              const t = require("./coverage/coverage-summary.json").total;
+              const l = ["### Couverture — interface", "", "| | % |", "|---|---|"];
+              for (const k of ["lines", "statements", "branches", "functions"])
+                l.push(`| ${k} | ${t[k].pct} |`);
+              console.log(l.join("\n"));
+            ' >> "$GITHUB_STEP_SUMMARY"
+          else
+            npm test
+          fi
           npm run build
 
       # Windows ouvre les fichiers et parle à sa console en cp1252 : les
@@ -139,7 +220,14 @@ jobs:
         run: |
           python -m pip install -r requirements-dev.txt -r requirements-build.txt
           python -m ruff check .
-          python -m pytest -q --junitxml=rapport-pytest.xml
+          if [ "${{ matrix.couverture }}" = true ]; then
+            python -m pytest -q --junitxml=rapport-pytest.xml \
+              --cov=app --cov=temoin --cov-report=term:skip-covered
+            { printf '### Couverture — serveur\n\n'
+              python -m coverage report --format=markdown --skip-covered; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            python -m pytest -q --junitxml=rapport-pytest.xml
+          fi
 
       # Chaque échec de test devient une annotation : les journaux complets ne
       # sont pas toujours lisibles d'où l'on relit un run, les annotations si.
@@ -235,7 +323,7 @@ jobs:
     # versionnée avec le code, et indépendante de la façon dont l'étiquette a
     # été posée (annotée, légère, ou créée depuis le site).
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: construire
+    needs: [construire, audits]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -256,6 +344,18 @@ jobs:
         with:
           path: fichiers
           merge-multiple: true
+      # Les empreintes des six fichiers, au format de `sha256sum`
+      # (`<hex>  <nom>`), publiées avec eux : `shasum -a 256 -c SHA256SUMS`
+      # sur Mac, `Get-FileHash` sous Windows. Six fichiers, ni plus ni moins :
+      # un produit manquant arrête la publication ici.
+      - name: Empreintes SHA-256 — SHA256SUMS
+        working-directory: fichiers
+        run: |
+          set -- *
+          test "$#" -eq 6
+          sha256sum -- "$@" > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
+          cat SHA256SUMS
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           name: Superviseur et témoin Ethernet ${{ github.ref_name }}
