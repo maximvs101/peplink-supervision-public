@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Racine du backend (dossier parent de app/) : les chemins relatifs y sont résolus,
@@ -37,6 +38,12 @@ class Settings(BaseSettings):
     poll_interval_seconds: float = 3.0
 
     database_path: str = "./data/samples.db"
+    # Jours conservés à pleine résolution. Au-delà, les sessions closes sont
+    # figées (fiche et journal), puis les relevés regroupés à la minute et
+    # effacés, en tâche de fond (`app/retention.py`). Trente jours : une
+    # intervention se relit en détail pendant un mois, et la base cesse de
+    # croître au-delà. 0 désactive la rétention — tout est gardé.
+    retention_jours: int = Field(30, ge=0)
     routers_config: str = "./routers.yaml"
     # L'interface compilée. Relatif à la racine du backend, comme les deux
     # chemins ci-dessus — et surchargeable, parce qu'un exécutable emporté ne

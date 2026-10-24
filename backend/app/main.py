@@ -19,6 +19,7 @@ from .devices.registry import DeviceRegistry
 from .fleet import load_fleet
 from .pairing.service import Reconnexion
 from .poller import Poller
+from .retention import Retention
 from .storage.db import SampleRepository
 from .types_mime import fixer_types_mime
 
@@ -86,6 +87,11 @@ async def lifespan(app: FastAPI):
     reconnexion = asyncio.create_task(
         Reconnexion(registry, repo, poller, cadence=settings.poll_interval_seconds).boucle()
     )
+    # La rétention, en tâche de fond et par petits lots : jamais au démarrage,
+    # jamais une transaction qui gèle la scrutation (`app/retention.py`).
+    retention = asyncio.create_task(
+        Retention(repo, settings.retention_jours, routes._SEUIL_EPISODE_MS).boucle()
+    )
 
     app.state.settings = settings
     app.state.repo = repo
@@ -96,10 +102,12 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         reconnexion.cancel()
+        retention.cancel()
         # ATTENDUE, et pas seulement annulée : une tentative en vol finit son
         # `await` — fermeture de client, `registry.add` — après l'annulation, et
-        # elle le faisait pendant que `registry.close()` fermait tout.
-        await asyncio.gather(reconnexion, return_exceptions=True)
+        # elle le faisait pendant que `registry.close()` fermait tout. Un lot de
+        # rétention interrompu, lui, est annulé en entier avant `repo.close()`.
+        await asyncio.gather(reconnexion, retention, return_exceptions=True)
         await poller.stop()
         await registry.close()
         await repo.close()

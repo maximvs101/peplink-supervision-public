@@ -520,6 +520,10 @@ export interface Timeline {
   /** La fenêtre demandée a été ROGNÉE à vingt-quatre heures par le serveur :
    *  `started_at` est le début relu, pas celui demandé. Jamais tu. */
   capped: boolean
+  /** Avant cet instant, les relevés sont regroupés à la minute (rétention) :
+   *  la bande y a la résolution de la minute. Absent ou `null` : pleine
+   *  résolution. */
+  grouped_before?: string | null
   slice_count: number
   slice_seconds: number
   lanes: TimelineLane[]
@@ -582,6 +586,10 @@ export interface EventLog {
   ended_at: string
   /** Fenêtre rognée à vingt-quatre heures : voir `Timeline.capped`. */
   capped: boolean
+  /** Avant cet instant, les relevés sont regroupés à la minute : le journal
+   *  n'y a plus que les épisodes figés des sessions closes. `null` quand il
+   *  est entier — y compris pour une session close relue sur sa fenêtre. */
+  grouped_before?: string | null
   episodes: Episode[]
   churn: LinkChurn[]
   /** Épisodes retenus par le plafond. Jamais tu : un journal tronqué en silence
@@ -605,7 +613,8 @@ export interface HistoryPoint {
    *  un SINR LTE ne se comparent pas. */
   rat?: string | null
   /** « routeur » : un point de l'heure que le ROUTEUR garde, placé dans un trou
-   *  de supervision (R-3.1) — dessiné à part. Absent : un relevé de cet outil. */
+   *  de supervision (R-3.1) — dessiné à part. Absent : un relevé de cet outil.
+   *  « minute » : le minimum ou le maximum d'une minute regroupée (rétention). */
   source?: string | null
 }
 
@@ -617,6 +626,8 @@ export interface HistorySeries {
   /** Points réellement présents dans la fenêtre, avant allègement. Quand il
    *  dépasse la longueur de `points`, la courbe est une enveloppe. */
   available: number
+  /** Avant cet instant, la courbe est faite de minutes regroupées. */
+  grouped_before?: string | null
 }
 
 export interface Health {

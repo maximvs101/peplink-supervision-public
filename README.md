@@ -30,7 +30,8 @@ Windows demande « Informations complémentaires › Exécuter quand même », m
 - Le superviseur écoute sur `http://127.0.0.1:8000`, le témoin sur `:8010` : les deux
   tournent ensemble.
 - Les données vivent dans `data/`, **à côté du fichier**, avec une copie de sauvegarde à
-  chaque lancement.
+  chaque lancement. Les relevés de plus de 30 jours sont regroupés à la minute
+  (`RETENTION_JOURS`, voir la [référence](docs/REFERENCE.md#rétention-de-la-base)).
 - Les identifiants du routeur vont dans le **trousseau du système** (Trousseau macOS,
   Gestionnaire d'identification Windows), jamais dans un fichier. Un refus n'est jamais
   rejoué : cinq refus bloquent l'accès admin du routeur cinq minutes.
