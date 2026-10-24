@@ -1329,15 +1329,21 @@ async def test_a_cycle_without_any_uptime_still_extends_the_session(poller, monk
     fin geler — jusqu'à 1 h 43 mesuré — pendant que la collecte continuait, et
     la fiche de stationnement s'affichait complète en ayant perdu tout ce qui
     suivait. Mesuré sur la base : 19 990 relevés déclarés pour 25 920 écrits.
+
+    La prolongation se fait désormais dans la transaction des relevés du cycle
+    (revue du 24/10) : on passe donc par un cycle complet.
     """
     p, registry = poller
     record = await registry.add(_config("mbx"))
+    # Ni fiche ni identification : seule l'ancienneté des liens témoigne.
+    record.identified, record.info = True, None
     avec = [WanRadioStatus(wan_id="4", wan_name="SIM", kind="cellular",
                            connected=True, uptime_s=3600)]
     sans = [WanRadioStatus(wan_id="4", wan_name="SIM", kind="cellular",
                            connected=True, uptime_s=None)]
 
-    await p._track_session(record, avec)
+    record.client.get_radio_status = AsyncMock(return_value=avec)
+    await p._poll_device_once(record)
     session = p._session["mbx"]
     premiere = (await p._repo.current_session("mbx"))["last_seen"]
 
@@ -1350,11 +1356,14 @@ async def test_a_cycle_without_any_uptime_still_extends_the_session(poller, monk
 
     plus_tard = datetime.fromisoformat(premiere) + timedelta(seconds=5)
     monkeypatch.setattr(models, "_horloge", lambda: plus_tard)
-    await p._track_session(record, sans)
+    record.client.get_radio_status = AsyncMock(return_value=sans)
+    await p._poll_device_once(record)
     assert p._session["mbx"].id == session.id, "la session a été rouverte"
-    assert (await p._repo.current_session("mbx"))["last_seen"] == plus_tard.astimezone(timezone.utc).isoformat(), (
+    courante = await p._repo.current_session("mbx")
+    assert courante["last_seen"] == plus_tard.astimezone(timezone.utc).isoformat(), (
         "la fin de session a gelé alors que les relevés continuaient"
     )
+    assert courante["samples"] == 2
 
 
 async def test_the_reboot_witness_survives_an_empty_sample(poller):
