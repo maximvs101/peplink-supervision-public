@@ -81,11 +81,14 @@ def test_the_quality_read_is_a_complement():
     with patch.object(client, "_get", AsyncMock(side_effect=RouterApiError("r"))):
         asyncio.run(client._lire_qualite())
     assert client._qualite_at is None and client.serie_qualite is None
+    # Un refus ne coûte pas l'intervalle : ce qu'on en retient est l'affaire
+    # de la mémoire de `_get`, court-circuitée ici (voir test_refus_passagers).
     faux = AsyncMock(side_effect=EndpointRefusedError("999"))
     with patch.object(client, "_get", faux):
         asyncio.run(client._lire_qualite())
         asyncio.run(client._lire_qualite())
-    assert faux.await_count == 1
+    assert faux.await_count == 2
+    assert client._qualite_at is None and client.serie_qualite is None
     autre = RouterApiPeplinkClient(RouterConfig(id="d", name="D", host="h"))
     with patch.object(autre, "_get", AsyncMock(side_effect=CredentialsRefusedError("401"))):
         with pytest.raises(CredentialsRefusedError):

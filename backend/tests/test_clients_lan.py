@@ -113,11 +113,14 @@ def test_the_client_read_is_a_complement():
         asyncio.run(client._lire_clients())
     assert client.lan_clients is None and client._clients_at is None
 
+    # Un refus ne coûte pas l'intervalle : ce qu'on en retient est l'affaire
+    # de la mémoire de `_get`, court-circuitée ici (voir test_refus_passagers).
     faux = AsyncMock(side_effect=EndpointRefusedError("999"))
     with patch.object(client, "_get", faux):
         asyncio.run(client._lire_clients())
         asyncio.run(client._lire_clients())
-    assert faux.await_count == 1, "un refus du firmware n'est demandé qu'une fois"
+    assert faux.await_count == 2
+    assert client.lan_clients is None and client._clients_at is None
 
     autre = RouterApiPeplinkClient(RouterConfig(id="d", name="D", host="h"))
     with patch.object(autre, "_get", AsyncMock(side_effect=CredentialsRefusedError("401"))):

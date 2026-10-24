@@ -1122,7 +1122,7 @@ async def test_unsupported_traffic_stops_being_requested():
     for _ in range(3):
         await client.get_radio_status()
     assert calls["traffic"] == 1
-    assert client._supports_traffic is False
+    assert client._retenu("status.traffic") is not None
     await client.aclose()
 
 
@@ -1278,7 +1278,7 @@ def test_a_CREDENTIALS_refusal_does_not_condemn_the_per_wan_throughput():
         raise CredentialsRefusedError("identifiants refusés", code=403)
 
     client._get = refus  # type: ignore[method-assign]
-    assert client._supports_traffic is True
+    assert client._retenu("status.traffic") is None
 
     async def scenario() -> None:
         try:
@@ -1289,7 +1289,7 @@ def test_a_CREDENTIALS_refusal_does_not_condemn_the_per_wan_throughput():
             raise AssertionError("le refus d'identifiants a été avalé")
 
     asyncio.run(scenario())
-    assert client._supports_traffic is True, "un refus d'identifiants a condamné la sonde"
+    assert client._retenu("status.traffic") is None, "un refus d'identifiants a condamné la sonde"
 
 
 def test_new_credentials_revive_what_the_refusal_had_condemned():
@@ -1302,17 +1302,20 @@ def test_new_credentials_revive_what_the_refusal_had_condemned():
     from app.fleet import RouterConfig
     from app.peplink.router_api import RouterApiPeplinkClient
 
+    import time
+
     client = RouterApiPeplinkClient(RouterConfig(id="r", name="R", host="h"))
-    client._supports_traffic = False
-    client._supports_tunnel = False
+    loin = time.monotonic() + 3600
+    client._retenus["status.traffic"] = (loin, "droits", 401)
+    client._retenus["status.pepvpn?infoType=peer"] = (loin, "non proposé", 999)
     client._tunnel_skip = 10
     client._credentials_refused = True
 
     client.allow_new_credentials()
 
     assert client._credentials_refused is False
-    assert client._supports_traffic is True
-    assert client._supports_tunnel is True
+    assert client._retenu("status.traffic") is None
+    assert client._retenu("status.pepvpn", {"infoType": "peer"}) is None
     assert client._tunnel_skip == 0
 
 
@@ -1411,7 +1414,7 @@ def test_an_unreadable_payload_never_costs_the_whole_reading():
     assert len(statuses) == 1 and statuses[0].wan_id == "4"
     assert statuses[0].rx_kbps is None and statuses[0].tx_kbps is None
     # Et la sonde n'est pas condamnée : c'est une charge illisible, pas un refus.
-    assert client._supports_traffic is True
+    assert client._retenu("status.traffic") is None
 
 
 def test_a_lone_carrier_at_pci_zero_is_read_as_not_reported():
