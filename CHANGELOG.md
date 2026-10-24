@@ -4,6 +4,11 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
+## À venir
+
+- Les mentions des composants tiers embarqués (`LICENCES-TIERCES.txt`) voyagent avec chaque
+  exécutable, servies sous `/LICENCES-TIERCES.txt`, et sont publiées dans chaque Release.
+
 ## v0.2.1 — Revue complète et rétention de la base
 
 Une revue de tout le superviseur, ses correctifs, et une base qui ne grossit plus sans fin.

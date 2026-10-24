@@ -284,6 +284,26 @@ def test_the_compiled_index_is_never_kept_in_cache(tmp_path, monkeypatch):
     assert "immutable" in bundle.headers["cache-control"]
 
 
+def test_un_fichier_sans_empreinte_n_est_pas_garde_pour_toujours(tmp_path):
+    """LICENCES-TIERCES.txt, posé à la racine de l'interface par la construction,
+    garde son nom d'une version à l'autre : « immutable » ferait relire au
+    navigateur les licences d'une version précédente pendant un an. Seul
+    `assets/`, où Vite nomme chaque fichier d'après son empreinte, se garde."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.main import _FrontendFiles
+
+    (tmp_path / "index.html").write_text("<!doctype html><p>ok</p>", encoding="utf-8")
+    (tmp_path / "LICENCES-TIERCES.txt").write_text("Composants tiers\n", encoding="utf-8")
+    app = FastAPI()
+    app.mount("/", _FrontendFiles(directory=str(tmp_path), html=True), name="frontend")
+    reponse = TestClient(app).get("/LICENCES-TIERCES.txt")
+    assert reponse.status_code == 200
+    assert reponse.headers["content-type"].startswith("text/plain")
+    assert "immutable" not in reponse.headers["cache-control"]
+    assert "no-cache" in reponse.headers["cache-control"]
+
+
 def test_a_cached_index_is_revalidated_rather_than_reused(tmp_path):
     """Un `If-Modified-Since` sur l'index ne doit pas rendre 304.
 

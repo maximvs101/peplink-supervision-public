@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -202,7 +203,11 @@ class _FrontendFiles(StaticFiles):
 
     def file_response(self, *args, **kwargs):  # type: ignore[override]
         response = super().file_response(*args, **kwargs)
-        if response.headers.get("content-type", "").startswith("text/html"):
+        # Hors de `assets/`, aucun nom ne porte d'empreinte : LICENCES-TIERCES.txt,
+        # posé là par la construction, garde le sien d'une version à l'autre —
+        # « immutable » faisait relire au navigateur celui d'une version précédente.
+        if (response.headers.get("content-type", "").startswith("text/html")
+                or Path(args[0] if args else kwargs["full_path"]).parent.name != "assets"):
             response.headers["cache-control"] = "no-cache, must-revalidate"
         else:
             # Nom porteur d'empreinte : le contenu ne changera jamais sous ce nom.

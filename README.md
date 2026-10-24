@@ -89,6 +89,9 @@ chaque système, puis lancés et vérifiés avant d'être livrés.
 
 MIT — voir [LICENSE](LICENSE).
 
+Licences des composants tiers : `LICENCES-TIERCES.txt` dans chaque Release, et servi par
+chaque exécutable sous `/LICENCES-TIERCES.txt`.
+
 ## Limites
 
 Quelques châssis, un firmware, deux opérateurs : les seuils radio et d'alerte sont calés sur

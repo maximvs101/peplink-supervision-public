@@ -20,7 +20,9 @@
 # Avant toute construction, le job `garde` vérifie les numéros de version
 # (secondes, sur une machine Linux, sans rien installer) ; en parallèle, le job
 # `audits` cherche les failles connues des dépendances d'exécution. Une Release
-# attend les deux. Elle porte aussi `SHA256SUMS`, les empreintes des six
+# attend les deux. Elle porte aussi `LICENCES-TIERCES.txt`, les mentions des
+# composants tiers que les exécutables embarquent (chacun en a aussi sa copie,
+# servie sous /LICENCES-TIERCES.txt), et `SHA256SUMS`, les empreintes des sept
 # fichiers.
 #
 # Les fichiers ne sont pas signés : un avertissement au premier lancement
@@ -123,7 +125,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `licences` : cette machine seule envoie LICENCES-TIERCES.txt à la
+          # Release — une fois, et non une par système. Celui du superviseur
+          # Windows couvre les deux autres (même requirements.txt, même verrou
+          # npm ; pywin32-ctypes de keyring en plus) et le témoin (son serveur).
           - os: windows-latest
+            licences: true
             nom: superviseur-windows-x64.exe
             produit: dist/superviseur.exe
             livraison: superviseur-windows-x64.exe
@@ -318,6 +325,17 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      # Écrit par la construction du superviseur (tools/licences_tierces.py),
+      # à côté de l'exécutable ; sa copie embarquée a été lue par la
+      # vérification.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: matrix.licences && env.SUPERVISEUR == 'true'
+        with:
+          name: LICENCES-TIERCES.txt
+          path: backend/dist/LICENCES-TIERCES.txt
+          retention-days: 14
+          if-no-files-found: error
+
   publier:
     # Seulement sur une étiquette : les fichiers rejoignent une Release, dont
     # le texte est la section de CHANGELOG.md qui porte cette étiquette —
@@ -346,15 +364,16 @@ jobs:
         with:
           path: fichiers
           merge-multiple: true
-      # Les empreintes des six fichiers, au format de `sha256sum`
-      # (`<hex>  <nom>`), publiées avec eux : `shasum -a 256 -c SHA256SUMS`
-      # sur Mac, `Get-FileHash` sous Windows. Six fichiers, ni plus ni moins :
-      # un produit manquant arrête la publication ici.
+      # Les empreintes des sept fichiers — six exécutables et
+      # LICENCES-TIERCES.txt, publié avec eux et couvert comme eux —, au format
+      # de `sha256sum` (`<hex>  <nom>`) : `shasum -a 256 -c SHA256SUMS` sur
+      # Mac, `Get-FileHash` sous Windows. Sept fichiers, ni plus ni moins : un
+      # produit manquant arrête la publication ici.
       - name: Empreintes SHA-256 — SHA256SUMS
         working-directory: fichiers
         run: |
           set -- *
-          test "$#" -eq 6
+          test "$#" -eq 7
           sha256sum -- "$@" > ../SHA256SUMS
           mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS
