@@ -80,10 +80,14 @@ function Detail(
  *  jamais affichés) : la ligne y répétait « 1 » indéfiniment. Elle ne devient une
  *  information que sur un équipement qui hiérarchise vraiment ses liens — sur le
  *  Dome Pro Duo le WAN filaire est à 1 et les deux SIM à 2, et l'exploitant doit
- *  alors savoir que ce lien ne portera rien tant que le principal tient. */
-function OutboundPriority({ priority }: { priority: number | null }) {
+ *  alors savoir que ce lien ne portera rien tant que le principal tient.
+ *
+ *  « secours » seulement si le lien attend effectivement (`lib/secours`) : sur
+ *  un HD2 réel, la SIM 5 de priorité 2 portait tout le trafic, le WAN 1 de
+ *  priorité 1 n'ayant pas de câble. */
+function OutboundPriority({ priority, enAttente }: { priority: number | null; enAttente: boolean }) {
   if (priority === null || priority <= 1) return null
-  return <Detail label="Priorité sortante" value={`${priority} — secours`} />
+  return <Detail label="Priorité sortante" value={enAttente ? `${priority} — secours` : `${priority}`} />
 }
 
 interface WanCardProps {
@@ -98,6 +102,8 @@ interface WanCardProps {
   churn?: LinkChurn | null
   /** Ce que la fenêtre couvre, pour que le compte porte sa base de temps. */
   windowLabel?: string
+  /** Le lien attend-il derrière un autre (`lib/secours.enAttente`) ? */
+  enAttente?: boolean
 }
 
 /** Carte d'un WAN radio : cellulaire (qualité, porteuses, cellule) ou lien Wi-Fi amont. */
@@ -158,30 +164,22 @@ function SimSlots({ slots }: { slots: SimSlot[] | undefined }) {
             <b>Emplacement {s.slot} : plafond de {fmtInt(s.allowance.monthly_allowance_mb)}
             {' '}Mo</b>, compteur remis à zéro le {s.allowance.reset_day} du mois.
             {s.allowance.actions.includes('restrict') && (
-              <> Au dépassement, le routeur <b>coupe cette carte</b> — ce n’est pas un
-              avertissement, c’est une panne programmée.</>
+              <> Au dépassement : <b>carte coupée</b>.</>
             )}
             {s.allowance.actions.includes('email') && !s.allowance.actions.includes('restrict') && (
-              <> Au dépassement, le routeur envoie un courriel.</>
+              <> Au dépassement : courriel.</>
             )}
           </p>
         ) : null,
       )}
-      {cartes > 1 && (
-        <p className="disclaimer">
-          Une seconde carte est présente : ce modem a de quoi basculer d’opérateur sans
-          intervention.
-          {active === undefined && (
-            <> Ce modèle ne publie pas lequel des emplacements est actif — seul l’APN
-            renseigné le suggère, et ce n’est pas une preuve.</>
-          )}
-        </p>
+      {cartes > 1 && active === undefined && (
+        <p className="disclaimer">Emplacement actif : non publié par le routeur.</p>
       )}
     </>
   )
 }
 
-export function WanCard({ sample, showThroughput = true, churn, windowLabel }: WanCardProps) {
+export function WanCard({ sample, showThroughput = true, churn, windowLabel, enAttente = false }: WanCardProps) {
   // Les coupures et les sauts de cellule se comptent SUR LA FENÊTRE, comme dans
   // la table des liens. La fiche lisait `sample.disconnects` et
   // `sample.cell_changes`, cumulés depuis le démarrage du serveur — une base de
@@ -214,11 +212,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
     wan.modem_temperature_c === null
       ? null
       : avecSonAge(`${fmtNumber(wan.modem_temperature_c, 0)} °C`, wan.modem_temperature_at)
-  const noteLatence =
-    'Latence du lien lui-même, hors de tout tunnel — la seule qu’aient un lien ' +
-    'filaire, un lien écarté du bond et un équipement sans SpeedFusion. Relevée ' +
-    'une fois par minute : la dernière mesure est montrée avec son âge, et ' +
-    'disparaît au-delà de 90 s.'
+  const noteLatence = 'Latence du lien, hors tunnel. Relevée chaque minute ; masquée au-delà de 90 s.'
   const isWifi = wan.kind === 'wifi'
   const isWired = wan.kind === 'ethernet'
   const global: Quality = linkQuality(wan)
@@ -277,12 +271,12 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
         {!wan.connected && wan.disabled ? (
           /* Une décision, pas une panne : ni rouge, ni « déconnecté » (C-20). */
           <div className="panel-note">
-            Lien désactivé par l’exploitant — aucune mesure tant qu’il ne l’est pas.
+            Lien désactivé — aucune mesure.
           </div>
         ) : !wan.connected ? (
           <div className="offline-banner">
             {isWired ? 'Lien filaire coupé' : isWifi ? 'Lien Wi-Fi déconnecté' : 'Modem déconnecté'}
-            {' '}— aucune mesure disponible.
+            {' '}— aucune mesure.
           </div>
         ) : isWired ? (
           /* Un lien filaire n'a aucune grandeur radio. Afficher des tuiles SINR
@@ -309,7 +303,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
             <span className="section-label">Le lien</span>
             <div className="details">
               <Detail label="Adresse" value={wan.ip ?? '—'} />
-              <OutboundPriority priority={wan.priority} />
+              <OutboundPriority priority={wan.priority} enAttente={enAttente} />
               <Detail label="Coupures" value={coupures === null ? null : fmtInt(coupures)} />
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
               <Detail label="État" value={wan.status_message ?? '—'} />
@@ -322,10 +316,6 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
               <Detail label="Latence du lien" value={latenceChemin} title={noteLatence} />
             </div>
 
-            <p className="disclaimer">
-              Lien filaire agrégé à la liaison. Il ne porte aucune grandeur radio — ni
-              niveau, ni bande, ni cellule.
-            </p>
           </>
         ) : isWifi ? (
           <>
@@ -362,10 +352,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
             </div>
 
-            <p className="disclaimer">
-              Lien Wi-Fi amont agrégé aux modems cellulaires. Le routeur ne fournit qu'une
-              force de signal : ni RSRP, ni RSRQ, ni SINR.
-            </p>
+            <p className="disclaimer">Wi-Fi : force du signal seule (ni RSRP, ni RSRQ, ni SINR).</p>
           </>
         ) : (
           <>
@@ -429,7 +416,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
               {showThroughput && (
                 <Detail label="Débit montant" value={fmtThroughput(wan.tx_kbps)} />
               )}
-              <OutboundPriority priority={wan.priority} />
+              <OutboundPriority priority={wan.priority} enAttente={enAttente} />
               <Detail label="Coupures" value={coupures === null ? null : fmtInt(coupures)} />
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
               <Detail label="État" value={wan.status_message ?? '—'} />
@@ -452,7 +439,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
                 <Detail
                   label="Température du modem"
                   value={temperatureModem}
-                  title="Température du module cellulaire, lue une fois par minute. Celle du châssis, quand le modèle la publie, est sur la fiche de l’équipement."
+                  title="Module cellulaire, relevée chaque minute."
                 />
               )}
             </div>
@@ -476,12 +463,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
                     />
                   )}
                 </div>
-                <p className="disclaimer">
-                  Le routeur ne date pas cette période : sa réponse ne porte ni début
-                  ni numéro de mois. Qu’elle suive le mois calendaire ou le jour de
-                  remise à zéro du plafond reste à vérifier sur un relevé à cheval sur
-                  un premier du mois — d’ici là, l’écran ne la nomme pas.
-                </p>
+                <p className="disclaimer">Période non datée par le routeur.</p>
               </>
             )}
 
@@ -570,10 +552,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
             {(tooFewPackets(wan.tunnel.packets_up) ||
               tooFewPackets(wan.tunnel.packets_down)) && (
               <p className="disclaimer">
-                Moins de {LOSS_MIN_PACKETS} paquets comptés sur l'intervalle : le taux n'est
-                pas publié. Sur un tunnel au repos, le seul trafic est un keepalive de
-                quelques paquets, et un unique paquet manquant y affiche 33 % de perte sur
-                un lien parfaitement sain.
+                Moins de {LOSS_MIN_PACKETS} paquets sur l'intervalle : taux non publié.
               </p>
             )}
           </>

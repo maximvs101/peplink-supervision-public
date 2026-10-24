@@ -184,7 +184,7 @@ describe('la cause d’un tunnel à terre (R-1.5)', () => {
     }))
     monter()
     expect(await screen.findByText(
-      /jamais établi dans cette session \(profil PROFIL-B : le routeur tente de joindre le pair, 0 pair connecté\)/,
+      /jamais établi dans cette session \(profil PROFIL-B : tentative en cours \(START\), 0 pair connecté\)/,
     )).toBeInTheDocument()
   })
 })
@@ -315,7 +315,7 @@ describe('un écran qui tombe', () => {
     // Le bandeau est là : il porte le verdict.
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
     // Et l'écran dit ce qui lui est arrivé, sans mot technique inventé.
-    expect(screen.getByRole('alert').textContent).toMatch(/n’a pas pu être affiché/)
+    expect(screen.getByRole('alert').textContent).toMatch(/Écran non affiché/)
     expect(screen.getByRole('alert').textContent).toMatch(/champ absent/)
     silence.mockRestore()
   })
@@ -333,7 +333,7 @@ describe('un équipement retiré', () => {
     const retire = Object.assign(new Error('Not Found'), { status: 404 })
     vi.mocked(fetchRouter).mockRejectedValue(retire)
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
-    expect(screen.getByText(/n’est plus supervisé/)).toBeInTheDocument()
+    expect(screen.getByText(/Équipement retiré de la supervision/)).toBeInTheDocument()
 
     const avant = vi.mocked(fetchSessions).mock.calls.length
     await act(async () => { await vi.advanceTimersByTimeAsync(90_000) })

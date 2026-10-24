@@ -57,7 +57,7 @@ export function causeDuTunnel(
       const horsService = p.cloud ? licenceHorsService(licence, maintenant) : null
       if (horsService) return `${nom} : licence SpeedFusion Cloud ${horsService}`
       const pairs = p.peers_connected === null ? '' : `, ${p.peers_connected} pair connecté`
-      if (p.status === 'START') return `${nom} : le routeur tente de joindre le pair${pairs}`
+      if (p.status === 'START') return `${nom} : tentative en cours (START)${pairs}`
       return p.status === null ? null : `${nom} : état ${p.status}`
     })
     .filter((c): c is string => c !== null)

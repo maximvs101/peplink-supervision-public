@@ -26,13 +26,13 @@ describe('le mot du pair', () => {
 describe('la cause d’un tunnel à terre', () => {
   it('nomme le profil et ce que fait le routeur', () => {
     expect(causeDuTunnel([profil()], null, MAINTENANT))
-      .toBe('profil PROFIL-B : le routeur tente de joindre le pair, 0 pair connecté')
+      .toBe('profil PROFIL-B : tentative en cours (START), 0 pair connecté')
   })
 
   it('se tait dès qu’un profil tient : la panne est alors ailleurs (C-16)', () => {
     // Ce test attendait l'inverse : profil PROFIL-A connecté, ses liens tous en
     // WAN_DOWN, et un profil secondaire PROFIL-B en START. Le bandeau accusait
-    // « profil PROFIL-B : le routeur tente de joindre le pair » — un profil
+    // « profil PROFIL-B : tentative en cours (START) » — un profil
     // étranger à la panne — au lieu de la cause unanime des liens, qu'il
     // écrasait. Un profil connecté prouve que le pair est joignable : la
     // cause se lit sur les liens.
@@ -50,13 +50,13 @@ describe('la cause d’un tunnel à terre', () => {
       .toBe('profil PROFIL-CLOUD : licence SpeedFusion Cloud suspendue')
     // Le FusionHub d'un exploitant ne dépend pas de la licence Cloud.
     expect(causeDuTunnel([profil()], licence({ expires: '2023-01-19T00:00:00Z' }), MAINTENANT))
-      .toBe('profil PROFIL-B : le routeur tente de joindre le pair, 0 pair connecté')
+      .toBe('profil PROFIL-B : tentative en cours (START), 0 pair connecté')
     // Une licence non souscrite n'est pas « échue » : rien à accuser.
     expect(causeDuTunnel([cloud], { ...licence({ expires: '2023-01-19T00:00:00Z' }), sfc_licensed: false }, MAINTENANT))
-      .toBe('profil PROFIL-CLOUD : le routeur tente de joindre le pair, 0 pair connecté')
+      .toBe('profil PROFIL-CLOUD : tentative en cours (START), 0 pair connecté')
     // Une licence valide ne fait pas une cause : on revient au mot du routeur.
     expect(causeDuTunnel([cloud], licence(), MAINTENANT))
-      .toBe('profil PROFIL-CLOUD : le routeur tente de joindre le pair, 0 pair connecté')
+      .toBe('profil PROFIL-CLOUD : tentative en cours (START), 0 pair connecté')
   })
 
   it('rend un mot inconnu tel quel, et rien sans profil', () => {

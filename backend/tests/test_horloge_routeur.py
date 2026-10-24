@@ -131,8 +131,8 @@ async def test_the_same_offset_on_every_device_points_at_this_computer(tmp_path)
     repo, registry, p, record = await _poller_avec_decalage(tmp_path, -180.0)
     await p._poll_once()
     (seul,) = [a for a in p.alerts("d") if a.kind == "horloge du routeur décalée"]
-    assert "ce poste" in seul.detail
-    assert "horloge de ce poste" not in seul.detail, "un seul équipement ne désigne personne"
+    assert "sur ce poste" in seul.detail
+    assert "même écart" not in seul.detail, "un seul équipement ne se compare à rien"
 
     autre = await registry.add(RouterConfig(id="e", name="E", mode="mock", wans=[WanConfig(id="2", name="SIM")]))
     autre.client.get_radio_status = record.client.get_radio_status
@@ -144,7 +144,7 @@ async def test_the_same_offset_on_every_device_points_at_this_computer(tmp_path)
     # déjà ouverte du premier.
     for rid in ("d", "e"):
         (alerte,) = [a for a in p.alerts(rid) if a.kind == "horloge du routeur décalée"]
-        assert "horloge de ce poste" in alerte.detail, alerte.detail
+        assert "même écart sur les 2 équipements" in alerte.detail, alerte.detail
     await registry.close()
     await repo.close()
 

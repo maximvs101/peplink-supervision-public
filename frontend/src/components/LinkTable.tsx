@@ -12,6 +12,7 @@ import { QUALITY_COLOR, QUALITY_THRESHOLDS, couleurDuLien, rsrpQuality, rsrqQual
 import { fmtNumber, fmtUptime, etiquetteSupport } from '../lib/format'
 import { lienWan } from '../lib/routes'
 import { ecarteDuBond } from '../lib/verdict'
+import { etiquettePriorite } from '../lib/secours'
 
 /** L'heure d'un fléchissement, À LA MINUTE.
  *
@@ -199,6 +200,7 @@ export function LinkTable({
                 seuilMs={seuilMs}
                 churn={parChurn.get(s.wan.wan_id) ?? null}
                 jamais={neverConnected.includes(s.wan.wan_id) && !s.wan.connected}
+                priorite={etiquettePriorite(s.wan, samples.map((x) => x.wan))}
               />
             ))}
           </tbody>
@@ -233,11 +235,10 @@ export function LinkTable({
 {ensemble !== null && (
         <Note pourquoi={
           (ensemble.observé >= 0.99
-            ? "Jugé sur toute la fenêtre relue. "
-            : `Jugé sur les ${Math.round(ensemble.observé * 100)} % de la fenêtre que TOUS `
-              + "les liens ont renseignés — le reste n'est pas jugé. ")
+            ? "Jugé sur toute la fenêtre. "
+            : `Jugé sur ${Math.round(ensemble.observé * 100)} % de la fenêtre (relevés de tous les liens). `)
           + (ensemble.fléchissements.length === 0
-              ? "Aucun moment où un lien a quitté le bond sans qu'un autre le remplace."
+              ? "Aucune réduction."
               : ensemble.fléchissements
                   .map((f) => `${heure(f.at)} pendant ${fmtUptime(Math.round(f.seconds))} : `
                     + (f.worst === 0 ? "plus aucun lien dans le bond"
@@ -263,28 +264,17 @@ export function LinkTable({
         </Note>
       )}
 {tunnelAttendu === false && hasTunnel && timeline !== null && (
-        <Note pourquoi={
-          "Aucun lien n'a été dans le bond depuis la mise sous tension : il n'y a pas "
-          + "de redondance qui ait pu se réduire. L'état de chaque lien reste dit sur sa ligne."
-        }>
+        <Note>
           <b>Bond jamais établi</b> dans cette session.
         </Note>
       )}
       {creux > 0 && (
-        <Note pourquoi={
-          "Ce ne sont pas des liens au repos : la supervision ne tournait pas. Les "
-          + "combler referait le mensonge que tout cet outil combat — une absence de "
-          + "mesure n'est pas une mesure."
-        }>
+        <Note>
           {Math.round((100 * creux) / tranches)} % de la fenêtre sans relevé.
         </Note>
       )}
       {cellulaire && (
-        <Note pourquoi={
-          "Ce sont des choix éditoriaux, pas une norme : entre constructeurs, le RSRP "
-          + "dit « excellent » va de −80 à −90 dBm. La note d'un lien retient la PIRE des "
-          + "trois — un RSRP excellent avec un SINR moyen est le signe d'une interférence."
-        }>
+        <Note pourquoi="Seuils de l’outil. Note d’un lien : la pire des trois.">
           Seuils (excellent / bon / moyen) — {QUALITY_THRESHOLDS.map((s, i) => (
             <span key={s.key}>
               {i > 0 ? ' · ' : ''}
@@ -294,20 +284,11 @@ export function LinkTable({
           ))}.
         </Note>
       )}
-      {cellulaire && (
-        <Note pourquoi={
-          "Mesuré sur 35 jours : la corrélation de rang entre SINR, RSRP, RSRQ ou RSSI "
-          + "et la latence ou la perte du tunnel ne dépasse |ρ| = 0,19 sur aucun des "
-          + "quatre modems, chacun sur près de 8 800 relevés. Avant 1 181 pics de latence "
-          + "isolés, le niveau radio du cycle précédent est à 0,00 dB de la médiane de la "
-          + "même cellule — indiscernable des 22 700 cycles calmes témoins. La corrélation "
-          + "entre RSRP et débit (ρ ≈ −0,6) s'évapore à −0,03 à cellule et fréquence "
-          + "constantes : elle ne mesurait que le déplacement du véhicule. Vaut pour la "
-          + "plage observée, −75 à −105 dBm."
-        }>
-          <b>Ces niveaux ne prédisent pas le tunnel</b> — le verdict ne s'y fonde donc pas.
-          {griefRadio !== null && <> {griefRadio}.</>}
-        </Note>
+      {/* La note « ces niveaux ne prédisent pas le tunnel » et son étude de
+          corrélation sont retirées (consigne : pas de justification de
+          conception à l'écran). Le grief radio, lui, est un fait. */}
+      {cellulaire && griefRadio !== null && (
+        <Note><b>Radio :</b> {griefRadio}.</Note>
       )}
 </Notes>
     </section>
@@ -316,9 +297,12 @@ export function LinkTable({
 
 function Row({
   routerId, sample, showThroughput, hasTunnel, cellulaire, wifi, cellules, shares,
-  slices, tranches, latences, latencesLien, churn, seuilMs, jamais,
+  slices, tranches, latences, latencesLien, churn, seuilMs, jamais, priorite,
 }: {
   jamais: boolean
+  /** « secours · P2 » si le lien attend derrière un autre, « P2 » sinon,
+   *  `null` en priorité 1 (voir `lib/secours`). */
+  priorite: string | null
   routerId: string
   sample: RadioSample
   showThroughput: boolean
@@ -387,12 +371,10 @@ function Row({
             {wan.rat && <span className="tag">{wan.rat}</span>}{' '}
             {wan.band && <span className="tag is-mono">{wan.band}</span>}{' '}
             {isWired && !wan.rat && <span className="tag">Établi</span>}
-            {/* Un WAN de priorité supérieure à 1 ne porte rien tant qu'un lien
-                de priorité 1 tient : le dire évite de chercher pourquoi il est
-                à zéro. */}
-            {wan.priority !== null && wan.priority > 1 && (
-              <> <span className="tag">secours · P{wan.priority}</span></>
-            )}
+            {/* « secours » seulement si le lien attend effectivement : la
+                priorité seule ne le dit pas (HD2 réel : la SIM 5 de priorité 2
+                portait tout, le WAN 1 de priorité 1 sans câble). */}
+            {priorite !== null && <> <span className="tag">{priorite}</span></>}
             {ecarte && <> <span className="tag is-off">hors du bond</span></>}
             {/* Le routeur arrête le trafic sur un lien qui dépasse de plus de
                 `cutoff_ms` la latence du plus rapide — et son état reste
@@ -403,7 +385,7 @@ function Row({
             {wan.tunnel?.beyond_cutoff && (
               <> <Pourquoi
                 className="tag is-off"
-                texte={`Plus de ${wan.tunnel.cutoff_ms} ms au-dessus du lien le plus rapide : le routeur cesse d’employer ce lien.`}
+                texte={`Plus de ${wan.tunnel.cutoff_ms} ms au-dessus du lien le plus rapide (seuil d’exclusion du routeur).`}
               >
                 au-delà du seuil
               </Pourquoi></>
@@ -412,7 +394,7 @@ function Row({
                 est fréquent, et un marqueur permanent en ambre finirait par ne
                 plus être lu — ni lui, ni les autres. */}
             {shares.length > 0 && (
-              <> <span className="tag" title="Même secteur et même porteuse : les ressources radio ne s’additionnent pas.">
+              <> <span className="tag" title="Même secteur, même porteuse">
                 cellule partagée
               </span></>
             )}
@@ -559,8 +541,8 @@ function Loss({ sample }: { sample: RadioSample }) {
     return (
       <Pourquoi className="absent" texte={
         comptes.length === 0
-          ? 'Aucun compteur de paquets sur cet intervalle : le taux ne peut pas être établi.'
-          : `Moins de ${LOSS_MIN_PACKETS} paquets comptés dans chaque sens : le taux n’est pas publiable.`
+          ? 'Aucun compteur de paquets sur cet intervalle.'
+          : `Moins de ${LOSS_MIN_PACKETS} paquets par sens : taux non publié.`
       }>
         — {comptes.length > 0 && <small>{Math.max(...comptes)} pq.</small>}
       </Pourquoi>

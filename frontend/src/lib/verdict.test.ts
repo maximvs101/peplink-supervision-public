@@ -195,7 +195,7 @@ describe('quand l’équipement lui-même ne répond plus', () => {
     const v = linkVerdict({ samples: [sample({}), sample({ wan_id: '5' })], status: 'injoignable' })
     expect(v.verdict).toBe('rompu')
     expect(v.headline).toBe('Équipement injoignable')
-    expect(v.detail).toContain('datent d’avant')
+    expect(v.detail).toContain('mesures affichées antérieures')
   })
 
   it('ne renvoie pas à des valeurs affichées quand il n’y en a aucune', () => {
@@ -204,7 +204,7 @@ describe('quand l’équipement lui-même ne répond plus', () => {
     for (const status of ['injoignable', 'identifiants refusés'] as const) {
       const v = linkVerdict({ samples: [], status })
       expect(v.verdict).toBe('rompu')
-      expect(v.detail).not.toContain('datent d’avant')
+      expect(v.detail).not.toContain('antérieures')
     }
   })
 
@@ -242,7 +242,7 @@ describe('quand l’équipement lui-même ne répond plus', () => {
     const v = linkVerdict({ samples: [sample({})], status: 'erreur de configuration' })
     expect(v.verdict).toBe('rompu')
     expect(v.headline).not.toBe('Équipement injoignable')
-    expect(v.detail).toContain('configuration')
+    expect(v.headline).toBe('Erreur de configuration')
   })
 })
 
@@ -385,7 +385,7 @@ describe('liens écartés du bond', () => {
     expect(v.verdict).toBe('degrade')
     expect(v.headline).toBe('Tunnel SpeedFusion tombé')
     // Et la conséquence ne prétend pas que le pair ne déclarait rien.
-    expect(v.detail).not.toContain('ne déclarait rien')
+    expect(v.detail).not.toContain('aucune route annoncée')
     expect(v.detail).toContain('10.1.0.0/16')
   })
 
@@ -417,7 +417,7 @@ describe('liens écartés du bond', () => {
     // Deux mots différents ne font pas une cause.
     samples[0].wan.tunnel = { ...samples[0].wan.tunnel!, peer_state: 'STOPPED' }
     expect(linkVerdict({ samples, status: 'connecté' }).detail).not.toContain('pair :')
-    const cause = 'profil PROFIL-B : le routeur tente de joindre le pair, 0 pair connecté'
+    const cause = 'profil PROFIL-B : tentative en cours (START), 0 pair connecté'
     expect(linkVerdict({ samples, status: 'connecté', tunnelCause: cause }).detail)
       .toContain(`tous hors du bond (${cause})`)
   })
@@ -437,9 +437,9 @@ describe('liens écartés du bond', () => {
     expect(jamais.headline).toBe('Liaison OK')
     expect(jamais.detail).toContain('jamais établi')
     // …et ce qui le tient à terre, quand les profils le disent (R-1.5).
-    const cause = 'profil PROFIL-B : le routeur tente de joindre le pair, 0 pair connecté'
+    const cause = 'profil PROFIL-B : tentative en cours (START), 0 pair connecté'
     expect(linkVerdict({ samples, status: 'connecté', tunnelAttendu: false, tunnelCause: cause }).detail)
-      .toMatch(/jamais établi dans cette session \(profil PROFIL-B : le routeur tente de joindre le pair, 0 pair connecté\)$/)
+      .toMatch(/jamais établi dans cette session \(profil PROFIL-B : tentative en cours \(START\), 0 pair connecté\)$/)
     // Les griefs du tunnel restent dits — auprès du bond, pas dans le verdict.
     expect(jamais.bondGrievances).toEqual(['3 hors du bond'])
 
@@ -459,7 +459,7 @@ describe('liens écartés du bond', () => {
     const sims = [sample({ wan_id: '2' }), sample({ wan_id: '3' })]
     const jamais = linkVerdict({ samples: [filaire, ...sims], status: 'connecté', neverConnected: ['1'] })
     expect(jamais.verdict).toBe('ok')
-    expect(jamais.detail).toMatch(/2 liens sur 3 connectés \(1 lien filaire jamais raccordé depuis l’allumage\)/)
+    expect(jamais.detail).toMatch(/2 liens sur 3 connectés \(1 lien filaire jamais raccordé\)/)
     // Sans le témoin — ou pour un lien qui a été connecté puis est tombé — la
     // chute reste une nouvelle.
     expect(linkVerdict({ samples: [filaire, ...sims], status: 'connecté' }).verdict).toBe('degrade')
@@ -863,9 +863,9 @@ describe('un bond qui n’est pas le chemin du trafic', () => {
     }))
     const verdictPour = (role: Parameters<typeof linkVerdict>[0]['role']) =>
       linkVerdict({ samples: tombe, status: 'connecté', role })
-    expect(verdictPour({ kind: 'tout' }).detail).toContain('tout le trafic passait par le tunnel')
+    expect(verdictPour({ kind: 'tout' }).detail).toContain('route par défaut annoncée par le pair')
     expect(verdictPour({ kind: 'porte', routes: ['10.8.0.0/16'] }).detail).toContain('10.8.0.0/16')
-    expect(verdictPour({ kind: 'inconnu' }).detail).toContain('le pair ne déclarait rien')
+    expect(verdictPour({ kind: 'inconnu' }).detail).toContain('aucune route annoncée')
     // `routes` ne passe pas par cette branche : le tunnel est un grief du bond.
     const r = verdictPour({ kind: 'routes', routes: ['10.8.0.0/16'] })
     expect(r.verdict).toBe('ok')

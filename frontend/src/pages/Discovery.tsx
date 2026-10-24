@@ -25,11 +25,11 @@ const STATUS_COLOR: Record<string, string> = {
  *  « injoignable » envoie vérifier un raccordement, « erreur de configuration »
  *  envoie corriger une déclaration. Les confondre fait déplacer un technicien
  *  pour rien. L'écran affichait l'état nu, sans jamais dire quoi en faire. */
+// Les remèdes (« vérifier le raccordement », « corriger les identifiants »…)
+// ont été retirés : consigne de l'exploitant, le fait seul, sans conseil. Seul
+// reste ce qui décrit un état en cours.
 const STATUS_REMEDY: Record<string, string> = {
   'en attente': 'Première lecture en cours.',
-  injoignable: 'Vérifier le raccordement et l’adresse.',
-  'identifiants refusés': 'Corriger les identifiants, puis relancer une tentative — une seule.',
-  'erreur de configuration': 'Corriger la déclaration de l’équipement.',
 }
 
 /**
@@ -187,8 +187,7 @@ export function Discovery() {
                   comme déjà supervisés. */}
               <div className="notice is-error" role="alert">
                 <strong>La liste des équipements supervisés n’a pas pu être lue.</strong>{' '}
-                {supervisedError}. Ce qui suit ne dit donc pas ce qui est déjà en service :
-                appairer un équipement déjà supervisé le remplacerait.
+                {supervisedError}.
               </div>
             </div>
           ) : supervised === null ? (
@@ -198,8 +197,7 @@ export function Discovery() {
           ) : supervised.length === 0 ? (
             <div className="panel-body">
               <div className="notice">
-                Aucun équipement en supervision. Ceux détectés ci-dessous peuvent être
-                mis en service.
+                Aucun équipement en supervision.
               </div>
             </div>
           ) : (
@@ -300,9 +298,8 @@ export function Discovery() {
 
 <Notes>
           <p className="panel-note">
-            Les identifiants ne sont jamais écrits en clair. Avec « Retenir sur ce
-            poste », ils vont au trousseau chiffré du système, et l’équipement se
-            reconnecte au prochain démarrage ; sinon, ils sont à ressaisir.
+            Identifiants jamais écrits en clair. « Retenir sur ce poste » : trousseau
+            chiffré du système, reconnexion au démarrage.
           </p>
 </Notes>
         </section>
@@ -331,10 +328,8 @@ export function Discovery() {
           ) : devices.length === 0 ? (
             <div className="panel-body">
               <div className="notice">
-                Aucun équipement Peplink trouvé. La recherche couvre la passerelle par
-                défaut, les bornes usuelles du sous-réseau et les adresses d’usine — pas
-                un balayage complet. Si l’équipement est ailleurs, son adresse peut être
-                saisie dans <code>backend/routers.yaml</code>.
+                Aucun équipement Peplink trouvé (passerelle par défaut, bornes usuelles du
+                sous-réseau, adresses d’usine). Autre adresse : <code>backend/routers.yaml</code>.
               </div>
             </div>
           ) : (
@@ -387,8 +382,7 @@ export function Discovery() {
                             <>
                               <span className="tag is-watch">muette</span>
                               <div className="sub-note">
-                                Reconnu, mais non supervisable tant que l’API locale ne
-                                répond pas.
+                                API locale muette.
                               </div>
                             </>
                           )}
@@ -453,8 +447,8 @@ export function Discovery() {
 
 <Notes>
           <p className="panel-note">
-            Aucun identifiant n’est envoyé pendant la recherche : elle se limite aux deux
-            points d’accès lisibles sans session, au certificat et au cache ARP.
+            Recherche sans identifiant : deux points d’accès sans session, certificat,
+            cache ARP.
           </p>
 </Notes>
         </section>
@@ -548,10 +542,8 @@ export function Discovery() {
             </div>
 <Notes>
             <p className="panel-note">
-              Le mot de passe n’est jamais dans cette liste : il est au trousseau chiffré
-              du système quand vous l’avez voulu (« identifiants retenus »), à ressaisir
-              sinon. Le reste est là, pour que l’exploitant qui rallume au matin retrouve
-              son équipement sans tout retaper.
+              Mot de passe absent de cette liste : au trousseau chiffré si « identifiants
+              retenus », à ressaisir sinon.
             </p>
 </Notes>
           </section>

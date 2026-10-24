@@ -130,8 +130,8 @@ export function Rapport() {
         </p>
         {!complet && (
           <p className="disclaimer">
-            Version à partager : l’équipement est désigné par son modèle ; la position, le
-            nom de la session et les noms de réseau Wi-Fi sont retirés.
+            Version à partager : équipement désigné par son modèle ; position, nom de session
+            et noms Wi-Fi retirés.
           </p>
         )}
       </header>
@@ -147,7 +147,7 @@ export function Rapport() {
 
       <section className="rapport-section">
         {journalIllisible
-          ? <p className="disclaimer">Le journal n’a pas pu être relu : il n’est pas imprimé ici.</p>
+          ? <p className="disclaimer">Journal non relu : non imprimé.</p>
           : <EventLog log={journalRendu} windowLabel="Session" complet />}
       </section>
 
@@ -159,9 +159,7 @@ export function Rapport() {
 
       <footer className="rapport-pied disclaimer">
         Édité le {new Date().toLocaleString('fr-FR')} par l’outil de supervision Peplink. « — » :
-        grandeur non mesurée, jamais zéro. Les latences et les taux voyagent avec leur nombre de
-        mesures. En pointillé sur les courbes : l’historique gardé par le routeur, placé dans les
-        trous de supervision.
+        grandeur non mesurée. En pointillé : historique du routeur dans les trous de supervision.
       </footer>
     </div>
   )

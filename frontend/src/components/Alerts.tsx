@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import type { Alert } from '../types'
 import { fmtClock, fmtUptime } from '../lib/format'
-import { Notes } from './Note'
-import { GENRES_ALERTE, titreAlerte } from '../lib/alertes'
+import { titreAlerte } from '../lib/alertes'
 
 /**
  * Ce qui demande une décision, et qui n'est pas passé tout seul.
@@ -70,7 +69,7 @@ export function Alerts({ alerts }: { alerts: Alert[] }) {
         </h2>
         {closes.length > 0 && encours.length > 0 && (
           <span className="note">
-            et {closes.length} récemment {closes.length > 1 ? 'résolues' : 'résolue'}
+            + {closes.length} {closes.length > 1 ? 'résolues' : 'résolue'}
           </span>
         )}
         {closes.length > 0 && (
@@ -89,24 +88,11 @@ export function Alerts({ alerts }: { alerts: Alert[] }) {
           ))}
         </ul>
       </div>
-<Notes>
-      <p className="panel-note">
-        Six règles, et six seulement. Les trois de la liaison — un lien hors du bond,
-        des porteurs réduits à un ou à aucun — et l’interruption de la supervision ont
-        été éprouvées sur quatorze heures et demie de relevés réels, où la plupart des
-        candidates sont mortes : « des modems partagent une cellule » se serait
-        déclenchée 99 % du temps, et « plus d’une seconde d’aller-retour » dix fois sans
-        conséquence. Les connexions admin refusées et l’horloge décalée sont venues
-        ensuite, de la revue d’exploitation. Une alerte qui parle tout le temps n’est
-        pas une alerte, et elle emporte les autres avec elle.
-      </p>
-</Notes>
     </section>
   )
 }
 
 function Ligne({ alerte }: { alerte: Alert }) {
-  const mots = GENRES_ALERTE[alerte.kind]
   const debut = new Date(alerte.since).getTime()
   const fin = alerte.until === null ? Date.now() : new Date(alerte.until).getTime()
   const duree = Math.max(0, Math.round((fin - debut) / 1000))
@@ -120,16 +106,15 @@ function Ligne({ alerte }: { alerte: Alert }) {
       </b>
       <span className="alerte-quand">
         {close
-          ? `de ${fmtClock(alerte.since)} à ${fmtClock(alerte.until!)} · ${fmtUptime(duree)}`
+          ? `${fmtClock(alerte.since)} → ${fmtClock(alerte.until!)} · ${fmtUptime(duree)}`
           : `depuis ${fmtClock(alerte.since)} · ${fmtUptime(duree)}`}
       </span>
-      {mots && <span className="alerte-suite">{mots.suite}</span>}
       {/* Le seuil de durée voyage avec l'alerte. Sans lui, « lien 4 hors du
           bond » ne dit pas si l'outil a attendu une seconde ou une minute avant
           de le croire — et c'est cette attente qui fait la différence entre un
           fait et un clignotement. */}
       <span className="alerte-seuil">
-        signalée après {fmtUptime(alerte.sustained_s)} de la même condition
+        seuil {fmtUptime(alerte.sustained_s)}
       </span>
     </li>
   )

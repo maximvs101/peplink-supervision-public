@@ -957,7 +957,7 @@ class RouterApiPeplinkClient:
             if self._credentials_refused:
                 raise CredentialsRefusedError(
                     f"Routeur {self.router_id} : identifiants déjà refusés, "
-                    "aucune nouvelle tentative sans action explicite"
+                    "pas de nouvel essai"
                 )
             if self._cfg.client_id and self._cfg.client_secret:
                 await self._auth_client_credentials()
@@ -1164,7 +1164,7 @@ class RouterApiPeplinkClient:
             nature, code = retenu
             raise EndpointRefusedError(
                 f"Routeur {self.router_id} : /api/{endpoint} refusé ({nature}), "
-                "refus retenu — redemandé à son échéance",
+                "refus retenu jusqu'à échéance",
                 code=code, nature=nature, memoire=True,
             )
         generation = await self._ensure_authenticated(None)

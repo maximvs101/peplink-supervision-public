@@ -143,7 +143,7 @@ describe('un échec de lecture n’est pas une absence de mesure (C-22)', () => 
   it('dit que le journal n’a pas pu être relu, au lieu d’une relecture sans fin', async () => {
     vi.mocked(fetchEvents).mockRejectedValue(new Error('500'))
     const { container } = monter()
-    await waitFor(() => expect(container.textContent).toContain('Le journal n’a pas pu être relu'))
+    await waitFor(() => expect(container.textContent).toContain('Journal non relu'))
     expect(container.textContent).not.toContain('Relecture de la fenêtre en cours')
   })
 

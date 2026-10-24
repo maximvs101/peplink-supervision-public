@@ -159,9 +159,8 @@ export function PairingForm({ host, onPaired, onCancel }: Props) {
           est la protection des identifiants, c'est ici que ça se dit. */}
       {sansTls(host) ? (
         <p className="notice is-warn">
-          Cet équipement ne parle qu’en HTTP : {mode === 'client' ? 'le secret du client' : 'le mot de passe'} partira <b>en clair</b> sur
-          ce réseau, à l’appairage puis à chaque relevé. Préférez activer HTTPS sur
-          l’équipement si vous le pouvez.
+          Équipement en HTTP : {mode === 'client' ? 'secret du client' : 'mot de passe'} transmis <b>en clair</b>,
+          à l’appairage puis à chaque relevé.
         </p>
       ) : (
         /* `verify_ssl` était déclaré des deux côtés — dans le type de la requête
@@ -188,8 +187,7 @@ export function PairingForm({ host, onPaired, onCancel }: Props) {
           disabled={busy}
         />
         <span>
-          Retenir sur ce poste, dans le trousseau chiffré du système. Décoché, ce qui
-          était retenu est effacé.
+          Retenir sur ce poste (trousseau chiffré du système). Décoché : effacé.
         </span>
       </label>
 
@@ -210,8 +208,7 @@ export function PairingForm({ host, onPaired, onCancel }: Props) {
           Annuler
         </button>
         <span className="disclaimer">
-          Une seule tentative. Cinq échecs suspendent l’accès à l’équipement pendant
-          cinq minutes.
+          Une seule tentative. 5 refus : accès admin suspendu 5 min.
         </span>
       </div>
     </form>

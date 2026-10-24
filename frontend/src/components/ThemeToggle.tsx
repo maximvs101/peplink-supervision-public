@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { type ChoixTheme, appliquerTheme, themeMemorise } from '../lib/themeChoice'
 
 const CHOIX: { valeur: ChoixTheme; libelle: string; aide: string }[] = [
-  { valeur: 'auto', libelle: 'Auto', aide: 'Suivre le réglage clair ou sombre du système' },
-  { valeur: 'light', libelle: 'Clair', aide: 'Thème clair, pour le plein jour — retenu sur ce poste' },
+  { valeur: 'auto', libelle: 'Auto', aide: 'Réglage du système' },
+  { valeur: 'light', libelle: 'Clair', aide: 'Thème clair — retenu sur ce poste' },
   { valeur: 'dark', libelle: 'Sombre', aide: 'Thème sombre — retenu sur ce poste' },
 ]
 

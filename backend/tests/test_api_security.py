@@ -115,7 +115,7 @@ def test_remote_request_is_refused(host):
     client = TestClient(_app([], allow_credentials=False), client=(host, 5000))
     response = client.get("/api/pair")
     assert response.status_code == 403
-    assert "machine qui héberge" in response.json()["detail"]
+    assert "poste qui héberge" in response.json()["detail"]
 
 
 def test_ipv6_loopback_is_accepted():

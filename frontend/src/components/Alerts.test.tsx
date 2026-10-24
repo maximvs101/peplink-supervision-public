@@ -35,7 +35,7 @@ describe('ce qu’une alerte dit', () => {
     // seconde ou une minute avant de le croire — et c'est cette attente qui
     // fait la différence entre un fait et un clignotement.
     render(<Alerts alerts={[alerte()]} />)
-    expect(screen.getByText(/signalée après 1 min de la même condition/)).toBeInTheDocument()
+    expect(screen.getByText(/seuil 1 min/)).toBeInTheDocument()
   })
 
   it('distingue ce qui dure de ce qui est revenu', () => {
@@ -49,7 +49,7 @@ describe('ce qu’une alerte dit', () => {
     )
     // L'en-tête compte les alertes EN COURS, et dit les autres à côté.
     expect(screen.getByText('1 alerte')).toBeInTheDocument()
-    expect(screen.getByText(/1 récemment résolue/)).toBeInTheDocument()
+    expect(screen.getByText(/\+ 1 résolue/)).toBeInTheDocument()
     // Une alerte close porte ses deux bornes et sa durée.
     expect(screen.getByText(/· 3 min$/)).toBeInTheDocument()
   })
@@ -61,15 +61,17 @@ describe('ce qu’une alerte dit', () => {
 })
 
 describe('les trois genres', () => {
-  it('dit ce que « un seul lien » coûte, et qu’elle se tait d’ordinaire', () => {
-    render(
+  it('dit « un seul lien » par un titre et le fait, sans commentaire', () => {
+    const { container } = render(
       <Alerts
-        alerts={[alerte({ kind: 'liaison sur un seul lien', wan_id: null, detail: 'lien 4 seul, sur 5 liens', sustained_s: 15 })]}
+        alerts={[alerte({ kind: 'liaison sur un seul lien', wan_id: null, detail: 'lien 4 · 1 sur 5', sustained_s: 15 })]}
       />,
     )
-    expect(screen.getByText(/ne tient plus que sur un lien/)).toBeInTheDocument()
-    expect(screen.getByText(/l’agrégation ne protège plus de rien/i)).toBeInTheDocument()
-    expect(screen.getByText('lien 4 seul, sur 5 liens')).toBeInTheDocument()
+    expect(screen.getByText(/Un seul lien dans le bond/)).toBeInTheDocument()
+    expect(screen.getByText('lien 4 · 1 sur 5')).toBeInTheDocument()
+    // Consigne de l'exploitant : pas d'interprétation (« la prochaine perte
+    // est une coupure », « ne protège plus de rien »).
+    expect(container.textContent).not.toMatch(/protège|prochaine perte/)
   })
 
   it('dit ce que l’interruption de supervision a coûté', () => {
@@ -82,9 +84,10 @@ describe('les trois genres', () => {
         })]}
       />,
     )
-    expect(screen.getByText(/La supervision s’est interrompue/)).toBeInTheDocument()
-    // Ce qui s'y est passé n'est ni mesuré ni récupérable : il faut le DIRE.
-    expect(screen.getByText(/sans témoin/)).toBeInTheDocument()
+    expect(screen.getByText(/Supervision interrompue/)).toBeInTheDocument()
+    // Le fait : de quand à quand, combien — sans narration.
+    expect(screen.getByText(/→/)).toBeInTheDocument()
+    expect(screen.queryByText(/sans témoin/)).toBeNull()
   })
 
   it('affiche un genre inconnu tel quel plutôt que de le taire', () => {
@@ -96,32 +99,31 @@ describe('les trois genres', () => {
 })
 
 describe('les connexions admin refusées', () => {
-  it('ont un titre et disent ce qu’elles risquent', () => {
+  it('ont un titre et le compte du serveur', () => {
     render(<Alerts alerts={[alerte({
-      kind: 'connexions admin refusées', wan_id: null,
-      detail: "3 refus en 5 min — cinq suspendent l'accès admin pendant 5 min",
+      kind: 'connexions admin refusées', wan_id: null, detail: '3 en 5 min',
     })]} />)
     expect(screen.getByText('Connexions admin refusées')).toBeInTheDocument()
-    expect(document.body.textContent).toMatch(/suspendent l’accès admin/)
+    expect(screen.getByText('3 en 5 min')).toBeInTheDocument()
   })
 })
 
 describe('l’horloge du routeur décalée (R-3.9)', () => {
-  it('a un titre et dit ce qu’elle coûte, et comment y remédier', () => {
+  it('a un titre et l’écart mesuré, sans conseil', () => {
     render(<Alerts alerts={[alerte({
       kind: 'horloge du routeur décalée', wan_id: null,
-      detail: '12 min en retard sur ce poste — son historique à 10 s est écarté…',
+      detail: 'routeur 12 min en retard sur ce poste',
     })]} />)
-    expect(screen.getByText('Horloges du routeur et du poste en désaccord')).toBeInTheDocument()
-    expect(document.body.textContent).toMatch(/NTP/)
+    expect(screen.getByText('Écart d’horloge routeur / poste')).toBeInTheDocument()
+    expect(screen.getByText('routeur 12 min en retard sur ce poste')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/NTP|vérifier/i)
   })
 })
 
-describe('la note des alertes compte juste (C-42)', () => {
-  it('ne dit plus « trois règles » quand l’écran en traduit six', () => {
+describe('le panneau des alertes', () => {
+  it('ne porte plus de note sur ses propres règles', () => {
     const { container } = render(<Alerts alerts={[alerte({ kind: 'hors du bond', wan_id: '4' })]} />)
-    expect(container.textContent).not.toMatch(/Trois règles/)
-    expect(container.textContent).toMatch(/Six règles/)
+    expect(container.textContent).not.toMatch(/règles/)
   })
 })
 
@@ -147,8 +149,8 @@ describe('masquer les alertes résolues', () => {
     render(<Alerts alerts={[alerte(), resolue({ kind: 'supervision interrompue', wan_id: null })]} />)
     fireEvent.click(screen.getByRole('button', { name: /Masquer/ }))
     expect(screen.getByText(/Lien 4 hors du bond/)).toBeInTheDocument()
-    expect(screen.queryByText(/La supervision s’est interrompue/)).toBeNull()
-    expect(screen.queryByText(/récemment résolue/)).toBeNull()
+    expect(screen.queryByText(/Supervision interrompue/)).toBeNull()
+    expect(screen.queryByText(/résolue/)).toBeNull()
   })
 
   it('revient pour une alerte nouvelle, et tient au remontage', () => {

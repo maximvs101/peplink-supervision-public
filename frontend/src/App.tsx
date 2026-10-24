@@ -29,6 +29,22 @@ function premierReel(routers: RouterSummary[]): RouterSummary {
   return reels.find((r) => r.status === 'connecté') ?? reels[0] ?? routers[0]
 }
 
+/** Combien de temps l'entrée attend une première réponse avant de se rabattre
+ *  sur le premier équipement. */
+const ATTENTE_ENTREE_MS = 30_000
+
+/** Faut-il encore attendre avant de choisir ? Oui tant qu'aucun équipement réel
+ *  ne répond et qu'un réel au moins n'a pas encore été scruté : au démarrage du
+ *  superviseur, tous sont « en attente », et `premierReel` retenait le premier
+ *  du fichier de flotte — absent de ce réseau, « injoignable » au cycle
+ *  suivant — alors que le HD2 répondait. Le `replace` de la redirection l'y
+ *  laissait. */
+function choixPremature(routers: RouterSummary[]): boolean {
+  const reels = routers.filter((r) => r.mode !== 'mock')
+  return reels.every((r) => r.status !== 'connecté')
+    && reels.some((r) => r.status === 'en attente')
+}
+
 /** Ce que le cadre publie à ses écrans.
  *
  *  Il n'y a plus de barre de marque au-dessus : le bandeau de tête appartient à
@@ -51,11 +67,9 @@ function Panne({ panne, premiere }: { panne: string | null; premiere: boolean })
   return (
     <div className="page is-narrow" style={{ paddingBottom: 0 }}>
       <div className="notice is-error" role="alert">
-        <strong>Le service de supervision ne répond pas.</strong> {panne}. Nouvelle
-        tentative toutes les quinze secondes
-        {premiere
-          ? ' ; rien n’a encore été lu — il tourne sur cette machine et sert aussi cette interface.'
-          : ' ; ce qui est affiché date de la dernière réponse.'}
+        <strong>Le service de supervision ne répond pas.</strong> {panne}. Nouvel essai
+        toutes les 15 s
+        {premiere ? ' ; aucune réponse reçue.' : ' ; affichage : dernière réponse.'}
       </div>
     </div>
   )
@@ -84,8 +98,8 @@ function Frame({ routers, health, panne, santePanne }: {
           <div className="notice is-warn" role="status">
             <strong>État de santé du service illisible :</strong> {santePanne}.{' '}
             {health !== null
-              ? 'La période de scrutation retenue date de la dernière lecture aboutie.'
-              : 'Aucune période de scrutation du service n’est connue.'}
+              ? 'Période de scrutation : dernière lecture aboutie.'
+              : 'Période de scrutation inconnue.'}
           </div>
         </div>
       )}
@@ -102,14 +116,21 @@ function Frame({ routers, health, panne, santePanne }: {
  *  le dernier équipement faisait disparaître l'écran de découverte sous
  *  l'utilisateur au sondage suivant. */
 function Entree({ routers, panne }: { routers: RouterSummary[] | null; panne: string | null }) {
-  if (routers === null) {
+  // L'attente d'une première réponse est bornée : un équipement qui resterait
+  // « en attente » ne bloque pas l'entrée.
+  const [delaiEcoule, setDelaiEcoule] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(() => setDelaiEcoule(true), ATTENTE_ENTREE_MS)
+    return () => window.clearTimeout(t)
+  }, [])
+  if (routers === null || (!delaiEcoule && routers.length > 0 && choixPremature(routers))) {
     // La flotte n'a jamais été lue. Si c'est parce que le service ne répond
     // pas, il faut le dire ICI : le bandeau du cadre ne couvre que les écrans
     // qu'il enveloppe, et `#/` restait sur « Chargement de la flotte… » à vie
     // sans un mot — l'ancien écran, lui, affichait l'erreur.
     return (
       <>
-        <Panne panne={panne} premiere />
+        <Panne panne={panne} premiere={routers === null} />
         {panne === null && (
           <div className="page is-narrow">
             <div className="notice" role="status">Chargement de la flotte…</div>

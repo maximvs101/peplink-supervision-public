@@ -37,8 +37,7 @@ export class ChartBoundary extends Component<
         <div className="panel-head"><h2>Historique</h2></div>
         <div className="panel-body">
           <div className="notice">
-            Le tracé n’a pas pu être chargé. Le reste de l’écran reste à jour ;
-            recharger la page suffit le plus souvent.
+            Tracé non chargé.
           </div>
         </div>
       </section>

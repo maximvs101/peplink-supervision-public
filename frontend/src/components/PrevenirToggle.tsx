@@ -61,8 +61,8 @@ export function PrevenirToggle() {
         value={mode}
         aria-label="Prévenir d’une alerte"
         title={refus
-          ? 'Le navigateur refuse les notifications de cette page : les autoriser dans ses réglages.'
-          : 'Une notification du système quand une alerte s’ouvre et que l’onglet est caché — retenu sur ce poste'}
+          ? 'Notifications refusées par le navigateur.'
+          : 'Notification du système à l’ouverture d’une alerte, onglet caché — retenu sur ce poste'}
         onChange={(e) => { void choisir(e.target.value as ModePrevenir) }}
       >
         {CHOIX.map((c) => <option key={c.valeur} value={c.valeur}>{c.libelle}</option>)}

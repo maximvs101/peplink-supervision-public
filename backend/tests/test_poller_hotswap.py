@@ -1035,7 +1035,7 @@ async def test_three_refused_admin_logins_in_five_minutes_raise_an_alert(poller)
     record.client.get_router_events = AsyncMock(return_value=refus(3))
     await p._poll_once()
     alerte = [a for a in p.alerts("dome") if a.kind == "connexions admin refusées"]
-    assert len(alerte) == 1 and "3 refus" in (alerte[0].detail or "")
+    assert len(alerte) == 1 and alerte[0].detail == "3 en 5 min"
     # Les faits sont en base, une fois chacun.
     assert len(await p._repo.router_events("dome", maintenant - timedelta(hours=1), maintenant)) == 3
 

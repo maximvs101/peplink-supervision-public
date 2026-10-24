@@ -37,9 +37,7 @@ export class EcranBoundary extends Component<
         <div className="panel-head"><h2>{this.props.titre ?? 'Cet écran'}</h2></div>
         <div className="panel-body">
           <div className="notice is-warn">
-            Cet écran n’a pas pu être affiché : {this.state.erreur.message || 'erreur de rendu'}.
-            La supervision continue ; les autres écrans restent accessibles, et
-            recharger la page suffit le plus souvent.
+            Écran non affiché : {this.state.erreur.message || 'erreur de rendu'}.
           </div>
         </div>
       </section>

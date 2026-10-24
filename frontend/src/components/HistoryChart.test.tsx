@@ -116,7 +116,7 @@ describe('règle des 200 paquets sur la courbe', () => {
     await waitFor(() =>
       expect(screen.getByText(/Un point a été retiré de la courbe/)).toBeInTheDocument(),
     )
-    expect(screen.getByText(/absence de mesure/)).toBeInTheDocument()
+    expect(screen.getByText(/paquets comptés sur l’intervalle/)).toBeInTheDocument()
   })
 
   it('retire aussi un taux dont on ignore le dénominateur (C-28, F4)', async () => {
@@ -289,7 +289,7 @@ describe('fiche de session', () => {
     select.dispatchEvent(new Event('change', { bubbles: true }))
 
     await waitFor(() =>
-      expect(screen.getByText(/ne porte que sur la fenêtre/)).toBeInTheDocument(),
+      expect(screen.getByText(/Fiche limitée à la fenêtre/)).toBeInTheDocument(),
     )
   })
 })
@@ -436,7 +436,7 @@ describe('changement de technologie', () => {
     })
     render(chart())
     await waitFor(() => expect(screen.getByText(/Technologie changée une fois — 5G → LTE à/)).toBeInTheDocument())
-    expect(screen.getByText(/ne se comparent pas/)).toBeInTheDocument()
+    expect(screen.getByText(/porteuses\s+différentes/)).toBeInTheDocument()
   })
 })
 
@@ -546,7 +546,7 @@ describe('la courbe explique ses creux (A-4)', () => {
     await waitFor(() => expect(screen.getByText(/Sur la courbe/)).toBeInTheDocument())
     const note = screen.getByText(/Sur la courbe/).textContent ?? ''
     expect(note).toMatch(/1 trou de supervision/)
-    expect(note).toMatch(/désactivé par l’exploitant/)
+    expect(note).toMatch(/désactivé de/)
   })
 })
 
@@ -572,6 +572,6 @@ describe('une session passée garde ses propres repères (revue du 17/10)', () =
     select.value = '1'
     select.dispatchEvent(new Event('change', { bubbles: true }))
     await waitFor(() => expect(fetchEvents).toHaveBeenCalledWith('mbx', { since: passee.first_seen, until: passee.last_seen }))
-    await waitFor(() => expect(screen.getByText(/désactivé par l’exploitant/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/désactivé de/)).toBeInTheDocument())
   })
 })

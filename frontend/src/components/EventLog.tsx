@@ -23,7 +23,7 @@ const GENRES: Record<string, { label: string; colour: string }> = {
   // Une DÉCISION de l'exploitant, pas une panne (C-20) : gris, comme le rail du
   // lien désactivé. Vu le 17/10 : « Coupure — 1 min » en rouge pour une SIM
   // désactivée exprès.
-  désactivation: { label: 'Désactivé par l’exploitant', colour: QUALITY_COLOR.inconnu },
+  désactivation: { label: 'Désactivé', colour: QUALITY_COLOR.inconnu },
   // Deux genres, parce que ce sont deux faits différents. « Écarté » est une
   // action DU ROUTEUR, constatée : le firmware a cessé d'employer ce lien parce
   // qu'il dépassait de plus de son seuil le plus rapide du bond. « Latence
@@ -181,8 +181,8 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
           {/* Au-delà de la rétention, une coupure hors session n'a plus de
               relevé pour la dater : le journal le dit plutôt que de se taire. */}
           {log.grouped_before
-            && ` · avant le ${new Date(log.grouped_before).toLocaleDateString('fr-FR')}, `
-              + 'relevés regroupés à la minute : seuls les épisodes des sessions closes restent'}
+            && ` · avant le ${new Date(log.grouped_before).toLocaleDateString('fr-FR')} : `
+              + 'relevés regroupés à la minute, épisodes des sessions closes seuls'}
         </span>
         <span className="spacer" />
         {lignes.length > 0 && (
@@ -202,10 +202,7 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
 
       {vide ? (
         <div className="panel-body">
-          <div className="notice">
-            Aucune coupure, aucun lien écarté par la latence et aucune perte de position
-            sur cette fenêtre.
-          </div>
+          <div className="notice">Aucun épisode sur cette fenêtre.</div>
         </div>
       ) : (
         <>
@@ -246,18 +243,13 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
           <Notes>
 {log.omitted > 0 && (
             <p className="panel-note">
-              {fmtInt(log.omitted)} épisode{log.omitted > 1 ? 's' : ''} de plus
-              n’{log.omitted > 1 ? 'ont' : 'a'} pas été listé{log.omitted > 1 ? 's' : ''} : seuls les{' '}
-              {fmtInt(episodes.length)} plus récents le sont.
+              {fmtInt(log.omitted)} épisode{log.omitted > 1 ? 's' : ''} non
+              listé{log.omitted > 1 ? 's' : ''} ({fmtInt(episodes.length)} plus récents affichés).
             </p>
           )}
 
           {brassage.length > 0 && (
-            <Note pourquoi={
-              "Trop fréquent pour faire des lignes, donc compté. Un modem qui saute bien "
-              + "plus que ses voisins, au même endroit et au même instant, ne voit pas le "
-              + "même réseau qu'eux : c'est son antenne, pas la couverture."
-            }>
+            <Note pourquoi="Changements de station et de cellule sur la fenêtre.">
               <b>Brassage</b> —{' '}
               {brassage.map((c, i) => (
                 <span key={c.wan_id}>
@@ -272,16 +264,9 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
             </Note>
           )}
 
-          <Note pourquoi={
-            "« Écarté par la latence » est une ACTION du routeur, constatée. « Latence "
-            + "excessive » est le garde-fou de cet outil, à " + fmtInt(log.latency_threshold_ms)
-            + " ms, qui se déclenche sans que le routeur ait rien fait — un bond dont TOUS "
-            + "les liens sont mauvais se ressemble parfaitement, et l'écart n'y voit rien. "
-            + "Les confondre ferait affirmer une exclusion qui n'a pas eu lieu. Les mots du "
-            + "routeur, eux, sont repris tels quels : c'est ce qui distingue un câble "
-            + "rebranché depuis quinze secondes d'une coupure qui dure."
-          }>
-            Épisodes continus, pas un par relevé. Deux règles de latence, distinguées.
+          <Note>
+            « Latence excessive » : au-delà de {fmtInt(log.latency_threshold_ms)} ms (seuil de
+            l’outil). « Écarté par la latence » : exclusion par le routeur.
           </Note>
 </Notes>
         </>

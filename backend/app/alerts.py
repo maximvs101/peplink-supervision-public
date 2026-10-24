@@ -279,12 +279,12 @@ def _conditions(statuses: list[WanRadioStatus], *, tunnel_attendu: bool = True):
     # dans « Lien 4 hors du bond », et le total dit ce qu'il compte (30/09).
     if len(porteurs) == 1:
         yield ("liaison sur un seul lien", None,
-               f"lien {porteurs[0].wan_id} seul, sur {len(regardes)} liens", SEUL_LIEN_S, False)
+               f"lien {porteurs[0].wan_id} · 1 sur {len(regardes)}", SEUL_LIEN_S, False)
     elif not porteurs:
         # La cause voyage avec l'alerte de niveau bond quand elle est commune :
         # absorber les alertes par lien ne doit pas faire disparaître le mot du
         # routeur.
-        detail = f"aucun sur {len(regardes)}"
+        detail = f"0 sur {len(regardes)}"
         if cause_pair:
             detail += f" — {causes.copy().pop()}"
         yield ("liaison sans aucun lien", None, detail, SEUL_LIEN_S, False)

@@ -88,6 +88,33 @@ describe('l’équipement ouvert à l’entrée', () => {
     expect(window.location.hash).toBe('#/e/hd2')
   })
 
+  it('attend la première réponse au lieu d’ouvrir un équipement encore en attente', async () => {
+    // Au démarrage du superviseur, tous les équipements sont « en attente » :
+    // l'entrée retenait le premier du fichier de flotte — absent de ce réseau —
+    // et y restait (`replace`), alors que le HD2 répondait au cycle suivant.
+    const absent = { ...mbx(), status: 'en attente' as const, age_seconds: null }
+    const hd2 = { ...mbx(), id: 'hd2', name: 'HD2', status: 'en attente' as const }
+    vi.mocked(fetchRouters).mockResolvedValue([absent, hd2])
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('')
+    vi.mocked(fetchRouters).mockResolvedValue([
+      { ...absent, status: 'injoignable' as const }, { ...hd2, status: 'connecté' as const },
+    ])
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(window.location.hash).toBe('#/e/hd2')
+  })
+
+  it('n’attend pas indéfiniment un équipement qui reste en attente', async () => {
+    const a = { ...mbx(), status: 'en attente' as const }
+    vi.mocked(fetchRouters).mockResolvedValue([a])
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(20) })
+    expect(window.location.hash).toBe('')
+    await act(async () => { await vi.advanceTimersByTimeAsync(31_000) })
+    expect(window.location.hash).toBe('#/e/mbx')
+  })
+
   it('reste le premier réel quand aucun ne répond', async () => {
     const a = { ...mbx(), status: 'injoignable' as const }
     const b = { ...mbx(), id: 'b', status: 'injoignable' as const }
@@ -145,7 +172,7 @@ describe('une panne du service', () => {
     render(<App />)
     await act(async () => { await vi.advanceTimersByTimeAsync(20) })
     const alerte = screen.getAllByRole('alert').find((a) => /ne répond pas/.test(a.textContent ?? ''))
-    expect(alerte?.textContent).toMatch(/rien n’a encore été lu/)
+    expect(alerte?.textContent).toMatch(/aucune réponse reçue/)
     expect(alerte?.textContent).not.toMatch(/dernière réponse/)
   })
 })

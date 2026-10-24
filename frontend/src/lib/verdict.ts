@@ -186,23 +186,22 @@ const STATUS_VERDICT: Record<
   'en attente': {
     verdict: 'degrade',
     headline: 'En attente du premier relevé',
-    detail: 'la scrutation n’a pas encore abouti — rien n’indique une panne',
+    detail: 'aucun relevé',
   },
   'identifiants refusés': {
     verdict: 'rompu',
     headline: 'Équipement inaccessible',
-    detail: 'identifiants refusés — les mesures affichées datent d’avant',
+    detail: 'identifiants refusés — mesures affichées antérieures',
   },
   injoignable: {
     verdict: 'rompu',
     headline: 'Équipement injoignable',
-    detail: 'plus aucune mesure ne remonte — les valeurs affichées datent d’avant',
+    detail: 'aucune réponse — mesures affichées antérieures',
   },
   'erreur de configuration': {
     verdict: 'rompu',
-    headline: 'Configuration à corriger',
-    detail:
-      'l’équipement est mal déclaré — corriger la configuration, pas le raccordement',
+    headline: 'Erreur de configuration',
+    detail: 'équipement mal déclaré',
   },
   // État de l'ÉCRAN, pas du serveur : `#/e/inconnu` répond 404 dès la
   // première lecture. Le bandeau disait « En attente du premier relevé » et
@@ -211,7 +210,7 @@ const STATUS_VERDICT: Record<
   inconnu: {
     verdict: 'rompu',
     headline: 'Équipement inconnu',
-    detail: 'aucun équipement supervisé sous cet identifiant — vérifier le lien',
+    detail: 'aucun équipement sous cet identifiant',
   },
 }
 
@@ -558,7 +557,7 @@ export function linkVerdict({
     // renvoyer : la moitié de phrase qui les annonce est retirée (vu le 30/09
     // sur un MBX éteint depuis le lancement).
     const detail = samples.length === 0 && base.detail
-      ? base.detail.replace(/ — les (mesures|valeurs) affichées datent d’avant$/, '')
+      ? base.detail.replace(/ — mesures affichées antérieures$/, '')
       : base.detail
     return { ...base, detail, ageSeconds, stale, bondGrievances: [], radioGrievances: [] }
   }
@@ -689,15 +688,15 @@ export function linkVerdict({
     let consequence: string
     switch (role.kind) {
       case 'tout':
-        consequence = 'tout le trafic passait par le tunnel — il n’a plus de chemin déclaré'
+        consequence = 'route par défaut annoncée par le pair'
         break
       case 'porte':
-        consequence = `les routes desservies (${role.routes.join(', ')}) ne sont plus jointes`
+        consequence = `routes du tunnel : ${role.routes.join(', ')}`
         break
       case 'inconnu':
         consequence = role.routes
-          ? `le pair annonce ${role.routes.join(', ')} ; ce que le tunnel portait n’a pas été mesuré — l’agrégation ne protège plus`
-          : 'le pair ne déclarait rien ; ce que le tunnel portait est inconnu — l’agrégation ne protège plus'
+          ? `routes annoncées : ${role.routes.join(', ')} ; trafic du tunnel non mesuré`
+          : 'aucune route annoncée ; trafic du tunnel non mesuré'
         break
       // `routes` n'arrive pas ici : TypeScript suit le prédicat `porteLeFlux` et l'a déjà
       // retiré du type — c'est le `never` du défaut qui le garantit.
@@ -741,7 +740,7 @@ export function linkVerdict({
     `${up.length} ${accord(up.length, 'lien')} sur ${links.length} ${accord(up.length, 'connecté')}`
     + (jamaisRaccordes.length > 0
       ? ` (${jamaisRaccordes.length} ${accord(jamaisRaccordes.length, 'lien')} filaire`
-        + `${jamaisRaccordes.length > 1 ? 's' : ''} jamais raccordé${jamaisRaccordes.length > 1 ? 's' : ''} depuis l’allumage)`
+        + `${jamaisRaccordes.length > 1 ? 's' : ''} jamais raccordé${jamaisRaccordes.length > 1 ? 's' : ''})`
       : '')
     + (desactives.length > 0
       ? ` (${desactives.length} désactivé${desactives.length > 1 ? 's' : ''})`

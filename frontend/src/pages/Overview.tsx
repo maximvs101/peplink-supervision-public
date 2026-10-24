@@ -194,12 +194,9 @@ export function Overview() {
             <Note
               ton="alerte"
               pourquoi={
-                "Même secteur, même porteuse, mêmes ressources radio : la capacité ne "
-                + "s'additionne pas et le rapport signal/bruit s'en ressent, même quand la "
-                + "puissance reçue est excellente. Déplacer le véhicule ou forcer une autre "
-                + "bande est la seule action qui change ce fait."
+                "Même secteur, même porteuse."
                 + (diversite.unknown > 0
-                    ? ` ${diversite.unknown} lien(s) ne rapportent pas leur cellule et restent hors de ce compte.`
+                    ? ` ${diversite.unknown} lien(s) sans cellule publiée, hors compte.`
                     : "")
               }
             >
@@ -208,10 +205,7 @@ export function Overview() {
           )}
 
           {sousTension !== null && sousTension > 0 && (
-            <Note pourquoi={
-              "L'équipement n'est alimenté que véhicule à l'arrêt : cette durée est celle "
-              + "du stationnement, et c'est la fenêtre de tout ce qui est relu ci-dessus."
-            }>
+            <Note>
               Sous tension depuis {fmtUptime(sousTension)}.
             </Note>
           )}

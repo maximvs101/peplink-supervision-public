@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { RadioSample, TunnelLink, WanRadioStatus } from '../types'
 import { WanCard } from './WanCard'
-import { causeScope } from '../test/factories'
+import { causeScope, monterTableau } from '../test/factories'
 
 function sample(wan: Partial<WanRadioStatus>): RadioSample {
   return {
@@ -212,11 +212,31 @@ describe('priorité sortante', () => {
     expect(screen.queryByText('Priorité sortante')).not.toBeInTheDocument()
   })
 
-  it('annonce un lien de secours', () => {
-    // Ce lien ne portera rien tant que le principal tient : son débit à zéro
-    // n'est pas une panne, et le chercher ferait perdre une intervention.
-    const { container } = render(<WanCard sample={sample({ priority: 2 })} />)
+  it('annonce un lien de secours quand il attend derrière un autre', () => {
+    const { container } = render(<WanCard sample={sample({ priority: 2 })} enAttente />)
     expect(detailValue(container, 'Priorité sortante')).toBe('2 — secours')
+  })
+
+  it('ne dit pas « secours » d’un lien de priorité 2 qui n’attend derrière rien', () => {
+    // HD2 réel : la SIM 5 (priorité 2) portait tout le trafic, le WAN 1 de
+    // priorité 1 sans câble — et la carte la disait « secours ».
+    const { container } = render(<WanCard sample={sample({ priority: 2 })} enAttente={false} />)
+    expect(detailValue(container, 'Priorité sortante')).toBe('2')
+  })
+
+  it('ne met pas « secours » dans la table quand le lien prioritaire est sans câble', () => {
+    const wan1 = sample({ wan_id: '1', kind: 'ethernet', priority: 1, connected: false, status_message: 'No Cable Detected' })
+    const sim5 = sample({ wan_id: '5', priority: 2 })
+    monterTableau([wan1, sim5])
+    expect(screen.queryByText(/secours/)).toBeNull()
+    expect(screen.getByText('P2')).toBeInTheDocument()
+  })
+
+  it('met « secours » dans la table quand le lien prioritaire est connecté', () => {
+    const wan1 = sample({ wan_id: '1', priority: 1 })
+    const sim5 = sample({ wan_id: '5', priority: 2 })
+    monterTableau([wan1, sim5])
+    expect(screen.getByText('secours · P2')).toBeInTheDocument()
   })
 })
 
@@ -350,7 +370,7 @@ describe('nom de l’opérateur (R-2.6)', () => {
 describe('un lien désactivé par l’exploitant (C-20)', () => {
   it('le dit, sans pastille rouge ni « Modem déconnecté »', () => {
     const { container } = render(<WanCard sample={sample({ connected: false, disabled: true })} />)
-    expect(container.textContent).toContain('Lien désactivé par l’exploitant')
+    expect(container.textContent).toContain('Lien désactivé')
     expect(container.textContent).not.toContain('Modem déconnecté')
     const pastille = container.querySelector('.dot') as HTMLElement
     expect(pastille.style.background).toBe('var(--q-inconnu)')
