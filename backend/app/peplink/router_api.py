@@ -194,6 +194,31 @@ def _corps(payload: object) -> dict:
     return reponse if isinstance(reponse, dict) else {}
 
 
+def _bloc(conteneur: object, cle: str) -> dict:
+    """Le sous-bloc `cle` de `conteneur` s'il est un OBJET, sinon un objet vide.
+
+    `_corps` ne protège que le premier niveau. En dessous, chaque analyseur
+    écrivait `x.get("cellular") or {}` : le `or` couvre `None` et le vide, pas
+    une chaîne. Un `carrier: "Orange"` à la place de `carrier: {"name": …}`
+    levait `AttributeError` dans `parse_wan_connection` — le relevé ENTIER
+    était perdu, et le poller étiquetait « injoignable » un équipement qui
+    venait de répondre. Un bloc d'un autre type est un bloc absent : ce qu'il
+    portait n'est pas lu, le reste l'est.
+    """
+    if not isinstance(conteneur, dict):
+        return {}
+    valeur = conteneur.get(cle)
+    return valeur if isinstance(valeur, dict) else {}
+
+
+def _liste(conteneur: object, cle: str) -> list:
+    """Le pendant de `_bloc` pour une LISTE : `peer: 7` n'est pas itérable."""
+    if not isinstance(conteneur, dict):
+        return []
+    valeur = conteneur.get(cle)
+    return valeur if isinstance(valeur, list) else []
+
+
 def redact(text: str) -> str:
     """Masque la valeur des paramètres de requête qui portent un secret.
 
@@ -521,11 +546,11 @@ def _parse_bands(cellular: dict) -> list[BandMeasurement]:
     """Aplatit `cellular.rat[].band[]` en une liste de porteuses mesurées."""
     bands: list[BandMeasurement] = []
     for rat in _rat_entries(cellular):
-        rat_name = str(rat.get("name") or "").strip()
-        for band in rat.get("band") or []:
+        rat_name = _texte(rat.get("name")) or ""
+        for band in _liste(rat, "band"):
             if not isinstance(band, dict):
                 continue
-            signal = band.get("signal") or {}
+            signal = _bloc(band, "signal")
             label = _texte(band.get("name"))
             if not label:
                 # Sans libellé, une porteuse n'a pas d'identité : pendant une
@@ -1914,7 +1939,7 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
             statuses.append(_parse_wired_wan(str(wan_id), wan))
             continue
 
-        cellular = wan.get("cellular") or wan.get("gobi") or {}
+        cellular = _bloc(wan, "cellular") or _bloc(wan, "gobi")
         emplacements = _parse_sim_slots(cellular)
         bands = _parse_bands(cellular)
         # Le Telit LM960 du MAX HD4 MBX remonte `pci: 0` sur TOUTES les porteuses :
@@ -1935,8 +1960,8 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
         network = _texte(cellular.get("network"))
         primary = _primary_band(bands, network)
         _effacer_signal_non_mesure(bands, primary)
-        cell_tower = cellular.get("cellTower") or {}
-        carrier = cellular.get("carrier") or {}
+        cell_tower = _bloc(cellular, "cellTower")
+        carrier = _bloc(cellular, "carrier")
         led = str(wan.get("statusLed") or "").lower()
         technology = _technology_label(cellular)
         cell_id = _identite_cellule(cell_tower)
@@ -1948,12 +1973,12 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
         statuses.append(
             WanRadioStatus(
                 wan_id=str(wan_id),
-                wan_name=wan.get("name") or f"WAN {wan_id}",
+                wan_name=_texte(wan.get("name")) or f"WAN {wan_id}",
                 connected=led in _LED_UP,
-                operator=carrier.get("name"),
+                operator=_texte(carrier.get("name")),
                 plmn=_plmn(cellular),
                 # Quatre champs de la même charge utile, jusqu'ici jetés.
-                roaming_status=_texte((cellular.get("roamingStatus") or {}).get("message")),
+                roaming_status=_texte(_bloc(cellular, "roamingStatus").get("message")),
                 modem_vendor=_texte(cellular.get("manufacturer")),
                 modem_model=_texte(cellular.get("model")),
                 modem_firmware=_texte(cellular.get("firmware")),
@@ -1988,10 +2013,10 @@ def parse_wan_connection(payload: dict) -> list[WanRadioStatus]:
                 signal_bars=_to_int(cellular.get("signalLevel")),
                 bands=bands,
                 sim_slots=emplacements,
-                ip=wan.get("ip"),
+                ip=_texte(wan.get("ip")),
                 priority=_to_int(wan.get("priority")),
                 uptime_s=_to_int(wan.get("uptime")),
-                status_message=wan.get("message"),
+                status_message=_texte(wan.get("message")),
             )
         )
 
@@ -2009,13 +2034,13 @@ def _parse_wired_wan(wan_id: str, wan: dict) -> WanRadioStatus:
     return WanRadioStatus(
         kind="ethernet",
         wan_id=wan_id,
-        wan_name=wan.get("name") or f"WAN {wan_id}",
+        wan_name=_texte(wan.get("name")) or f"WAN {wan_id}",
         connected=led in _LED_UP,
         rat="Ethernet",
-        ip=wan.get("ip"),
+        ip=_texte(wan.get("ip")),
         priority=_to_int(wan.get("priority")),
         uptime_s=_to_int(wan.get("uptime")),
-        status_message=wan.get("message"),
+        status_message=_texte(wan.get("message")),
     )
 
 
@@ -2025,8 +2050,8 @@ def _parse_wifi_wan(wan_id: str, wan: dict) -> WanRadioStatus:
     Le routeur ne fournit qu'une force de signal et un niveau : pas de RSRP/RSRQ/SINR,
     qui n'ont pas de sens ici. La force est rangée dans `rssi`, grandeur homogène.
     """
-    wifi = wan.get("wifi") or {}
-    signal = wifi.get("signal") or {}
+    wifi = _bloc(wan, "wifi")
+    signal = _bloc(wifi, "signal")
     channel = _to_int(wifi.get("channel"))
     led = str(wan.get("statusLed") or "").lower()
     strength = _to_float(signal.get("strength"))
@@ -2034,7 +2059,7 @@ def _parse_wifi_wan(wan_id: str, wan: dict) -> WanRadioStatus:
     return WanRadioStatus(
         kind="wifi",
         wan_id=wan_id,
-        wan_name=wan.get("name") or f"WAN {wan_id}",
+        wan_name=_texte(wan.get("name")) or f"WAN {wan_id}",
         connected=led in _LED_UP,
         operator=_texte(wifi.get("ssid")),  # le SSID tient lieu de « réseau »
         rat="Wi-Fi",
@@ -2049,15 +2074,15 @@ def _parse_wifi_wan(wan_id: str, wan: dict) -> WanRadioStatus:
         rssi=strength,
         signal_bars=_to_int(signal.get("level")),
         wifi=WifiLink(
-            ssid=wifi.get("ssid"),
-            bssid=wifi.get("bssid"),
+            ssid=_texte(wifi.get("ssid")),
+            bssid=_texte(wifi.get("bssid")),
             channel=channel,
             band=_wifi_band(channel),
             signal_dbm=strength,
             signal_level=_to_int(signal.get("level")),
         ),
         uptime_s=_to_int(wan.get("uptime")),
-        status_message=wan.get("message"),
+        status_message=_texte(wan.get("message")),
     )
 
 
@@ -2073,76 +2098,71 @@ def parse_system_info(payload: dict) -> DeviceInfo | None:
     if not isinstance(device, dict):
         return None
 
-    cpu = (payload["response"].get("cpuLoad") or {})
-    load = _to_float(cpu.get("percentage")) if isinstance(cpu, dict) else None
+    corps = _corps(payload)
+    cpu = _bloc(corps, "cpuLoad")
+    load = _to_float(cpu.get("percentage"))
 
     # L'ancienneté du châssis, à la source. Elle décide des sessions
     # d'alimentation, et elle était jusqu'ici déduite du maximum des liens.
-    horloge = payload["response"].get("uptime")
-    depuis = _to_int(horloge.get("second")) if isinstance(horloge, dict) else None
+    depuis = _to_int(_bloc(corps, "uptime").get("second"))
 
     # `powerUsage` est une liste d'entrées d'alimentation ; on somme les actives.
     watts = None
-    for entry in payload["response"].get("powerUsage") or []:
+    for entry in _liste(corps, "powerUsage"):
         if isinstance(entry, dict) and entry.get("active"):
             value = _to_float(entry.get("value"))
             if value is not None:
                 watts = (watts or 0.0) + value
 
     sources = [
-        PowerSource(name=str(e.get("name") or "?"), connected=bool(e.get("connect")))
-        for e in payload["response"].get("powerState") or []
+        PowerSource(name=_texte(e.get("name")) or "?", connected=bool(e.get("connect")))
+        for e in _liste(corps, "powerState")
         if isinstance(e, dict)
     ]
 
     # Le premier capteur thermique. Absent du Dome Pro Duo : `None` y vaut
     # « ce modèle n'en publie pas », et non « zéro degré ».
-    capteurs = payload["response"].get("thermalSensor") or []
     temperature = next(
-        (_to_float(c.get("temperature")) for c in capteurs if isinstance(c, dict)), None
+        (_to_float(c.get("temperature")) for c in _liste(corps, "thermalSensor")
+         if isinstance(c, dict)),
+        None,
     )
 
     # La CHARGE de l'alimentation, en pourcentage de son budget. La tension et le
     # courant restent dehors — voir `DeviceInfo.power_load_percent`.
     charge = next(
         (_to_float(e.get("percentage"))
-         for e in payload["response"].get("powerUsage") or []
+         for e in _liste(corps, "powerUsage")
          if isinstance(e, dict) and e.get("active")),
         None,
     )
 
-    abonnement = payload["response"].get("subscription") or {}
-    plan = abonnement.get("carePlan") if isinstance(abonnement, dict) else None
-    plan = plan if isinstance(plan, dict) else {}
-    horaire = payload["response"].get("systemTime") or {}
-    activation = payload["response"].get("configActivation") or {}
-    assistance = payload["response"].get("remoteAssistance") or {}
+    plan = _bloc(_bloc(corps, "subscription"), "carePlan")
+    horaire = _bloc(corps, "systemTime")
+    activation = _bloc(corps, "configActivation")
+    assistance = _bloc(corps, "remoteAssistance")
 
     mac_lan = next(
-        (e.get("mac") for e in payload["response"].get("macInfo") or []
+        (_texte(e.get("mac")) for e in _liste(corps, "macInfo")
          if isinstance(e, dict) and e.get("interfaceType") == "lan"),
         None,
     )
 
     return DeviceInfo(
-        model=device.get("model"),
-        product_code=device.get("productCode"),
-        serial=device.get("serialNumber"),
-        firmware=device.get("firmwareVersion"),
-        hardware_revision=str(device["hardwareRevision"]) if device.get("hardwareRevision") else None,
+        model=_texte(device.get("model")),
+        product_code=_texte(device.get("productCode")),
+        serial=_texte(device.get("serialNumber")),
+        firmware=_texte(device.get("firmwareVersion")),
+        hardware_revision=_texte(device.get("hardwareRevision")),
         temperature_c=temperature,
         power_load_percent=charge,
         care_plan=_texte(plan.get("name")),
-        care_plan_active=bool(plan["active"]) if "active" in plan else None,
+        care_plan_active=_drapeau(plan, "active"),
         pepvpn_version=_texte(device.get("pepvpnVersion")),
-        timezone=_texte(horaire.get("timezone")) if isinstance(horaire, dict) else None,
-        config_activating=bool(activation.get("activating")) if isinstance(activation, dict) else False,
-        remote_assistance=(
-            bool(assistance["enable"])
-            if isinstance(assistance, dict) and "enable" in assistance
-            else None
-        ),
-        name=device.get("name"),
+        timezone=_texte(horaire.get("timezone")),
+        config_activating=bool(activation.get("activating")),
+        remote_assistance=_drapeau(assistance, "enable"),
+        name=_texte(device.get("name")),
         uptime_s=depuis,
         cpu_load_percent=round(load, 1) if load is not None else None,
         power_watts=watts,
@@ -2240,7 +2260,7 @@ def parse_ports(payload: dict) -> dict[str, bool]:
     l'inventaire déclaré. Sans cette lecture, le décompte annoncé dépasse celui
     que voit l'exploitant.
     """
-    wan_ports = _corps(payload).get("wan") or {}
+    wan_ports = _bloc(_corps(payload), "wan")
     return {
         str(port_id): bool(entry.get("asLan"))
         for port_id, entry in wan_ports.items()
@@ -2257,9 +2277,9 @@ def parse_lan_networks(payload: dict) -> list[LanNetwork]:
     (1) ; le MBX un seul, « local ». Rien d'autre n'est lu ici : les adresses
     sont dans `config.lan`.
     """
-    reference = (_corps(payload).get("lan") or {}).get("reference") or {}
+    reference = _bloc(_bloc(_corps(payload), "lan"), "reference")
     reseaux: list[LanNetwork] = []
-    for entry in (reference.get("vlanIdInfo") or {}).values():
+    for entry in _bloc(reference, "vlanIdInfo").values():
         if not isinstance(entry, dict):
             continue
         vlan_id = _to_int(entry.get("id"))
@@ -2282,8 +2302,8 @@ def parse_capability(
     ne montre pas. C'est l'inventaire matériel, indépendant de la configuration.
     """
     response = _corps(payload)
-    feature = response.get("feature") or {}
-    supplementary = response.get("featureSupplementary") or {}
+    feature = _bloc(response, "feature")
+    supplementary = _bloc(response, "featureSupplementary")
 
     as_lan = ports or {}
     wan_types: dict[str, str] = {}
@@ -2295,9 +2315,9 @@ def parse_capability(
     # licence de cet équipement. Le niveau et les plafonds de profils sont un
     # cran AU-DESSUS, sous `pepvpn` : ils décrivent le PepVPN en général, pas la
     # licence Cloud.
-    pepvpn_bloc = supplementary.get("pepvpn") or {}
-    nuage = (pepvpn_bloc.get("speedfusionCloud") or {}).get("local") or {}
-    plafond_debit = nuage.get("throughputLimit") or {}
+    pepvpn_bloc = _bloc(supplementary, "pepvpn")
+    nuage = _bloc(_bloc(pepvpn_bloc, "speedfusionCloud"), "local")
+    plafond_debit = _bloc(nuage, "throughputLimit")
     debit = _to_float(plafond_debit.get("value"))
     if debit is not None and str(plafond_debit.get("unit") or "mbps").lower() != "mbps":
         logger.warning(
@@ -2320,7 +2340,7 @@ def parse_capability(
         logger.warning("Unité de quota SpeedFusion inconnue « %s » : quota non publié",
                        quota.get("unit"))
 
-    connections = ((supplementary.get("wan") or {}).get("connection")) or {}
+    connections = _bloc(_bloc(supplementary, "wan"), "connection")
     for wan_id, entry in connections.items():
         if not isinstance(entry, dict) or not entry.get("type"):
             continue
@@ -2363,7 +2383,7 @@ def parse_traffic(payload: dict) -> dict[str, tuple[float | None, float | None]]
     que `status.wan.connection` — la jointure est directe. L'unité est déclarée
     par le routeur (kbps sur les matériels validés) et convertie si besoin.
     """
-    bandwidth = _corps(payload).get("bandwidth") or {}
+    bandwidth = _bloc(_corps(payload), "bandwidth")
     # Une unité INCONNUE ne vaut pas kbit/s. Le repli à 1.0 publiait « 10 » pour
     # dix mégabits déclarés en « Mibps » — un débit faux, cent fois trop bas, et
     # présenté comme une mesure. Ne rien rendre laisse `apply_traffic` mettre les
@@ -2413,7 +2433,7 @@ def parse_usage(payload: dict) -> dict[str, tuple[float | None, float | None]]:
     donc châssis et non WAN, et il court depuis février 2022 — 828 To sur ce
     matériel. Il ne borne aucune exploitation.
     """
-    traffic = _corps(payload).get("traffic") or {}
+    traffic = _bloc(_corps(payload), "traffic")
     unite = str(traffic.get("unit") or "mb").lower()
     if unite not in _MB_FROM:
         logger.warning(
@@ -2624,7 +2644,7 @@ def horloge_routeur(system_info: dict) -> tuple[datetime, datetime] | None:
     un horodatage) : leur écart convertit l'heure locale du journal en UTC sans
     base de fuseaux horaires, et reste juste quel que soit le fuseau réglé.
     """
-    horaire = (_corps(system_info) or {}).get("systemTime") if isinstance(system_info, dict) else None
+    horaire = _bloc(_corps(system_info), "systemTime")
     if not isinstance(horaire, dict):
         return None
     m = _HORLOGE_RE.match(str(horaire.get("string") or "").strip())
@@ -2718,11 +2738,11 @@ def parse_peers(payload: dict) -> list[tuple[str, str | None, bool]]:
     profil PepVPN, et empêchait d'espacer la sonde. Un pair déclaré porte un
     état ; un emplacement vide n'en porte pas.
     """
-    peers = _corps(payload).get("peer") or []
+    peers = _liste(_corps(payload), "peer")
     return [
-        (str(p.get("peerId")), p.get("name") or None, p.get("status") == "CONNECTED")
+        (str(p.get("peerId")), _texte(p.get("name")), p.get("status") == "CONNECTED")
         for p in peers
-        if isinstance(p, dict) and p.get("peerId") and (p.get("status") or "").strip()
+        if isinstance(p, dict) and p.get("peerId") and _texte(p.get("status"))
     ]
 
 
@@ -2782,7 +2802,7 @@ def peer_state(payload: dict) -> str | None:
     """
     mots = {
         str(p["status"]).strip()
-        for p in _corps(payload).get("peer") or []
+        for p in _liste(_corps(payload), "peer")
         if isinstance(p, dict) and p.get("peerId") and str(p.get("status") or "").strip()
     }
     return mots.pop() if len(mots) == 1 else None
@@ -2798,7 +2818,7 @@ def parse_bond_profiles(payload: dict) -> list[BondProfile]:
     if not isinstance(corps, dict):
         return []
     profils: list[BondProfile] = []
-    for pid in corps.get("order") or []:
+    for pid in _liste(corps, "order"):
         bloc = corps.get(str(pid))
         if not isinstance(bloc, dict):
             continue
@@ -2825,12 +2845,12 @@ def parse_bond_routes(payload: dict) -> list[str]:
     Sans cette liste, l'écran ne pouvait que constater un débit nul et le
     présenter comme une anomalie. Avec elle, il dit ce que le bond transporte.
     """
-    peers = _corps(payload).get("peer") or []
+    peers = _liste(_corps(payload), "peer")
     routes: list[str] = []
     for p in peers:
         if not isinstance(p, dict) or p.get("status") != "CONNECTED":
             continue
-        for r in p.get("route") or []:
+        for r in _liste(p, "route"):
             if isinstance(r, str) and r and r not in routes:
                 routes.append(r)
     return routes
@@ -2856,7 +2876,7 @@ def parse_latency_cutoff(payload: dict) -> float | None:
     et l'écran l'affirmait. Le seuil retenu est le plus PETIT des pairs
     connectés : c'est celui qui s'applique en premier.
     """
-    peers = _corps(payload).get("peer") or []
+    peers = _liste(_corps(payload), "peer")
     seuils = [
         _to_float(p.get("latencyDiffCutoff"))
         for p in peers
@@ -2912,11 +2932,10 @@ def parse_tunnel(payload: dict, peer_id: str, peer_name: str | None = None) -> T
     ils ne disent rien d'un instant. Le calcul des taux se fait ailleurs, par
     différence entre deux relevés (voir `RouterApiPeplinkClient._tunnel_rates`).
     """
-    tunnels = (_corps(payload).get("tunnel")) or {}
-    entry = tunnels.get(peer_id) or {}
+    entry = _bloc(_bloc(_corps(payload), "tunnel"), peer_id)
 
     links: dict[str, TunnelLink] = {}
-    for wan_id, wan in (entry.get("wan") or {}).items():
+    for wan_id, wan in _bloc(entry, "wan").items():
         if not isinstance(wan, dict):
             continue
         links[str(wan_id)] = TunnelLink(
@@ -2929,7 +2948,7 @@ def parse_tunnel(payload: dict, peer_id: str, peer_name: str | None = None) -> T
     # recopie la même valeur sur les cinq liens actifs : le lire comme
     # « ce lien est dans le bond depuis… » serait faux dès qu'un lien rejoint le
     # bond après coup.
-    duree = ((entry.get("overall") or {}).get("time") or {}).get("second")
+    duree = _bloc(_bloc(entry, "overall"), "time").get("second")
 
     return TunnelStatus(
         peer_id=peer_id,
@@ -2953,11 +2972,10 @@ def tunnel_counters(
     Un lien sans aucun compteur est absent du résultat plutôt que ramené à zéro :
     voir `_counters`.
     """
-    tunnels = (_corps(payload).get("tunnel")) or {}
-    entry = tunnels.get(peer_id) or {}
+    entry = _bloc(_bloc(_corps(payload), "tunnel"), peer_id)
 
     counters: dict[str, tuple[_Counters | None, _Counters | None]] = {}
-    for wan_id, wan in (entry.get("wan") or {}).items():
+    for wan_id, wan in _bloc(entry, "wan").items():
         if not isinstance(wan, dict):
             continue
         up = _counters(wan.get("transmit"))
@@ -2983,7 +3001,7 @@ def parse_location(payload: dict) -> GnssFix | None:
     response = _corps(payload)
     if not response.get("gps"):
         return None
-    location = response.get("location") or {}
+    location = _bloc(response, "location")
     lat = _to_float(location.get("latitude"))
     lon = _to_float(location.get("longitude"))
     if lat is None or lon is None:
