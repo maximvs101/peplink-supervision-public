@@ -162,12 +162,21 @@ async def probe(host: str, mac: str | None = None) -> DiscoveredDevice | None:
                 logger.debug("Pas d'API Peplink lisible en %s sur %s : %s", schema, host, exc)
                 break
             api_a_repondu = True
-            if payload.get("stat") == "ok":
-                banks = payload.get("response") or {}
+            # La FORME de la réponse n'est pas garantie. `payload.get` et
+            # `banks.values()` levaient sur une réponse en liste : l'exception
+            # sortait de `probe`, `discover` la rangeait parmi les sondes
+            # interrompues, et l'équipement disparaissait des résultats — alors
+            # que son certificat venait d'être reconnu. Une forme inattendue
+            # n'est qu'un banc de firmware illisible.
+            if isinstance(payload, dict) and payload.get("stat") == "ok":
+                banks = payload.get("response")
                 in_use = next(
-                    (b for b in banks.values() if isinstance(b, dict) and b.get("inUse")), None
+                    (b for b in (banks.values() if isinstance(banks, dict) else ())
+                     if isinstance(b, dict) and b.get("inUse")),
+                    None,
                 )
-                firmware = (in_use or {}).get("version")
+                version = in_use.get("version") if in_use else None
+                firmware = (version.strip() or None) if isinstance(version, str) else None
                 schema_retenu = schema
                 evidence.append(
                     "API locale Peplink accessible"
