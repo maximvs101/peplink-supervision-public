@@ -42,3 +42,6 @@ backend/dist/
 backend/build/
 /dist/
 /build/
+
+# Copies de travail des agents (worktrees) : jamais suivies.
+/.claude/

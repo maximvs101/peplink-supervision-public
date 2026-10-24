@@ -298,8 +298,8 @@ export interface DeviceInfo {
    *  60 s, son historique à 10 s est écarté et son journal n'est plus lu. */
   clock_offset_s: number | null
   /** Une configuration s'applique : explique un transitoire qu'on prendrait
-   *  sinon pour une panne. */
-  config_activating: boolean
+   *  sinon pour une panne. Null : le routeur ne l'a pas dit. */
+  config_activating: boolean | null
   /** Tunnel d'assistance ouvert vers l'éditeur. Fait de sécurité. */
   remote_assistance: boolean | null
 }
