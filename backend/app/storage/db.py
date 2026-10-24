@@ -26,7 +26,6 @@ from ..models import HistoryPoint, RadioSample, RouterEvent, STATUT_DESACTIVE, n
 from ..regles_coupure import (
     sql_coupure, sql_ecart_ms, sql_micro_coupure, sql_voisins, sql_voisins_entre,
 )
-from ..sessions import _TROU_MAX_S
 
 # Fenêtre pendant laquelle un pic de latence est rapporté au changement de
 # cellule qui l'a précédé.
@@ -37,10 +36,18 @@ from ..sessions import _TROU_MAX_S
 # taux de pics sans handover est déjà de 21,7 %.
 _APRES_BASCULE_S = 30.0
 
+# Le voisinage des îlots et des bascules : la règle de `regles_coupure`, en
+# millisecondes entières. Il se calculait ici en secondes flottantes
+# (`julianday * 86400.0 <= 60`) : deux relevés à soixante secondes pile
+# pouvaient donner 60,0000367 et passer pour un trou que la fiche ne voyait pas.
+_ECART_PRECEDENT = sql_ecart_ms("LAG(ts) OVER w", "ts")
+_VOISIN_PRECEDENT = sql_voisins("ecart_ms")
+
 # Les îlots de latence d'`events()`. Au niveau du module, et non dans la
 # méthode, pour qu'un test puisse demander son PLAN à SQLite : la
 # matérialisation de `bascules` y est un garde de coût, pas une élégance.
-_SQL_ILOTS = """
+# Paramètres : bornes, seuil, `_VOISIN_PRECEDENT`, bornes, `_VOISIN_PRECEDENT`.
+_SQL_ILOTS = f"""
 WITH b AS MATERIALIZED (
   -- MATERIALIZED : `b` est lue deux fois (le peloton, puis chaque relevé).
   -- Laissée en co-routine, SQLite la recalculait pour la seconde lecture en
@@ -67,7 +74,7 @@ WITH b AS MATERIALIZED (
   -- L'écart au relevé précédent du même lien — au-delà du trou maximal,
   -- personne ne regardait — et ce qu'il était : haut ou non.
   SELECT *,
-         (julianday(ts) - julianday(LAG(ts) OVER w)) * 86400.0 AS ecart_s,
+         {_ECART_PRECEDENT} AS ecart_ms,
          LAG(haut) OVER w AS haut_avant
   FROM j
   WINDOW w AS (PARTITION BY wan_id ORDER BY ts)
@@ -83,7 +90,7 @@ WITH b AS MATERIALIZED (
   -- deux tris de toute la fenêtre de plus. Mesuré sur dix heures à cinq liens
   -- (60 000 relevés) : 700 → 480 ms, mêmes îlots (C-31).
   SELECT *,
-         SUM(CASE WHEN haut AND (haut_avant IS NOT 1 OR ecart_s IS NULL OR ecart_s > ?)
+         SUM(CASE WHEN haut AND (haut_avant IS NOT 1 OR NOT COALESCE({_VOISIN_PRECEDENT.sql}, 0))
                   THEN 1 ELSE 0 END)
            OVER (PARTITION BY wan_id ORDER BY ts ROWS UNBOUNDED PRECEDING) AS ilot
   FROM e
@@ -107,14 +114,14 @@ WITH b AS MATERIALIZED (
   FROM (
     SELECT wan_id, ts, cell_id,
            LAG(cell_id) OVER w AS cell_avant,
-           (julianday(ts) - julianday(LAG(ts) OVER w)) * 86400.0 AS ecart_s
+           {_ECART_PRECEDENT} AS ecart_ms
     FROM samples
     WHERE router_id = ? AND ts >= ? AND ts <= ?
     WINDOW w AS (PARTITION BY wan_id ORDER BY ts)
   )
   WHERE cell_id IS NOT NULL AND cell_avant IS NOT NULL
     AND cell_id <> cell_avant
-    AND ecart_s > 0 AND ecart_s <= ?
+    AND ecart_ms > 0 AND {_VOISIN_PRECEDENT.sql}
 )
 SELECT f.wan_id, MAX(f.kind) AS kind, MIN(f.ts) AS debut, MAX(f.ts) AS fin,
        COUNT(*) AS releves, MAX(f.rtt_ms) AS pic,
@@ -2199,7 +2206,7 @@ class SampleRepository:
         # un `cutoff_ms` nul, donc aucun n'a été écarté par qui que ce soit.
         async with lecteur.execute(
             _SQL_ILOTS,
-            (*bornes, seuil_rtt, _TROU_MAX_S, *bornes, _TROU_MAX_S),
+            (*bornes, seuil_rtt, *_VOISIN_PRECEDENT.params, *bornes, *_VOISIN_PRECEDENT.params),
         ) as cursor:
             latences = [dict(r) for r in await cursor.fetchall()]
 
@@ -2349,11 +2356,13 @@ class SampleRepository:
         # coupure observée mais pas à travers un trou de supervision. Seul le
         # PLMN fait foi : « Orange F » et « Orange » sont le même réseau, et un
         # relevé sans code ne dit rien.
+        # Le voisinage de `regles_coupure`, en millisecondes entières.
+        voisin = sql_voisins_entre("LAG(ts) OVER w", "ts")
         async with lecteur.execute(
-            """
+            f"""
             WITH f0 AS (
               SELECT wan_id, kind, ts, connected, operator, plmn,
-                     ((julianday(ts) - julianday(LAG(ts) OVER w)) * 86400.0 <= ?) AS voisin
+                     {voisin.sql} AS voisin
               FROM samples
               WHERE router_id = ? AND ts >= ? AND ts <= ?
               WINDOW w AS (PARTITION BY wan_id ORDER BY ts)
@@ -2376,7 +2385,7 @@ class SampleRepository:
             WHERE plmn_avant IS NOT NULL AND plmn <> plmn_avant
             ORDER BY ts
             """,
-            (_TROU_MAX_S, *bornes),
+            (*voisin.params, *bornes),
         ) as cursor:
             operateurs = [
                 {

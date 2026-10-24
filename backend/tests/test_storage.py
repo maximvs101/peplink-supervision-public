@@ -2146,6 +2146,8 @@ async def test_the_latency_islands_never_scan_the_whole_history(tmp_path):
     l'historique de l'équipement — 10,7 ms pour une minute, un plancher qui
     croît avec la base. Chaque accès à `samples` doit entrer par la fenêtre."""
     from datetime import datetime, timedelta
+
+    from app.regles_coupure import TROU_MAX_MS
     from app.storage.db import _SQL_ILOTS
 
     repo = SampleRepository(str(tmp_path / "s.db"))
@@ -2159,7 +2161,7 @@ async def test_the_latency_islands_never_scan_the_whole_history(tmp_path):
     await repo._conn.commit()
     bornes = ("r1", t0.isoformat(), (t0 + timedelta(minutes=1)).isoformat())
     async with repo._conn.execute(
-        "EXPLAIN QUERY PLAN " + _SQL_ILOTS, (*bornes, 500.0, 60.0, *bornes, 60.0)
+        "EXPLAIN QUERY PLAN " + _SQL_ILOTS, (*bornes, 500.0, TROU_MAX_MS, *bornes, TROU_MAX_MS)
     ) as cursor:
         acces = [str(r[-1]) for r in await cursor.fetchall() if "samples" in str(r[-1])]
     assert acces, "le plan doit lire samples"
@@ -2185,7 +2187,8 @@ async def test_the_handover_table_of_the_latency_islands_is_computed_once(tmp_pa
     """
     from datetime import datetime
 
-    from app.storage.db import _SQL_ILOTS, _TROU_MAX_S
+    from app.regles_coupure import TROU_MAX_MS
+    from app.storage.db import _SQL_ILOTS
 
     # `async with`, et non connect/close : ce test a été vu tomber par mutation,
     # et un test qui tombe entre les deux laisse le thread vivant — voir ci-dessous.
@@ -2193,7 +2196,7 @@ async def test_the_handover_table_of_the_latency_islands_is_computed_once(tmp_pa
         t0 = datetime.fromisoformat("2026-09-01T08:00:00+00:00")
         bornes = ("r1", t0.isoformat(), t0.isoformat())
         async with repo._conn.execute(
-            "EXPLAIN QUERY PLAN " + _SQL_ILOTS, (*bornes, 500.0, _TROU_MAX_S, *bornes, _TROU_MAX_S)
+            "EXPLAIN QUERY PLAN " + _SQL_ILOTS, (*bornes, 500.0, TROU_MAX_MS, *bornes, TROU_MAX_MS)
         ) as cursor:
             plan = [str(row[-1]) for row in await cursor.fetchall()]
         assert "MATERIALIZE bascules" in plan, plan
@@ -2334,13 +2337,14 @@ async def test_the_latency_islands_are_found_in_ONE_ordered_pass(tmp_path):
     cinq liens (60 000 relevés) : 700 → 480 ms, mêmes îlots."""
     from datetime import datetime
 
-    from app.storage.db import _SQL_ILOTS, _TROU_MAX_S
+    from app.regles_coupure import TROU_MAX_MS
+    from app.storage.db import _SQL_ILOTS
 
     async with SampleRepository(str(tmp_path / "s.db")) as repo:
         t0 = datetime.fromisoformat("2026-09-01T08:00:00+00:00").isoformat()
         bornes = ("r1", t0, t0)
         async with repo._conn.execute(
-            "EXPLAIN QUERY PLAN " + _SQL_ILOTS, (*bornes, 500.0, _TROU_MAX_S, *bornes, _TROU_MAX_S)
+            "EXPLAIN QUERY PLAN " + _SQL_ILOTS, (*bornes, 500.0, TROU_MAX_MS, *bornes, TROU_MAX_MS)
         ) as cursor:
             plan = [str(row[-1]) for row in await cursor.fetchall()]
         assert _tris(plan) <= 4, plan

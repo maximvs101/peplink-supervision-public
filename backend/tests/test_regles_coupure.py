@@ -168,3 +168,64 @@ def test_un_nom_de_colonne_douteux_est_refuse():
         R.sql_en_secours("m'); DROP TABLE samples; --")
     with pytest.raises(ValueError):
         R.sql_ecart_ms("ts; DELETE FROM samples", "ts")
+
+
+# --- les autres lecteurs du voisinage : le journal et le collecteur ------------
+#
+# Deux relevés à EXACTEMENT soixante secondes sont voisins (`sont_voisins`). En
+# secondes flottantes — `(julianday(b) - julianday(a)) * 86400.0 <= 60` —, ce
+# couple-ci donne 60,0000367 : l'îlot de latence, le changement d'opérateur et la
+# bascule de cellule y voyaient un trou de supervision que la fiche ne voyait pas.
+_A = "2026-09-01T10:00:01.918000+00:00"
+_B = "2026-09-01T10:01:01.918000+00:00"
+
+
+def test_le_couple_d_essai_est_bien_voisin_et_piege_les_flottants():
+    assert R.sont_voisins(_A, _B)
+    base = sqlite3.connect(":memory:")
+    assert base.execute("SELECT (julianday(?) - julianday(?)) * 86400.0 > 60",
+                        (_B, _A)).fetchone()[0] == 1
+
+
+async def _journal(tmp_path, lignes: list[tuple]):
+    from datetime import datetime, timedelta
+
+    from app.storage.db import SampleRepository
+
+    async with SampleRepository(str(tmp_path / "s.db")) as repo:
+        await repo._conn.executemany(
+            "INSERT INTO samples (router_id, wan_id, ts, connected, kind, rtt_ms, cell_id, "
+            "operator, plmn) VALUES ('r1', '1', ?, 1, 'cellular', ?, ?, ?, ?)", lignes)
+        await repo._conn.commit()
+        t = datetime.fromisoformat(_A)
+        episodes, _ = await repo.events("r1", t - timedelta(minutes=1), t + timedelta(minutes=5), 500.0)
+    return episodes
+
+
+async def test_un_ilot_de_latence_suit_la_regle_de_voisinage(tmp_path):
+    episodes = await _journal(tmp_path, [(_A, 900.0, None, None, None), (_B, 900.0, None, None, None)])
+    ilots = [e for e in episodes if e["genre"] == "latence haute"]
+    assert [e["releves"] for e in ilots] == [2], ilots
+
+
+async def test_une_bascule_de_cellule_suit_la_regle_de_voisinage(tmp_path):
+    episodes = await _journal(tmp_path, [(_A, 30.0, 11, None, None), (_B, 900.0, 12, None, None)])
+    (ilot,) = [e for e in episodes if e["genre"] == "latence haute"]
+    assert ilot["depuis_bascule"] == 0
+
+
+async def test_un_changement_d_operateur_suit_la_regle_de_voisinage(tmp_path):
+    episodes = await _journal(tmp_path, [(_A, 30.0, None, "SFR", "208-10"),
+                                         (_B, 30.0, None, "Orange", "208-01")])
+    assert [e["ts"] for e in episodes if e["genre"] == "changement d'opérateur"] == [_B]
+
+
+def test_le_collecteur_ne_recalcule_pas_le_voisinage():
+    """Le collecteur oubliait la dernière cellule d'un lien au-delà de
+    `_TROU_MAX_S` secondes flottantes : un troisième exemplaire de la règle."""
+    from pathlib import Path
+
+    import app.poller as poller
+
+    source = Path(poller.__file__).read_text(encoding="utf-8")
+    assert "_TROU_MAX_S" not in source

@@ -30,7 +30,6 @@ from .peplink.router_api import (
     avant_echeance,
     redact,
 )
-from .sessions import _TROU_MAX_S
 from .storage.db import SampleRepository
 
 # Âge au-delà duquel la dernière latence du lien (lue une fois par minute) ne
@@ -1609,7 +1608,8 @@ class Poller:
             previous = self.latest.get(router.id, {}).get(status.wan_id)
 
             # Indicateurs de stabilité
-            if previous is not None and (lu_a - previous.ts).total_seconds() > _TROU_MAX_S:
+            # Au-delà du voisinage, la dernière cellule n'est plus connue.
+            if previous is not None and not sont_voisins(previous.ts, lu_a):
                 self._derniere_cellule.pop(key, None)
             if status.connected and status.cell_id is not None:
                 connue = self._derniere_cellule.get(key)
