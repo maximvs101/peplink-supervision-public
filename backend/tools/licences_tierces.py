@@ -21,8 +21,12 @@ Ce qui est relevé, et d'où :
     de construction. Textes : les fichiers LICENSE*/LICENCE*/COPYING*/NOTICE*
     que le paquet installé déclare (`dist-info/licenses/`, son RECORD).
   - CPython : le LICENSE.txt de l'installation, cherché comme le fait
-    `license()` (module `site`) ; les bibliothèques natives que l'interpréteur
-    lie (OpenSSL, SQLite…), renvoyées à ce texte quand il les reproduit.
+    `license()` (module `site`), et la section « Licenses and Acknowledgements
+    for Incorporated Software » de sa documentation (Doc/license.rst),
+    vendorisée par majeure.mineure dans tools/licences/ — le LICENSE.txt de
+    python.org pour macOS n'en a rien. Les bibliothèques natives que
+    l'interpréteur lie (OpenSSL, Expat…) y renvoient ; celles qu'elle ne cite
+    pas (bzip2, liblzma, SQLite) ont leur texte vendorisé.
   - Le chargeur de PyInstaller : GPL avec exception — mention de courtoisie.
   - L'interface : les dépendances de production du verrou npm (`dev` exclues,
     fermeture comprise : c'est ce que liste `npm ls --omit=dev --all`), et le
@@ -32,8 +36,10 @@ Ce qui est relevé, et d'où :
     24/10/2026 : rien d'autre n'y entre.
 
 Rien n'est écrit de mémoire : un texte de licence que le paquet ne distribue
-pas est SIGNALÉ (« texte non distribué avec le paquet, voir <URL> »), jamais
-reconstitué. Une licence hors de la liste blanche — une GPL qu'une montée de
+pas est repris de sa source officielle, à l'étiquette de la version embarquée,
+et vendorisé dans tools/licences/ avec l'URL et l'étiquette en tête (victory-
+vendor) ; sans cela, il est SIGNALÉ (« texte non distribué avec le paquet, voir
+<URL> »), jamais reconstitué. Une licence hors de la liste blanche — une GPL qu'une montée de
 Dependabot ferait entrer en silence — fait échouer la génération, donc la
 construction. Sortie déterministe (tri, aucune date) : un diff entre deux
 constructions montre ce qui a changé.
@@ -56,6 +62,9 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parents[1]
 FRONTEND = RACINE.parent / "frontend"
 NOM = "LICENCES-TIERCES.txt"
+# Les textes qu'aucun paquet installé ne distribue, repris de leur source
+# officielle à l'étiquette de la version embarquée, URL et étiquette en tête.
+LICENCES = Path(__file__).resolve().parent / "licences"
 
 # Les licences acceptées, en identifiants SPDX : toutes permissives, ou à
 # copyleft limité au fichier (MPL-2.0 : les certificats de certifi, embarqués
@@ -65,6 +74,8 @@ LISTE_BLANCHE = frozenset({
     "MIT", "ISC", "0BSD", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0",
     "PSF-2.0", "Python-2.0", "OFL-1.1", "MPL-2.0", "Zlib", "blessing",
     "bzip2-1.0.6",
+    # liblzma de XZ Utils avant 5.6 : dédié au domaine public, sans condition.
+    "LicenseRef-domaine-public",
 })
 
 # Le champ `License` libre des métadonnées anciennes, quand il n'est pas déjà un
@@ -367,15 +378,39 @@ def licence_cpython() -> Path | None:
     return None
 
 
+_SECTION_CPYTHON = "Licenses and Acknowledgements for Incorporated Software"
+
+
+def section_cpython() -> Path:
+    """La section des logiciels incorporés de la documentation de CPython,
+    vendorisée pour la majeure.mineure de l'interpréteur qui génère."""
+    majeure_mineure = ".".join(map(str, sys.version_info[:2]))
+    fichier = LICENCES / f"cpython-{majeure_mineure}.txt"
+    if not fichier.is_file():
+        raise LicencesRefusees(
+            f"{fichier} absent pour Python {majeure_mineure} : reprendre la section « "
+            f"{_SECTION_CPYTHON} » de Doc/license.rst à l'étiquette v{majeure_mineure}.x "
+            "du dépôt python/cpython (celle du Python embarqué), URL et étiquette en tête, "
+            "comme le fichier de la version précédente")
+    return fichier
+
+
 def composant_cpython() -> Composant:
     texte = licence_cpython()
+    section = section_cpython()
+    textes = [("LICENSE.txt de l'installation", _lire(texte))] if texte else []
+    textes.append((f"Doc/license.rst — {_SECTION_CPYTHON} (tools/licences/{section.name})",
+                   _lire(section)))
     return Composant(
         nom="CPython (interpréteur et bibliothèque standard)",
         version=platform.python_version(), licence="Python-2.0",
         source="https://www.python.org/psf/license/",
-        textes=[("LICENSE.txt de l'installation", _lire(texte))] if texte else [],
+        textes=textes,
         note="Python-2.0 : la PSF License Agreement version 2 et les licences historiques "
-             "(BeOpen, CNRI, CWI) qu'elle accompagne.")
+             "(BeOpen, CNRI, CWI) qu'elle accompagne. Le LICENSE.txt installé ne reproduit "
+             "pas toujours les mentions des logiciels incorporés (celui de python.org pour "
+             "macOS n'en a aucune) : la section de la documentation officielle les donne, "
+             "reprise à l'étiquette citée en tête.")
 
 
 def _version_native(module: str, attribut: str) -> str:
@@ -389,8 +424,10 @@ def _version_native(module: str, attribut: str) -> str:
 def composants_natifs(texte_cpython: str) -> list[Composant]:
     """Les bibliothèques C que l'interpréteur lie, et que l'exécutable emporte avec ses modules.
 
-    Leurs mentions figurent dans le LICENSE.txt de CPython quand l'installation
-    les y joint (celle de python.org pour Windows) ; sinon, l'adresse."""
+    `texte_cpython` : la section des logiciels incorporés de la documentation
+    de CPython. Une bibliothèque qu'elle ne cite pas (bzip2, liblzma, SQLite en
+    3.12) prend son texte vendorisé dans tools/licences/, repris de sa source
+    officielle à la version que CPython embarque ; à défaut, l'adresse."""
     # (nom, module d'extension, attribut de version, licence, mot cherché dans le texte de CPython, adresse)
     table = [
         ("OpenSSL", "ssl", "OPENSSL_VERSION", "Apache-2.0", "openssl", "https://openssl-library.org/source/license/"),
@@ -400,7 +437,9 @@ def composants_natifs(texte_cpython: str) -> list[Composant]:
         ("mpdecimal", "decimal", "__libmpdec_version__", "BSD-2-Clause", "libmpdec", "https://www.bytereef.org/mpdecimal/"),
         ("libffi", "_ctypes", "", "MIT", "libffi", "https://github.com/libffi/libffi/blob/master/LICENSE"),
         ("bzip2", "_bz2", "", "bzip2-1.0.6", "bzip2", "https://sourceware.org/bzip2/"),
-        ("liblzma (XZ Utils)", "_lzma", "", "0BSD", "lzma", "https://github.com/tukaani-project/xz/blob/master/COPYING"),
+        # liblzma est dans le domaine public jusqu'à XZ 5.4 (0BSD depuis 5.6) :
+        # CPython 3.12 embarque 5.2.5 (Windows) ou 5.2.3 (macOS, python.org).
+        ("liblzma (XZ Utils)", "_lzma", "", "LicenseRef-domaine-public", "lzma", "https://github.com/tukaani-project/xz/blob/v5.2.5/COPYING"),
     ]
     bas = texte_cpython.lower()
     composants = []
@@ -410,16 +449,31 @@ def composants_natifs(texte_cpython: str) -> list[Composant]:
         except ImportError:
             continue
         version = _version_native(module, attribut) if attribut else "inconnue"
+        textes = []
         if mot in bas:
-            note = "Texte : reproduit dans la licence de CPython ci-dessus."
+            note = f"Texte : reproduit dans la section « {_SECTION_CPYTHON} » de CPython ci-dessus."
+        elif nom in _VENDORISES_NATIFS:
+            fichier = LICENCES / _VENDORISES_NATIFS[nom]
+            textes = [(f"tools/licences/{fichier.name}", _lire(fichier))]
+            note = "Texte : repris de la source officielle citée en tête, à la version que CPython embarque."
         else:
             note = f"Texte non distribué avec l'installation de CPython de ce poste, voir {adresse}"
         if nom == "OpenSSL" and _version(version) < (3,):
             licence = "OpenSSL"
         composants.append(Composant(nom=nom, version=version, licence=licence, source=adresse,
+                                    textes=textes,
                                     note=note + " Liée par l'interpréteur, embarquée avec son module "
-                                    f"`{module}` si l'application l'importe."))
+                                    f"`{module}` si l'application l'importe (sous macOS, zlib, "
+                                    "bzip2 et libffi sont celles du système, non embarquées)."))
     return composants
+
+
+# Les textes que la documentation de CPython ne donne pas, vendorisés.
+_VENDORISES_NATIFS = {
+    "bzip2": "bzip2-1.0.8.txt",
+    "liblzma (XZ Utils)": "xz-5.2.5.txt",
+    "SQLite": "sqlite-3.45.3.txt",
+}
 
 
 def composant_pyinstaller(chemins: list[str] | None = None) -> Composant:
@@ -479,6 +533,12 @@ _INLINES = {
     "vite": "Amorce de préchargement des modules inlinée dans le bundle par la compilation.",
 }
 _VITE_DEPENDANCES = "# Licenses of bundled dependencies"
+# Les paquets qui ne distribuent pas leur licence : (version, texte vendorisé).
+# Pour une autre version, le texte n'est pas repris — signalé, et le test de
+# la version vendorisée échoue.
+_VENDORISES_NPM = {
+    "victory-vendor": ("37.3.6", "victory-vendor-37.3.6.txt"),
+}
 
 
 def composants_interface(frontend: Path) -> list[Composant]:
@@ -498,6 +558,15 @@ def composants_interface(frontend: Path) -> list[Composant]:
                 continue  # dépendance optionnelle d'un autre système : non installée, non embarquée
             raise LicencesRefusees(f"{chemin} absent — `npm ci` d'abord")
         composant = _composant_npm(dossier, nom, entree.get("license"))
+        vendorise = _VENDORISES_NPM.get(composant.nom)
+        if not composant.textes and vendorise and vendorise[0] == composant.version:
+            # Sa licence, vendorisée depuis son dépôt ; puis celles des modules
+            # qu'il vendorise lui-même, qu'il distribue dans lib-vendor/.
+            fichier = LICENCES / vendorise[1]
+            composant.textes = [(f"tools/licences/{fichier.name}", _lire(fichier))] + [
+                (f"lib-vendor/{sous.name}/{t}", texte)
+                for sous in sorted((dossier / "lib-vendor").iterdir(), key=lambda d: d.name)
+                if sous.is_dir() for t, texte in _textes_npm(sous)]
         vus.setdefault((composant.nom, composant.version), composant)
     for nom, note in _INLINES.items():
         dossier = modules / nom
@@ -567,7 +636,8 @@ def rendre(python: list[Composant], natifs: list[Composant], interface: list[Com
         "Python, des bibliothèques Python et, pour le superviseur, l'interface web compilée et",
         "ses polices. Ce fichier reproduit, pour chacun, son nom, sa version, sa licence, sa",
         "source, et le texte complet de sa licence et de sa notice tels que le composant les",
-        "distribue. Un texte que le composant ne distribue pas est signalé, jamais reconstitué.",
+        "distribue. Un texte que le composant ne distribue pas est repris de sa source",
+        "officielle, citée avec son étiquette en tête de ce texte ; à défaut, il est signalé.",
         "",
         f"Produit : {produit}",
         f"Système de construction : {sys.platform}",
@@ -602,7 +672,7 @@ def generer(interface: bool = True, frontend: Path = FRONTEND,
     """(contenu du fichier, composants sans texte). Lève LicencesRefusees."""
     python = composants_python(requirements, chemins)
     cpython = composant_cpython()
-    natifs = [cpython, *composants_natifs(cpython.textes[0][1] if cpython.textes else ""),
+    natifs = [cpython, *composants_natifs(cpython.textes[-1][1]),
               composant_pyinstaller(chemins)]
     ecran = composants_interface(frontend) if interface else None
     tous = [*python, *natifs, *(ecran or [])]

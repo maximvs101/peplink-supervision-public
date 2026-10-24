@@ -188,6 +188,85 @@ def test_cpython_texte_repris_de_l_installation():
     assert "PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2" in cpython.textes[0][1]
 
 
+# --- Textes vendorisés (tools/licences/) -------------------------------------
+# Ce que l'installation ne distribue pas — les mentions des bibliothèques que
+# CPython incorpore (python.org pour macOS n'en met aucune dans son
+# LICENSE.txt), la licence MIT de victory-vendor — est repris de la source
+# officielle, à l'étiquette de la version, et cité en tête du fichier.
+
+def test_la_section_de_cpython_vendorisee_est_celle_du_python_qui_genere():
+    """Monter de Python (3.13…) sans revendoriser échoue ici, en disant quoi faire."""
+    majeure_mineure = ".".join(map(str, sys.version_info[:2]))
+    fichier = lt.LICENCES / f"cpython-{majeure_mineure}.txt"
+    assert fichier.is_file(), (
+        f"{fichier} absent : reprendre la section « Licenses and Acknowledgements for "
+        f"Incorporated Software » de Doc/license.rst à l'étiquette v{sys.version_info[0]}."
+        f"{sys.version_info[1]}.x du dépôt python/cpython, en citant l'URL en tête")
+    tete = fichier.read_text(encoding="utf-8").splitlines()[:2]
+    assert re.fullmatch(rf"Source : https://github\.com/python/cpython/blob/v{re.escape(majeure_mineure)}\.\d+/Doc/license\.rst", tete[0])
+    assert tete[1].startswith(f"Étiquette : v{majeure_mineure}.")
+
+
+def test_un_python_sans_section_vendorisee_arrete_avec_la_marche_a_suivre(tmp_path, monkeypatch):
+    monkeypatch.setattr(lt, "LICENCES", tmp_path)
+    with pytest.raises(lt.LicencesRefusees, match=r"Doc/license\.rst"):
+        lt.composant_cpython()
+
+
+def test_cpython_porte_les_mentions_des_bibliotheques_incorporees():
+    cpython = lt.composant_cpython()
+    section = dict(cpython.textes)[next(t for t, _ in cpython.textes if "license.rst" in t)]
+    for mot in ("OpenSSL", "expat", "libffi", "zlib", "libmpdec"):
+        assert mot in section, mot
+    assert section.startswith("Source : https://github.com/python/cpython/blob/v3.")
+    natifs = {c.nom: c for c in lt.composants_natifs(section)}
+    for nom in ("OpenSSL", "Expat", "libffi", "zlib", "mpdecimal"):
+        if nom in natifs:
+            assert "reproduit dans la section" in natifs[nom].note, nom
+    # Ceux que la documentation de CPython ne cite pas : texte vendorisé, source citée.
+    for nom in ("bzip2", "liblzma (XZ Utils)", "SQLite"):
+        if nom in natifs:
+            (_titre, texte), = natifs[nom].textes
+            assert texte.startswith("Source : https://"), nom
+    assert natifs["liblzma (XZ Utils)"].licence == "LicenseRef-domaine-public"
+    assert "liblzma is in the public domain" in natifs["liblzma (XZ Utils)"].textes[0][1]
+
+
+def test_chaque_texte_vendorise_cite_sa_source_et_son_etiquette():
+    for fichier in sorted(lt.LICENCES.glob("*.txt")):
+        tete = fichier.read_text(encoding="utf-8").splitlines()[:2]
+        assert tete[0].startswith("Source : https://"), fichier.name
+        assert tete[1].startswith("Étiquette : "), fichier.name
+
+
+def test_victory_vendor_licence_vendorisee_a_la_version_installee():
+    """Le paquet npm ne distribue pas sa licence MIT : vendorisée depuis son
+    dépôt, à l'étiquette de la version du verrou. Une montée sans
+    revendorisation échoue ici."""
+    verrou = json.loads((FRONTEND / "package-lock.json").read_text(encoding="utf-8"))
+    version = verrou["packages"]["node_modules/victory-vendor"]["version"]
+    nom, = [n for n, (v, _) in lt._VENDORISES_NPM.items() if n == "victory-vendor"]
+    attendue, fichier = lt._VENDORISES_NPM[nom]
+    assert attendue == version, (
+        f"victory-vendor {version} dans le verrou, licence vendorisée pour {attendue} : reprendre "
+        f"LICENSE.txt de github.com/FormidableLabs/victory à l'étiquette v{version}")
+    assert f"/v{version}/LICENSE.txt" in (lt.LICENCES / fichier).read_text(encoding="utf-8").splitlines()[0]
+    if not (FRONTEND / "node_modules").is_dir():
+        pytest.skip("frontend/node_modules absent (`npm ci`)")
+    composant = next(c for c in lt.composants_interface(FRONTEND) if c.nom == "victory-vendor")
+    textes = dict(composant.textes)
+    assert any("Formidable Labs" in t for t in textes.values())
+    # Les licences ISC des d3 vendorisés, distribuées dans lib-vendor/.
+    assert "lib-vendor/d3-scale/LICENSE" in textes
+
+
+def test_le_fichier_reel_ne_signale_plus_aucun_texte_manquant():
+    interface = (FRONTEND / "node_modules").is_dir()
+    contenu, manquants = lt.generer(interface=interface)
+    assert manquants == []
+    assert "non distribué" not in contenu
+
+
 # --- Interface : le verrou npm -----------------------------------------------
 
 def _npm(frontend: Path, chemin: str, version: str, licence: str, entree: dict,
