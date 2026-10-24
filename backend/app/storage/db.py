@@ -13,6 +13,7 @@ import logging
 import math
 import os
 import secrets
+import shutil
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -2909,51 +2910,88 @@ class SampleRepository:
                 (utcnow().isoformat().encode(),),
             )
 
+    async def _pragma(self, nom: str) -> int:
+        assert self._conn is not None
+        async with self._conn.execute(f"PRAGMA {nom}") as cursor:
+            return int((await cursor.fetchone())[0])
+
+    async def convertir_au_demarrage(self) -> bool:
+        """Passe une base EXISTANTE en vidage incrémental ; True si c'est fait.
+
+        Une base créée avant la rétention (auto_vacuum = 0) ne peut le devenir
+        que par un VACUUM complet : il réécrit toute la base, et la tient le
+        temps de le faire. Fait EN MARCHE, il gelait la scrutation — toute la
+        flotte passait « injoignable », reculait, et les relevés lus étaient
+        perdus. Il n'est donc fait qu'ICI, au démarrage, avant que la
+        scrutation commence (`main.lifespan`), et une seule fois :
+
+          - seulement quand la rétention a libéré au moins le quart du fichier
+            — après la première purge, la base ne garde que la durée de
+            conservation, et c'est le plus petit VACUUM possible ;
+          - seulement avec au moins 2,2 fois la taille de la base de libre sur
+            le disque : en WAL, le journal grossit d'environ la taille de la
+            base, et la copie temporaire autant. Sinon il est différé au
+            lancement suivant, avec un avertissement — jamais retenté en
+            marche.
+        """
+        if self._conn is None or self._path == ":memory:":
+            return False
+        if await self._pragma("auto_vacuum") == 2:
+            return False
+        libres = await self._pragma("freelist_count")
+        pages = await self._pragma("page_count")
+        if libres == 0 or libres * 4 < pages:
+            return False
+        taille = pages * await self._pragma("page_size")
+        dossier = os.path.dirname(os.path.abspath(self._path))
+        disponible = shutil.disk_usage(dossier).free
+        requis = int(taille * 2.2)
+        if disponible < requis:
+            logger.warning(
+                "Conversion de la base différée au prochain lancement : %d Mo libres "
+                "sur le disque, %d Mo nécessaires. La place libérée par la rétention "
+                "est réutilisée en attendant, mais le fichier ne rétrécit pas.",
+                disponible // 1_000_000, requis // 1_000_000,
+            )
+            return False
+        logger.warning(
+            "Conversion unique de la base en cours (%d Mo) : la supervision démarre "
+            "juste après. Ne pas fermer cette fenêtre.", taille // 1_000_000,
+        )
+        async with self._ecriture:
+            await self._conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
+            await self._conn.execute("VACUUM")
+            async with self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)") as c:
+                await c.fetchall()
+        logger.warning("Conversion de la base terminée (%d pages rendues)", libres)
+        return True
+
     async def compacter(self, pas: int = 1024) -> int:
         """Rend au système les pages libérées par la rétention ; le nombre rendu.
 
-        Une base NEUVE est en vidage incrémental : `incremental_vacuum` par pas
-        de quatre mégaoctets, chacun sous le verrou, la scrutation passant entre
-        deux. Une base EXISTANTE ne l'est pas, et ne peut le devenir que par un
-        VACUUM complet : il est fait UNE fois, quand la rétention a libéré au
-        moins le quart du fichier — après le premier regroupement, la base ne
-        garde que la durée de conservation, et c'est le plus petit VACUUM
-        possible. Il suspend les écritures le temps de réécrire ce qui reste ;
-        la scrutation attend son tour, sans rien perdre.
+        Seulement par `incremental_vacuum`, par pas de quatre mégaoctets, chacun
+        sous le verrou : la scrutation passe entre deux. Une base qui n'est pas
+        en vidage incrémental n'est PAS convertie ici — le VACUUM complet que
+        cela demande gelait la scrutation : c'est `convertir_au_demarrage`, au
+        lancement suivant. D'ici là, SQLite réutilise les pages libres.
         """
         if self._conn is None or self._path == ":memory:":
             return 0
-
-        async def pragma(nom: str) -> int:
-            assert self._conn is not None
-            async with self._conn.execute(f"PRAGMA {nom}") as cursor:
-                return int((await cursor.fetchone())[0])
-
-        libres = await pragma("freelist_count")
-        if libres == 0:
+        libres = await self._pragma("freelist_count")
+        if libres == 0 or await self._pragma("auto_vacuum") != 2:
             return 0
-        mode = await pragma("auto_vacuum")
-        if mode == 2:
-            rendues = 0
-            while libres > 0:
-                async with self._ecriture:
-                    async with self._conn.execute(f"PRAGMA incremental_vacuum({int(pas)})") as c:
-                        await c.fetchall()
-                    await self._conn.commit()
-                restant = await pragma("freelist_count")
-                rendues += libres - restant
-                if restant >= libres:
-                    break
-                libres = restant
-                await asyncio.sleep(0)
-        elif libres * 4 >= await pragma("page_count"):
+        rendues = 0
+        while libres > 0:
             async with self._ecriture:
-                await self._conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
-                await self._conn.execute("VACUUM")
-            logger.info("Base compactée, vidage incrémental activé (%d pages rendues)", libres)
-            rendues = libres
-        else:
-            return 0
+                async with self._conn.execute(f"PRAGMA incremental_vacuum({int(pas)})") as c:
+                    await c.fetchall()
+                await self._conn.commit()
+            restant = await self._pragma("freelist_count")
+            rendues += libres - restant
+            if restant >= libres:
+                break
+            libres = restant
+            await asyncio.sleep(0)
         async with self._ecriture:
             async with self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)") as c:
                 await c.fetchall()

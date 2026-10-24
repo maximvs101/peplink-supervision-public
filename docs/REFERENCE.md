@@ -271,9 +271,15 @@ fois par heure et jamais au démarrage :
    minimum, maximum et somme ; pour la bande, les comptes (relevés, connectés, dans le
    bond…). Une minute sans relevé n'a pas de ligne, une grandeur non mesurée reste sans
    valeur — jamais un zéro. Les relevés bruts regroupés sont effacés ;
-3. **compacte** le fichier (`incremental_vacuum` ; une base créée avant cette version est
-   convertie une fois par un `VACUUM` complet, qui suspend les écritures le temps de
-   réécrire les 30 jours restants).
+3. **compacte** le fichier, par petits pas (`incremental_vacuum`).
+
+Une base créée avant cette version n'est pas en vidage incrémental : elle est convertie une
+fois par un `VACUUM` complet, **au démarrage qui suit la première purge**, avant que la
+scrutation commence (« Conversion unique de la base en cours » dans la console), et
+seulement si le disque a au moins 2,2 fois la taille de la base de libre ; sinon la
+conversion est différée au lancement suivant, avec un avertissement. Elle n'est jamais faite
+en marche : d'ici là, SQLite réutilise la place libérée sans rétrécir le fichier. Une
+attente de la base n'est jamais comptée dans le délai de réponse d'un équipement.
 
 Ce qui est perdu, et dit : au-delà de la rétention, une courbe a la résolution de la minute
 (chaque minute rend son minimum et son maximum, `source = "minute"`, `grouped_before`), la

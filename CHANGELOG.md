@@ -35,6 +35,9 @@ Correctifs pas encore étiquetés ; la section prendra le numéro de la prochain
   sont figées (fiche et journal inchangés), puis les relevés regroupés à la minute et le
   fichier compacté, en tâche de fond ; copie `samples.db.avant-retention.bak` avant la
   première purge. Les courbes, la bande et l'export anciens passent à la minute, et le disent.
+  Une base d'avant cette version est convertie une fois, au démarrage suivant et avant la
+  scrutation, si le disque a la place (sinon différée, avec un avertissement) ; une attente
+  de la base ne fait plus passer un équipement « injoignable ».
 - **Garde de version à la publication** : l'étiquette, la section du CHANGELOG, les deux
   paquets Python et l'interface doivent dire le même numéro, sinon rien n'est publié.
 - **Dépendances épinglées** : versions Python exactes, outils de test à part

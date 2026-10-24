@@ -447,10 +447,9 @@ async def _base_ancienne(chemin, *, existante: bool) -> SampleRepository:
     return repo
 
 
-@pytest.mark.parametrize("existante", [False, True])
-async def test_le_fichier_retrecit_apres_compactage(tmp_path, existante):
+async def test_le_fichier_neuf_retrecit_apres_compactage(tmp_path):
     chemin = tmp_path / "samples.db"
-    repo = await _base_ancienne(chemin, existante=existante)
+    repo = await _base_ancienne(chemin, existante=False)
     try:
         taille = chemin.stat().st_size
         bilan = await _retention(repo).passe(MAINTENANT)
@@ -465,37 +464,80 @@ async def test_le_fichier_retrecit_apres_compactage(tmp_path, existante):
         await repo.close()
 
 
-def test_la_copie_n_est_jamais_ecrite_sous_son_nom_final(tmp_path, monkeypatch):
-    """Tué pendant la copie, le processus ne passe par aucun `except` : le
-    fichier entamé restait sous son nom final et passait, au lancement suivant,
-    pour la copie déjà faite — la purge tournait sans copie valable."""
-    source = tmp_path / "s.db"
-    with sqlite3.connect(source) as c:
-        c.execute("CREATE TABLE t (x)")
-        c.execute("INSERT INTO t VALUES (1)")
-    c.close()
-    cible = tmp_path / "s.db.avant-retention.bak"
-    ouverts: list[str] = []
-    connecter = sqlite3.connect
+async def _auto_vacuum(repo: SampleRepository) -> int:
+    async with repo._conn.execute("PRAGMA auto_vacuum") as c:
+        return (await c.fetchone())[0]
 
-    def espion(chemin, *a, **k):
-        ouverts.append(str(chemin))
-        return connecter(chemin, *a, **k)
 
-    monkeypatch.setattr(stockage.sqlite3, "connect", espion)
-    stockage._copier_base(source, cible)
-    assert str(cible) not in ouverts
-    lu = connecter(cible)
+async def test_une_base_existante_n_est_jamais_convertie_en_marche(tmp_path):
+    """Le VACUUM complet de conversion réécrit toute la base sous le verrou
+    d'écriture : en marche, il gelait la scrutation — toute la flotte passait
+    « injoignable ». En marche, la passe ne fait QUE du vidage incrémental."""
+    chemin = tmp_path / "samples.db"
+    repo = await _base_ancienne(chemin, existante=True)
     try:
-        assert lu.execute("SELECT x FROM t").fetchone()[0] == 1
+        bilan = await _retention(repo).passe(MAINTENANT)
+        assert bilan["lots"] > 0
+        assert bilan["pages_rendues"] == 0
+        assert await _auto_vacuum(repo) == 0
     finally:
-        lu.close()
-    assert not cible.with_name(cible.name + ".partiel").exists()
+        await repo.close()
 
 
-async def test_un_temporaire_orphelin_est_efface_au_demarrage(tmp_path):
-    orphelin = tmp_path / "samples.db.avant-retention.bak.partiel"
-    orphelin.write_bytes(b"entame")
-    async with SampleRepository(str(tmp_path / "samples.db")):
-        pass
-    assert not orphelin.exists()
+async def test_la_conversion_se_fait_au_demarrage_suivant(tmp_path, caplog):
+    chemin = tmp_path / "samples.db"
+    repo = await _base_ancienne(chemin, existante=True)
+    await _retention(repo).passe(MAINTENANT)
+    await repo.close()
+    taille = chemin.stat().st_size
+    repo = SampleRepository(str(chemin))
+    await repo.connect()
+    try:
+        with caplog.at_level("WARNING"):
+            assert await repo.convertir_au_demarrage() is True
+        assert "conversion unique" in caplog.text.lower()
+        assert await _auto_vacuum(repo) == 2
+        assert chemin.stat().st_size < taille / 2
+        # Une fois : le lancement suivant n'a plus rien à convertir.
+        assert await repo.convertir_au_demarrage() is False
+        points, _ = await repo.history("r1", "1", "rtt_ms", MAINTENANT - timedelta(days=121), MAINTENANT)
+        assert points
+    finally:
+        await repo.close()
+
+
+async def test_sans_place_sur_le_disque_la_conversion_est_differee(tmp_path, monkeypatch, caplog):
+    """VACUUM en WAL : le journal grossit d'environ la taille de la base, la
+    copie temporaire autant. Sans 2,2 fois la base de libre, la conversion
+    échouait sur disque plein ; elle est différée au lancement suivant."""
+    import collections
+
+    chemin = tmp_path / "samples.db"
+    repo = await _base_ancienne(chemin, existante=True)
+    await _retention(repo).passe(MAINTENANT)
+    await repo.close()
+    taille = chemin.stat().st_size
+    Usage = collections.namedtuple("Usage", "total used free")
+    monkeypatch.setattr(stockage.shutil, "disk_usage",
+                        lambda _chemin: Usage(10 * taille, 9 * taille, 2 * taille))
+    repo = SampleRepository(str(chemin))
+    await repo.connect()
+    try:
+        with caplog.at_level("WARNING"):
+            assert await repo.convertir_au_demarrage() is False
+        assert "différée" in caplog.text
+        assert await _auto_vacuum(repo) == 0
+        assert chemin.stat().st_size == taille
+    finally:
+        await repo.close()
+
+
+async def test_une_base_neuve_ou_peu_liberee_n_est_pas_convertie(tmp_path):
+    chemin = tmp_path / "samples.db"
+    repo = await _base_ancienne(chemin, existante=True)
+    try:
+        # Rien de purgé : réécrire toute la base ne rendrait rien.
+        assert await repo.convertir_au_demarrage() is False
+        assert await _auto_vacuum(repo) == 0
+    finally:
+        await repo.close()

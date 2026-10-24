@@ -48,3 +48,34 @@ async def test_la_veille_est_attendue_avant_la_fermeture_du_registre(tmp_path, m
         # équipement retrouve ainsi son identifiant d'un lancement à l'autre.
         assert app.state.registry.sel_identifiants == app.state.repo.sel_identifiants
     assert etat["vue_a_la_fermeture"] is True, "le registre a fermé pendant que la veille tournait"
+
+
+async def test_la_conversion_de_la_base_precede_la_scrutation(tmp_path, monkeypatch):
+    """Le VACUUM de conversion gèle la base : il est fait au démarrage, AVANT
+    que la scrutation commence, et non en marche."""
+    from app import main
+    from app.config import Settings
+    from app.storage.db import SampleRepository
+
+    reglages = Settings(
+        peplink_mode="mock", database_path=str(tmp_path / "s.db"),
+        routers_config=str(tmp_path / "absent.yaml"), poll_interval_seconds=0.2,
+    )
+    monkeypatch.setattr(main, "get_settings", lambda: reglages)
+    ordre: list[str] = []
+
+    async def convertir(self):
+        ordre.append("conversion")
+        return False
+
+    demarrer = main.Poller.start
+
+    async def demarrer_en_notant(self):
+        ordre.append("scrutation")
+        await demarrer(self)
+
+    monkeypatch.setattr(SampleRepository, "convertir_au_demarrage", convertir, raising=False)
+    monkeypatch.setattr(main.Poller, "start", demarrer_en_notant)
+    async with main.lifespan(FastAPI()):
+        pass
+    assert ordre == ["conversion", "scrutation"]

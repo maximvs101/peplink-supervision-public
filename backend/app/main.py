@@ -53,6 +53,10 @@ async def lifespan(app: FastAPI):
     # tels quels : la migration vers les identifiants opaques ne les touche pas.
     repo = SampleRepository(settings.database_file, identifiants_fixes={r.id for r in fleet})
     await repo.connect()
+    # Le VACUUM complet qui passe une base d'avant la rétention en vidage
+    # incrémental gèle la base : ici, AVANT la scrutation, une fois — jamais
+    # en marche, où il faisait passer toute la flotte « injoignable ».
+    await repo.convertir_au_demarrage()
 
     # Le sel des identifiants opaques est celui de la base : un équipement
     # retrouve son identifiant, donc son historique, d'un lancement à l'autre.
@@ -87,8 +91,8 @@ async def lifespan(app: FastAPI):
     reconnexion = asyncio.create_task(
         Reconnexion(registry, repo, poller, cadence=settings.poll_interval_seconds).boucle()
     )
-    # La rétention, en tâche de fond et par petits lots : jamais au démarrage,
-    # jamais une transaction qui gèle la scrutation (`app/retention.py`).
+    # La rétention, en tâche de fond et par petits lots : jamais une
+    # transaction qui gèle la scrutation (`app/retention.py`).
     retention = asyncio.create_task(
         Retention(repo, settings.retention_jours, routes._SEUIL_EPISODE_MS).boucle()
     )
