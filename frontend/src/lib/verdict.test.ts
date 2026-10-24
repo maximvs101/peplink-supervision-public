@@ -710,7 +710,7 @@ describe('perte du tunnel', () => {
 
 describe('un bond qui n’est pas le chemin du trafic', () => {
   // Le pair de ce déploiement n'achemine que 169.254.131.0/24 et
-  // 212.83.185.61/32 : aucun profil n'est sélectionné dans « Send All Traffic
+  // 203.0.113.61/32 : aucun profil n'est sélectionné dans « Send All Traffic
   // To », et le trafic général sort par les interfaces. Les grandeurs du tunnel
   // restent mesurées, mais elles ne décrivent plus ce que fait l'exploitant.
   // Le second terme est le verdict DU ROUTEUR — `beyond_cutoff` —, seul juge de
