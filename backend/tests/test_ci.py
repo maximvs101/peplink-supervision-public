@@ -12,11 +12,14 @@ empreinte de commit et celui des dépendances Python.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -76,7 +79,25 @@ def test_chaque_action_est_epinglee_par_empreinte_complete():
                               for e in job.get("steps", []) if "uses" in e)
     for action, ref, majeure in usages:
         assert re.fullmatch(r"[0-9a-f]{40}", ref), f"{action}@{ref} : pas une empreinte"
-        assert majeure and re.fullmatch(r"v\d+", majeure), f"{action} : `# vN` manquant"
+        assert majeure and _VERSION_COMMENTEE.fullmatch(majeure), f"{action} : `# vN` manquant"
+
+
+# Dependabot, quand il monte une action épinglée par empreinte, réécrit le
+# commentaire avec l'étiquette complète qu'il a résolue : `# v7` devient
+# `# v7.1.0`. Les deux formes sont admises ; la majeure est le premier nombre.
+_VERSION_COMMENTEE = re.compile(r"v\d+(?:\.\d+){0,2}")
+
+
+def _majeure(commentaire: str) -> int:
+    return int(commentaire.removeprefix("v").split(".")[0])
+
+
+def test_le_commentaire_de_dependabot_est_admis():
+    for forme, majeure in (("v7", 7), ("v7.1", 7), ("v7.1.0", 7), ("v12.0.3", 12)):
+        assert _VERSION_COMMENTEE.fullmatch(forme), forme
+        assert _majeure(forme) == majeure
+    for refusee in ("7", "v", "v7.x", "latest", "v7.1.0.2"):
+        assert not _VERSION_COMMENTEE.fullmatch(refusee), refusee
 
 
 def test_une_action_porte_la_meme_empreinte_partout():
@@ -106,7 +127,7 @@ def test_aucune_action_ne_tourne_encore_sous_node_20():
     for action, ref, majeure in _usages():
         assert action in _NODE24_DES, f"action inconnue de ce test : {action}"
         assert majeure, f"{action}@{ref} : majeure absente du commentaire"
-        assert int(majeure.removeprefix("v")) >= _NODE24_DES[action], f"{action} {majeure}"
+        assert _majeure(majeure) >= _NODE24_DES[action], f"{action} {majeure}"
         vues.add(action)
     assert vues == set(_NODE24_DES)
 
@@ -261,6 +282,235 @@ def test_publier_garde_la_version_avant_tout_envoi_et_sans_texte_de_secours():
     for etape in etapes:
         assert "echo" not in etape.get("run", ""), etape.get("name")
         assert "awk" not in etape.get("run", ""), etape.get("name")
+
+
+# --- Garde de version AVANT toute construction --------------------------------
+# Elle ne tournait que dans `publier`, après les trois constructions : une
+# étiquette sans section de CHANGELOG coûtait trois machines et une vingtaine
+# de minutes pour échouer à la fin. Le job léger `garde` la lance d'abord, et
+# les constructions en dépendent. Sur une étiquette `v*` (même condition que
+# `publier`), la garde complète ; en lancement manuel sans étiquette, la
+# cohérence interne seule : les trois numéros du dépôt concordent — un
+# exécutable de test ne se dit pas 0.1.0 quand son interface dit 0.2.0 —, mais
+# le CHANGELOG n'est pas consulté, l'« À venir » n'ayant pas encore de numéro.
+# `publier` relance la garde complète pour produire notes.md (même commit,
+# même verdict).
+
+def _garder_coherence(racine: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(GARDE), "--coherence", "--racine", str(racine)],
+        capture_output=True, text=True, encoding="utf-8", check=False)
+
+
+def test_la_coherence_passe_sans_section_de_changelog(tmp_path):
+    racine = _arbre(tmp_path, tete="1.2.2", avenir="## À venir\n\n- Bientôt.\n\n")
+    fait = _garder_coherence(racine)
+    assert fait.returncode == 0, fait.stderr
+
+
+def test_la_coherence_refuse_des_numeros_divergents(tmp_path):
+    for champ in ("app", "temoin", "paquet"):
+        fait = _garder_coherence(_arbre(tmp_path / champ, **{champ: "1.2.2"}))
+        assert fait.returncode != 0, champ
+        assert "1.2.2" in fait.stderr and "1.2.3" in fait.stderr, champ
+
+
+def test_la_garde_exige_une_etiquette_ou_la_coherence_pas_les_deux(tmp_path):
+    racine = _arbre(tmp_path)
+    for arguments in ([], ["v1.2.3", "--coherence"]):
+        fait = subprocess.run([sys.executable, str(GARDE), *arguments, "--racine", str(racine)],
+                              capture_output=True, text=True, check=False)
+        assert fait.returncode != 0, arguments
+
+
+def test_la_coherence_passe_sur_le_depot_tel_qu_il_est():
+    fait = _garder_coherence(RACINE)
+    assert fait.returncode == 0, fait.stderr
+
+
+def _etape_de_garde() -> dict:
+    etapes = [e for e in _flux()["jobs"]["garde"]["steps"]
+              if ".github/scripts/garde_version.py" in e.get("run", "")]
+    assert len(etapes) == 1
+    return etapes[0]
+
+
+def test_la_garde_tourne_avant_toute_construction():
+    jobs = _flux()["jobs"]
+    garde = jobs["garde"]
+    # Léger : ni matrice, ni jeton d'écriture, rien à installer.
+    assert "strategy" not in garde and "permissions" not in garde and "needs" not in garde
+    assert garde["runs-on"] == "ubuntu-latest"
+    for etape in garde["steps"]:
+        assert "pip" not in etape.get("run", "") and "npm" not in etape.get("run", "")
+        assert not str(etape.get("uses", "")).startswith(("actions/setup-", "actions/cache"))
+    etape = _etape_de_garde()
+    assert "--coherence" in etape["run"]
+    # La garde complète exactement quand `publier` publiera : même condition.
+    assert jobs["publier"]["if"] in etape["env"]["ETIQUETTE"]
+    # Les constructions l'attendent, sans condition qui la contournerait.
+    besoins = jobs["construire"]["needs"]
+    assert "garde" in ([besoins] if isinstance(besoins, str) else besoins)
+    assert "if" not in jobs["construire"]
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,
+                    reason="joue l'étape sous bash, avec un python3 de substitution")
+def test_l_etape_de_garde_jouee_telle_quelle(tmp_path):
+    """Étiquette → garde complète ; sans étiquette → cohérence seule."""
+    etape = _etape_de_garde()
+    racine = _arbre(tmp_path / "depot", avenir="## À venir\n\n- Bientôt.\n\n")
+    (racine / ".github" / "scripts").mkdir(parents=True)
+    shutil.copy(GARDE, racine / ".github" / "scripts" / "garde_version.py")
+    binaires = tmp_path / "bin"
+    binaires.mkdir()
+    (binaires / "python3").symlink_to(sys.executable)
+
+    def jouer(etiquette: str) -> int:
+        env = {**os.environ, "PATH": f"{binaires}{os.pathsep}{os.environ.get('PATH', '')}",
+               "ETIQUETTE": etiquette}
+        return subprocess.run(["bash", "-eo", "pipefail", "-c", etape["run"]], cwd=racine,
+                              env=env, capture_output=True, text=True, check=False).returncode
+
+    assert jouer("v1.2.3") == 0
+    assert jouer("v1.2.4") != 0, "une étiquette sans section doit arrêter la CI"
+    assert jouer("") == 0, "un lancement manuel ne demande pas de section"
+    (racine / "frontend" / "package.json").write_text('{"version": "1.2.2"}', encoding="utf-8")
+    assert jouer("") != 0, "même sans étiquette, des numéros divergents arrêtent"
+
+
+# --- Empreintes SHA-256 de la Release ------------------------------------------
+# Les six fichiers partent avec `SHA256SUMS`, au format de `sha256sum`
+# (`<hex>  <nom>`) : `shasum -a 256 -c SHA256SUMS` sur Mac, `Get-FileHash`
+# sous Windows, vérifient un téléchargement.
+
+def test_publier_joint_les_empreintes_sha256_des_six_fichiers():
+    etapes = _flux()["jobs"]["publier"]["steps"]
+    rang = dict(enumerate(etapes))
+    telechargement = next(i for i, e in rang.items()
+                          if str(e.get("uses", "")).startswith("actions/download-artifact"))
+    envoi = next(i for i, e in rang.items()
+                 if str(e.get("uses", "")).startswith("softprops/action-gh-release"))
+    empreintes = [i for i, e in rang.items() if "sha256sum" in e.get("run", "")]
+    assert len(empreintes) == 1
+    assert telechargement < empreintes[0] < envoi
+    run = etapes[empreintes[0]]["run"]
+    assert "SHA256SUMS" in run and "-eq 6" in run, "six fichiers, ni plus ni moins"
+    # Le fichier part avec les six autres.
+    fichiers = etapes[envoi]["with"]["files"]
+    assert "SHA256SUMS" in fichiers or fichiers.strip() == "fichiers/*"
+    assert (etapes[empreintes[0]].get("working-directory") == "fichiers"
+            or "fichiers" in run)
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None
+                    or (shutil.which("sha256sum") is None and shutil.which("shasum") is None),
+                    reason="joue l'étape sous bash, avec sha256sum")
+def test_l_etape_d_empreintes_jouee_telle_quelle(tmp_path):
+    etape = next(e for e in _flux()["jobs"]["publier"]["steps"]
+                 if "sha256sum" in e.get("run", ""))
+    dossier = tmp_path / "fichiers"
+    dossier.mkdir()
+    import hashlib
+    noms = ["superviseur-windows-x64.exe", "superviseur-macos-x64.tar.gz",
+            "superviseur-macos-arm64.tar.gz", "temoin-ethernet-windows-x64.exe",
+            "temoin-ethernet-macos-x64.tar.gz", "temoin-ethernet-macos-arm64.tar.gz"]
+    for n, nom in enumerate(noms):
+        (dossier / nom).write_bytes(bytes([n]) * (n + 1) * 1000)
+    env = dict(os.environ)
+    if shutil.which("sha256sum") is None:
+        # macOS : `shasum -a 256` écrit le même format.
+        binaires = tmp_path / "bin"
+        binaires.mkdir()
+        (binaires / "sha256sum").write_text('#!/bin/sh\nexec shasum -a 256 "$@"\n')
+        (binaires / "sha256sum").chmod(0o755)
+        env["PATH"] = f"{binaires}{os.pathsep}{env.get('PATH', '')}"
+    cwd = dossier if etape.get("working-directory") == "fichiers" else tmp_path
+    fait = subprocess.run(["bash", "-eo", "pipefail", "-c", etape["run"]], cwd=cwd, env=env,
+                          capture_output=True, text=True, check=False)
+    assert fait.returncode == 0, fait.stderr
+    lignes = (dossier / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+    attendues = sorted(f"{hashlib.sha256((dossier / nom).read_bytes()).hexdigest()}  {nom}"
+                       for nom in noms)
+    assert sorted(lignes) == attendues
+    # Un septième fichier (ou un manquant) arrête la publication.
+    (dossier / "SHA256SUMS").unlink()
+    (dossier / "intrus.txt").write_text("x")
+    fait = subprocess.run(["bash", "-eo", "pipefail", "-c", etape["run"]], cwd=cwd, env=env,
+                          capture_output=True, text=True, check=False)
+    assert fait.returncode != 0
+
+
+# --- Audits de vulnérabilités et couverture ----------------------------------
+# Une faille connue dans une dépendance d'EXÉCUTION (ce que l'exécutable
+# embarque, ce que le navigateur charge) fait échouer la CI, donc bloque la
+# Release ; les outils de développement ne sont pas audités. La couverture est
+# affichée, sans seuil, sur une seule machine de la matrice.
+
+def test_un_job_audite_les_dependances_d_execution():
+    jobs = _flux()["jobs"]
+    audits = jobs["audits"]
+    assert audits["runs-on"] == "ubuntu-latest" and "permissions" not in audits
+    runs = "\n".join(e.get("run", "") for e in audits["steps"])
+    assert re.search(r"pip_audit .*-r backend/requirements\.txt", runs)
+    assert "npm audit --omit=dev --audit-level=high" in runs
+    # `|| true` ou `continue-on-error` rendraient l'audit décoratif.
+    assert "|| true" not in runs
+    assert not any(e.get("continue-on-error") for e in audits["steps"])
+    assert not audits.get("continue-on-error")
+    besoins = jobs["publier"]["needs"]
+    assert "audits" in besoins and "construire" in besoins
+
+
+def test_pip_audit_et_la_couverture_sont_epingles_en_dev():
+    dev = {_paquet(ligne) for ligne in _exigences("requirements-dev.txt")}
+    assert {"pip-audit", "pytest-cov", "coverage"} <= dev
+    execution = {_paquet(ligne) for ligne in _exigences("requirements.txt")}
+    assert not {"pip-audit", "pytest-cov", "coverage"} & execution
+
+
+def test_la_couverture_est_mesuree_sur_une_seule_machine():
+    job = _flux()["jobs"]["construire"]
+    avec = [e for e in job["strategy"]["matrix"]["include"] if e.get("couverture")]
+    assert len(avec) == 1
+    runs = "\n".join(e.get("run", "") for e in job["steps"])
+    assert "--cov=app" in runs and "--cov=temoin" in runs
+    assert "--coverage.enabled" in runs
+    assert "GITHUB_STEP_SUMMARY" in runs
+    # Sans seuil : la couverture informe, elle n'arrête rien.
+    assert "fail-under" not in runs and "thresholds" not in runs
+
+
+def test_vitest_et_sa_couverture_vont_de_pair():
+    paquet = json.loads((RACINE / "frontend" / "package.json").read_text(encoding="utf-8"))
+    verrou = json.loads((RACINE / "frontend" / "package-lock.json").read_text(encoding="utf-8"))
+    assert "@vitest/coverage-v8" in paquet["devDependencies"]
+    assert "@vitest/coverage-v8" not in paquet.get("dependencies", {})
+    versions = {nom: verrou["packages"][f"node_modules/{nom}"]["version"]
+                for nom in ("vitest", "@vitest/coverage-v8")}
+    assert versions["vitest"] == versions["@vitest/coverage-v8"], versions
+
+
+# --- Dependabot -----------------------------------------------------------------
+
+def test_dependabot_surveille_les_trois_ecosystemes_au_mois_regroupes():
+    config = yaml.safe_load((RACINE / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    assert config["version"] == 2
+    vus = {(u["package-ecosystem"], u["directory"]) for u in config["updates"]}
+    assert vus == {("github-actions", "/"), ("pip", "/backend"), ("npm", "/frontend")}
+    for maj in config["updates"]:
+        assert maj["schedule"]["interval"] == "monthly", maj["package-ecosystem"]
+        assert 1 <= maj["open-pull-requests-limit"] <= 3
+        assert maj.get("groups"), f"{maj['package-ecosystem']} : non regroupé"
+
+
+# --- Licence -------------------------------------------------------------------
+
+def test_licence_mit_au_nom_du_compte():
+    licence = (RACINE / "LICENSE").read_text(encoding="utf-8")
+    assert licence.startswith("MIT License")
+    assert "Copyright (c) 2026 maximvs101" in licence
+    assert "LICENSE" in (RACINE / "README.md").read_text(encoding="utf-8")
 
 
 # --- Dépendances Python ------------------------------------------------------

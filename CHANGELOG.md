@@ -36,6 +36,10 @@ Correctifs pas encore étiquetés ; la section prendra le numéro de la prochain
 - **Dépendances épinglées** : versions Python exactes, outils de test à part
   (`requirements-dev.txt`), actions GitHub par empreinte de commit.
 - **Vite à jour** (8, un seul dans le verrou), `npm audit` sans faille.
+- **Garde de version avant toute construction** : une étiquette fautive arrête la CI en quelques secondes ; en lancement manuel, les numéros du code doivent concorder.
+- **Licence MIT** (`LICENSE`).
+- **`SHA256SUMS` dans chaque Release** : les empreintes des six fichiers, pour vérifier un téléchargement.
+- **Dependabot, audits et couverture** : montées mensuelles regroupées ; `pip-audit` et `npm audit` bloquent la Release sur une faille d'exécution (certifi monté à 2026.10.19) ; couverture affichée, sans seuil.
 
 ## v0.2.0 — Témoin de lien Ethernet
 

@@ -27,6 +27,10 @@ d'identifiants la première fois. Les fichiers ne sont pas signés : au premier 
 Windows demande « Informations complémentaires › Exécuter quand même », macOS un clic droit
 › Ouvrir (décompresser d'abord l'archive sur Mac).
 
+Vérifier un téléchargement : la Release porte `SHA256SUMS`. Sur Mac, dans le dossier des
+fichiers, `shasum -a 256 -c SHA256SUMS --ignore-missing` ; sous Windows (PowerShell),
+`Get-FileHash .\superviseur-windows-x64.exe` donne l'empreinte à comparer à sa ligne.
+
 - Le superviseur écoute sur `http://127.0.0.1:8000`, le témoin sur `:8010` : les deux
   tournent ensemble.
 - Les données vivent dans `data/`, **à côté du fichier**, avec une copie de sauvegarde à
@@ -58,7 +62,7 @@ cd ../backend && python -m venv .venv
 ```
 
 Sous Windows, `.venv\Scripts\python.exe`. Sans routeur, `PEPLINK_MODE=mock` lance un
-simulateur. `requirements-dev.txt` ajoute pytest et ruff à l'exécution
+simulateur. `requirements-dev.txt` ajoute pytest, ruff, la couverture et pip-audit à l'exécution
 (`requirements.txt`, seul suffisant pour lancer) ; toutes les versions sont épinglées.
 
 ## Vérifier
@@ -79,6 +83,10 @@ chaque système, puis lancés et vérifiés avant d'être livrés.
 - [docs/PROTOCOLE-NOUVEL-EQUIPEMENT.md](docs/PROTOCOLE-NOUVEL-EQUIPEMENT.md) — devant un
   équipement jamais vu.
 - [CHANGELOG.md](CHANGELOG.md) — ce que chaque version change.
+
+## Licence
+
+MIT — voir [LICENSE](LICENSE).
 
 ## Limites
 

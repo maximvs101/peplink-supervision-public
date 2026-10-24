@@ -93,6 +93,19 @@ en artefacts du run pendant quatorze jours) ou à chaque étiquette `v*` poussé
 produit tant que les suites ne sont pas vertes, et chaque fichier est lancé et
 vérifié après construction.
 
+Avant les constructions, un job léger (`garde`) vérifie les numéros de version :
+sur une étiquette, celle-ci, la section du CHANGELOG qui la porte, les deux paquets
+Python et `package.json` disent le même numéro ; en lancement manuel, les trois
+numéros du code concordent entre eux (`.github/scripts/garde_version.py
+--coherence`). En parallèle, le job `audits` passe `pip-audit` sur
+`backend/requirements.txt` et `npm audit --omit=dev --audit-level=high` sur
+l'interface : une faille connue dans une dépendance d'exécution fait échouer le run
+et bloque la Release. La couverture des tests (serveur et interface) est affichée,
+sans seuil, dans le journal et le résumé du run de la machine macOS Apple silicon.
+La Release porte `SHA256SUMS`, les empreintes SHA-256 des six fichiers. Dependabot
+(`.github/dependabot.yml`) propose chaque mois les montées d'actions, de paquets
+Python et npm, regroupées par écosystème.
+
 À côté de l'exécutable : `data/samples.db` (créée au premier lancement, copie de
 sauvegarde datée à chaque lancement, deux gardées), et `routers.yaml` s'il y en a
 un — sinon les équipements s'appairent depuis l'écran de découverte. Le serveur

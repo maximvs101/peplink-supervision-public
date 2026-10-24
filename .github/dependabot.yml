@@ -1,0 +1,52 @@
+# Dependabot propose, une fois par mois, une demande de fusion par écosystème
+# — toutes les montées regroupées, pour relire et lancer la suite une fois,
+# pas dix. Rien n'est fusionné seul : chaque proposition passe par la CI
+# (tests, audits) et par une relecture.
+#
+#   - github-actions : les actions sont épinglées par empreinte de commit, la
+#     version en commentaire ; Dependabot change les deux, et réécrit le
+#     commentaire en version complète (`# v7` → `# v7.1.0`), forme que
+#     backend/tests/test_ci.py admet ;
+#   - pip : backend/requirements*.txt, tout en `==` (indirectes comprises :
+#     une montée peut demander d'en ajuster une à la main) ;
+#   - npm : frontend/package.json et son verrou. vitest et
+#     @vitest/coverage-v8 doivent rester à la même version : le groupe les
+#     monte ensemble.
+#
+# `cooldown` : une version n'est proposée qu'après deux semaines de
+# publication — le temps qu'une version piégée soit repérée et retirée.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 14
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 14
+    groups:
+      interface:
+        patterns: ["*"]
