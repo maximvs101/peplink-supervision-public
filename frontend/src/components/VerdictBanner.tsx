@@ -31,6 +31,11 @@ interface Props {
   tunnelCause?: string | null
   /** Les WAN jamais connectés depuis l'allumage, publiés par le serveur. */
   neverConnected?: string[]
+  /** Le verdict brut, déjà calculé par l'enveloppe de l'équipement. Fourni,
+   *  il n'est pas recalculé ici : le tableau de bord en a besoin aussi, et le
+   *  même calcul se faisait deux fois par trame. Absent (bandeau monté seul),
+   *  le bandeau le calcule à partir des props. */
+  verdict?: LinkVerdict
 }
 
 /**
@@ -48,7 +53,7 @@ interface Props {
  */
 export function VerdictBanner({
   samples, live, status, ageSeconds, error, periodSeconds, role,
-  latencyThresholdMs, tunnelAttendu = null, tunnelCause = null, neverConnected,
+  latencyThresholdMs, tunnelAttendu = null, tunnelCause = null, neverConnected, verdict,
 }: Props) {
   // Une CLÉ, et non le tableau : il est neuf à chaque relecture du résumé.
   const jamais = (neverConnected ?? []).join(',')
@@ -61,11 +66,11 @@ export function VerdictBanner({
   // La stabilité de `samples` d'un rendu à l'autre est la responsabilité de
   // l'appelant, qui le mémoïse : ici, une nouvelle liste EST un nouveau relevé.
   const raw = useMemo(
-    () => linkVerdict({
+    () => verdict ?? linkVerdict({
       samples, status, ageSeconds, periodSeconds, role, latencyThresholdMs, tunnelAttendu, tunnelCause,
       neverConnected: jamais ? jamais.split(',') : [],
     }),
-    [samples, status, ageSeconds, periodSeconds, role, latencyThresholdMs, tunnelAttendu, tunnelCause, jamais],
+    [verdict, samples, status, ageSeconds, periodSeconds, role, latencyThresholdMs, tunnelAttendu, tunnelCause, jamais],
   )
 
   // Repère de CYCLE, et non de trame. `_publish` émet un relevé par WAN et par
@@ -168,7 +173,12 @@ export function VerdictBanner({
     <>
       <div className="mast-verdict" style={{ ['--v' as string]: VERDICT_COLOR[shown.verdict] }}>
         <span className="mast-dot" />
-        <h1>{shown.headline}</h1>
+        {/* Annoncé à un lecteur d'écran — le TITRE seul. Il ne change qu'aux
+            transitions retenues par l'hystérésis ; le détail et l'âge du
+            relevé bougent à chaque cycle, et les rendre « vivants » noierait
+            l'annonce qui compte sous un décompte. `aria-live` et non
+            `role="status"` : le titre reste un titre. */}
+        <h1 aria-live="polite" aria-atomic="true">{shown.headline}</h1>
         {/* `title` parce que `.detail` coupe à l'ellipse : une cause longue —
             « Connection attempt failed: authentication rejected… » — se voit
             tronquée, ce qui est honnête, mais devenait irrécupérable sans aller

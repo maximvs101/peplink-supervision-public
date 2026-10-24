@@ -10,9 +10,7 @@ import { EventLog } from '../components/EventLog'
 import { LinkTable } from '../components/LinkTable'
 import { pathDiversity } from '../lib/diversity'
 import { bondRedundancy } from '../lib/redundancy'
-import { linkVerdict } from '../lib/verdict'
 import { keyFigures } from '../lib/dashboard'
-import { compareWanIds } from '../lib/wanOrder'
 import { fmtClock, fmtUptime } from '../lib/format'
 import { debutObserve } from '../lib/session'
 import { useDevice } from './DeviceShell'
@@ -42,8 +40,8 @@ import { useDevice } from './DeviceShell'
  */
 export function Overview() {
   const {
-    routerId, router, samples, showThroughput, hasTunnel, status, ageSeconds,
-    timeline, events, periodSeconds, health, role, windowLabel, sessions, resume, session,
+    routerId, router, samples, showThroughput, hasTunnel, status,
+    timeline, events, periodSeconds, health, role, windowLabel, sessions, resume, session, verdict,
   } = useDevice()
 
   // Mémorisées sur `samples`. Ces trois dérivations rendent des objets NEUFS à
@@ -58,20 +56,12 @@ export function Overview() {
   const redondance = bondRedundancy(timeline)
   // Le rôle du bond est établi une fois pour toutes dans `DeviceShell` : lui
   // seul dispose des deux témoins — ce que le pair annonce, et ce qui transite.
-  // Les griefs du tunnel que le bandeau a refusés, pour les dire auprès du bond.
-  // Recalculés ici plutôt que remontés du bandeau : la fonction est pure, son
-  // coût tient dans quelques filtres sur onze relevés, et la faire redescendre
-  // à travers deux composants pour économiser cela aurait couplé la tête de
-  // page au panneau du bond.
-  // Avec l'ÂGE du relevé : sans lui, les griefs restaient affichés auprès du
-  // bond sur un relevé que le bandeau, lui, déclarait périmé.
-  const { bondGrievances: griefsDuTunnel, radioGrievances: griefsRadio } = linkVerdict({
-    samples, status, ageSeconds, periodSeconds,
-    role,
-    latencyThresholdMs: router?.latency_threshold_ms ?? null,
-    tunnelAttendu: router?.tunnel_attendu ?? null,
-    neverConnected: router?.never_connected ?? [],
-  })
+  // Les griefs du tunnel que le bandeau a refusés, pour les dire auprès du
+  // bond, viennent du verdict que `DeviceShell` calcule UNE fois par relevé —
+  // avec l'ÂGE du relevé : sans lui, les griefs restaient affichés auprès du
+  // bond sur un relevé que le bandeau déclarait périmé. Ils étaient recalculés
+  // ici sans mémo, à chaque trame du flux, en double du bandeau.
+  const { bondGrievances: griefsDuTunnel, radioGrievances: griefsRadio } = verdict
   const chiffres = useMemo(() => keyFigures(samples), [samples])
   // Ordre STABLE, et rien d'autre. Trier les liens par ce qu'ils portent
   // paraissait servir la lecture ; en réalité un lien qui décroche remonte ou
@@ -80,10 +70,9 @@ export function Overview() {
   // événement va apparaître, on doit balayer l'écran au lieu de le consulter.
   // Une panne se signale SUR PLACE — c'est aussi la règle des planches
   // d'instruments, où le drapeau remplace la valeur à son emplacement exact.
-  const ordonnes = useMemo(
-    () => [...samples].sort((a, b) => compareWanIds(a.wan.wan_id, b.wan.wan_id)),
-    [samples],
-  )
+  // Cet ordre est celui que `DeviceShell` publie déjà (`compareWanIds`,
+  // mémoïsé) : le retrier ici refaisait le même tri à chaque trame.
+  const ordonnes = samples
 
   // Ce que la fenêtre relue COUVRE, dit en clair. « Stationnement en cours » ne
   // désignait rien pour qui n'a pas le modèle de données en tête, et le mot

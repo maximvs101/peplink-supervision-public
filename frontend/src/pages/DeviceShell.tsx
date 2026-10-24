@@ -18,6 +18,7 @@ import { Masthead } from '../components/Masthead'
 import { compareWanIds } from '../lib/wanOrder'
 import { bondRole, roleRetenu, type BondRole } from '../lib/bondRole'
 import { paquetsParSecondeRecents } from '../lib/redundancy'
+import { linkVerdict, type LinkVerdict } from '../lib/verdict'
 import { RESUME_MS, debutObserve, libelleFenetre } from '../lib/session'
 
 export interface DeviceContext {
@@ -71,6 +72,10 @@ export interface DeviceContext {
   /** L'état de santé du serveur, pour ce qui relève du diagnostic et non de
    *  l'exploitation — la décomposition de la cadence, notamment. */
   health: Health | null
+  /** Le verdict BRUT de la liaison, calculé UNE fois par relevé ici : le
+   *  bandeau le lisse, le tableau de bord en tire les griefs du bond et de la
+   *  radio. Chacun le recalculait — `Overview` sans mémo, à chaque trame. */
+  verdict: LinkVerdict
 }
 
 export const useDevice = () => useOutletContext<DeviceContext>()
@@ -455,7 +460,12 @@ export function DeviceShell() {
   // Et sur les DERNIÈRES minutes, non sur toute la session : une moyenne de
   // six heures mettait vingt-huit minutes à voir le trafic arriver, et des
   // heures à le voir partir.
-  const mesure = bondRole(router?.bond_routes, paquetsParSecondeRecents(timeline))
+  // Mémoïsé : `bondRole` rend un objet neuf, et le verdict ci-dessous dépend
+  // du rôle — sans cela il se recalculerait à chaque rendu.
+  const mesure = useMemo(
+    () => bondRole(router?.bond_routes, paquetsParSecondeRecents(timeline)),
+    [router?.bond_routes, timeline],
+  )
   // Le dernier rôle MESURÉ, par équipement. Le débit du tunnel s'éteint avec
   // lui : sans cette mémoire, dix minutes après la chute du concentrateur le
   // témoin ne voyait plus rien et le bandeau changeait d'avis (C-2).
@@ -463,6 +473,26 @@ export function DeviceShell() {
   if (mesure.kind === 'porte' || mesure.kind === 'routes') dernierMesure.current = { routerId, role: mesure }
   const role = roleRetenu(
     mesure, dernierMesure.current?.routerId === routerId ? dernierMesure.current.role : null,
+  )
+
+  const statut = inconnu ? 'inconnu' : (router?.status ?? 'en attente')
+  const periode = router?.period_seconds ?? health?.cycle_period_seconds ?? null
+  const tunnelCause = router
+    ? causeDuTunnel(router.bond_profiles ?? [], router.capabilities, Date.now())
+    : null
+  const seuilLatence = router?.latency_threshold_ms ?? null
+  const tunnelAttendu = router?.tunnel_attendu ?? null
+  const jamais = router?.never_connected
+  // Une seule fois par changement d'ENTRÉE — un relevé, un résumé, l'âge qui
+  // avance —, et non à chaque rendu ni une fois par consommateur. `tunnelCause`
+  // est une chaîne : recalculée à chaque rendu, elle ne change pas d'identité.
+  const verdict = useMemo(
+    () => linkVerdict({
+      samples: ordered, status: statut, ageSeconds, periodSeconds: periode, role,
+      latencyThresholdMs: seuilLatence, tunnelAttendu, tunnelCause,
+      neverConnected: jamais ?? [],
+    }),
+    [ordered, statut, ageSeconds, periode, role, seuilLatence, tunnelAttendu, tunnelCause, jamais],
   )
 
   const context: DeviceContext = {
@@ -490,7 +520,7 @@ export function DeviceShell() {
     // scrutation, et la vue de flotte retient le pire — un équipement mort
     // relâcherait le seuil de péremption de ses voisins sains de tout son budget.
     // La période observée, jamais la consigne : voir `staleAfterSeconds`.
-    periodSeconds: router?.period_seconds ?? health?.cycle_period_seconds ?? null,
+    periodSeconds: periode,
     session,
     sessions,
     rafraichirSessions: async () => { await relireRef.current?.() },
@@ -500,6 +530,7 @@ export function DeviceShell() {
     events,
     resume,
     health,
+    verdict,
   }
 
   // Le bandeau de tête reste en place même quand il n'y a plus rien à montrer :
@@ -512,15 +543,16 @@ export function DeviceShell() {
       routers={routers}
       samples={ordered}
       live={live}
-      status={inconnu ? 'inconnu' : context.status}
+      status={statut}
       ageSeconds={ageSeconds}
       error={context.error}
       periodSeconds={context.periodSeconds}
       role={role}
       latencyThresholdMs={router?.latency_threshold_ms ?? null}
       tunnelAttendu={router?.tunnel_attendu ?? null}
-      tunnelCause={router ? causeDuTunnel(router.bond_profiles ?? [], router.capabilities, Date.now()) : null}
+      tunnelCause={tunnelCause}
       neverConnected={router?.never_connected ?? []}
+      verdict={verdict}
     />
   )
 

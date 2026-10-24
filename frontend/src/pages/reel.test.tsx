@@ -29,9 +29,18 @@ vi.mock('../api/client', () => ({
   openLiveSocket: vi.fn(() => () => {}),
 }))
 
-import { fetchEvents, fetchRouter, fetchSessionSummary, fetchSessions, fetchTimeline } from '../api/client'
+// Le calcul du verdict, espionné sans être remplacé : on compte ses appels.
+vi.mock('../lib/verdict', async (original) => {
+  const vrai = await original<typeof import('../lib/verdict')>()
+  return { ...vrai, linkVerdict: vi.fn(vrai.linkVerdict) }
+})
+
+import {
+  fetchEvents, fetchRouter, fetchSessionSummary, fetchSessions, fetchTimeline, openLiveSocket,
+} from '../api/client'
 import { WanCard } from '../components/WanCard'
-import type { EventLog, RouterSummary, Session, Timeline } from '../types'
+import { linkVerdict } from '../lib/verdict'
+import type { EventLog, RadioSample, RouterSummary, Session, Timeline } from '../types'
 import { DeviceShell } from './DeviceShell'
 import { Overview } from './Overview'
 import { WanDetail } from './WanDetail'
@@ -309,6 +318,39 @@ describe('le tableau de bord sur un équipement réel', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(50) })
     const entetes = [...container.querySelectorAll('.ltable thead th')].map((e) => e.textContent ?? '')
     expect(entetes.some((e) => /Mbit/.test(e))).toBe(false)
+    unmount()
+  })
+})
+
+describe('le verdict se calcule une fois par relevé', () => {
+  it('pas une fois dans le bandeau et une autre dans le tableau, ni à chaque rendu', async () => {
+    // `Overview` appelait `linkVerdict` sans mémo à chaque trame, et le
+    // bandeau refaisait le même calcul de son côté : deux calculs par trame,
+    // plus un à chaque rendu sans rapport (le tic de cinq secondes du bandeau).
+    let pousser: ((s: RadioSample) => void) | undefined
+    vi.mocked(openLiveSocket).mockImplementation((_id, onSample) => {
+      pousser = onSample as (s: RadioSample) => void
+      return () => {}
+    })
+    const reel = REELS['MAX HD4 MBX, quatre SIM, tunnel monté']
+    vi.mocked(fetchRouter).mockResolvedValue(reel.router)
+    vi.mocked(fetchSessions).mockResolvedValue(reel.sessions)
+    vi.mocked(fetchTimeline).mockResolvedValue(reel.timeline)
+    vi.mocked(fetchEvents).mockResolvedValue(reel.events)
+    const { unmount } = monterTableauDeBord()
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+
+    vi.mocked(linkVerdict).mockClear()
+    const premier = reel.router.wans[0]
+    await act(async () => {
+      pousser!({ ...premier, ts: new Date(Date.parse(premier.ts) + 1_000).toISOString() })
+    })
+    expect(linkVerdict).toHaveBeenCalledTimes(1)
+
+    // Un rendu sans relevé neuf — le tic du bandeau — ne recalcule rien.
+    vi.mocked(linkVerdict).mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(linkVerdict).toHaveBeenCalledTimes(0)
     unmount()
   })
 })

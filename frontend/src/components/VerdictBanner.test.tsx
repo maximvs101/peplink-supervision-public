@@ -345,3 +345,19 @@ describe('un fait qui cesse', () => {
     expect(screen.getByText('Liaison OK')).toBeInTheDocument()
   })
 })
+
+describe('le verdict pour un lecteur d’écran', () => {
+  it('annonce le CHANGEMENT de verdict, pas l’âge qui avance chaque seconde', () => {
+    // Le titre ne change qu'aux transitions retenues par l'hystérésis : c'est
+    // lui, et lui seul, qui doit être annoncé. L'âge du relevé et le détail
+    // bougent à chaque cycle : en direct, ils noieraient l'annonce.
+    const { container } = render(
+      <VerdictBanner samples={[sample()]} live status="connecté" ageSeconds={2} />,
+    )
+    const titre = screen.getByRole('heading', { level: 1 })
+    expect(titre).toHaveAttribute('aria-live', 'polite')
+    expect(titre).toHaveAttribute('aria-atomic', 'true')
+    const vivants = [...container.querySelectorAll('[aria-live], [role="status"], [role="alert"]')]
+    expect(vivants).toEqual([titre])
+  })
+})

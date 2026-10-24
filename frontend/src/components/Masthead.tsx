@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import type { DeviceLinkStatus, RadioSample, RouterSummary } from '../types'
 import { VerdictBanner } from './VerdictBanner'
+import type { LinkVerdict } from '../lib/verdict'
 import type { BondRole } from '../lib/bondRole'
 
 interface Props {
@@ -25,6 +26,8 @@ interface Props {
   /** Ce qui tient le tunnel à terre, lu sur les profils (R-1.5). */
   tunnelCause?: string | null
   neverConnected: string[]
+  /** Le verdict brut, calculé une fois par `DeviceShell`. */
+  verdict?: LinkVerdict
 }
 
 /**
@@ -39,7 +42,7 @@ interface Props {
  */
 export function Masthead({
   routerId, router, routers, samples, live, status, ageSeconds, error, periodSeconds,
-  role, latencyThresholdMs, tunnelAttendu, tunnelCause = null, neverConnected,
+  role, latencyThresholdMs, tunnelAttendu, tunnelCause = null, neverConnected, verdict,
 }: Props) {
   const navigate = useNavigate()
   const info = router?.device ?? null
@@ -78,6 +81,7 @@ export function Masthead({
         tunnelAttendu={tunnelAttendu}
         tunnelCause={tunnelCause}
         neverConnected={neverConnected}
+        verdict={verdict}
       />
 
       <div className="mast-tools">
