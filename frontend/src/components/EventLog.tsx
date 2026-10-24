@@ -178,6 +178,11 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
         <span className="note">
           {windowLabel.toLowerCase()}
           {log.capped && ' · dernières 24 h seulement'}
+          {/* Au-delà de la rétention, une coupure hors session n'a plus de
+              relevé pour la dater : le journal le dit plutôt que de se taire. */}
+          {log.grouped_before
+            && ` · avant le ${new Date(log.grouped_before).toLocaleDateString('fr-FR')}, `
+              + 'relevés regroupés à la minute : seuls les épisodes des sessions closes restent'}
         </span>
         <span className="spacer" />
         {lignes.length > 0 && (

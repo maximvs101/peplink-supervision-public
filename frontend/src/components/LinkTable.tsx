@@ -139,6 +139,7 @@ export function LinkTable({
               dernières vingt-quatre heures, et le dire est obligatoire — une
               fenêtre rognée en silence se lit comme entière. */}
           {timeline?.capped && ' · dernières 24 h seulement'}
+          {timeline?.grouped_before && ' · relevés anciens regroupés à la minute'}
         </span>
       </div>
       {/* La zone défile horizontalement quand les colonnes débordent. Sans
