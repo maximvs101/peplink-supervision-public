@@ -29,6 +29,14 @@ def test_le_serveur_porte_la_version_du_changelog():
     assert app.version == __version__, "l'API doit lire __version__, pas une copie"
 
 
+def test_le_temoin_porte_la_meme_version():
+    """Le témoin Ethernet sort dans la même Release : son numéro (écran,
+    /api/sante, exports) suit la même étiquette."""
+    from temoin import __version__
+
+    assert __version__ == _derniere_version_publiee()
+
+
 def test_l_interface_porte_la_meme_version():
     attendue = _derniere_version_publiee()
     paquet = json.loads((RACINE / "frontend" / "package.json").read_text(encoding="utf-8"))
