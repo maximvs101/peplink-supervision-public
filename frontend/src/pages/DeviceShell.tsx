@@ -78,11 +78,12 @@ export const useDevice = () => useOutletContext<DeviceContext>()
 /** Cadence de rafraîchissement de l'état de l'équipement. */
 const REFRESH_MS = 10_000
 
+/** Relecture de la fiche du stationnement, pour la tuile du volume (A-5).
+ *  Exportée : la fiche de session de l'historique se relit au même rythme. */
+export const RESUME_MS = 5 * 60_000
 /** Cadence de relecture de la bande de stationnement. Bien plus lente : elle
  *  couvre des heures, une tranche vaut plusieurs dizaines de secondes, et la
  *  rejouer à chaque cycle coûterait une agrégation SQL pour un pixel. */
-/** Relecture de la fiche du stationnement, pour la tuile du volume (A-5). */
-const RESUME_MS = 5 * 60_000
 const BAND_MS = 30_000
 
 /** Dernier résumé RÉELLEMENT obtenu du serveur, et l'instant de sa réception.
@@ -158,6 +159,13 @@ export function DeviceShell() {
     // une mesure périmée. Prouvé par sonde.
     let rang = 0
     let dernierRendu = 0
+    // Un autre équipement repart à neuf : `retire` et `inconnu` n'étaient
+    // jamais remis à zéro, et après un 404 l'équipement suivant restait
+    // « inconnu », sans plus jamais relire sa bande ni son journal. Cet effet
+    // est déclaré AVANT celui de la bande : il remet la référence à faux
+    // avant que l'autre ne la lise.
+    retire.current = false
+    setInconnu(false)
     setSnapshot(null)
     setSamples({})
     setFatal(null)
@@ -172,6 +180,12 @@ export function DeviceShell() {
       setSnapshot({ summary, receivedAt: at })
       setClock(at)
       setRefreshError(null)
+      // Un résumé reçu dément tout échec de chargement antérieur. Le premier
+      // échec non-404 posait `fatal`, le rafraîchissement continuait, mais rien
+      // ne le levait : l'écran restait sur « Impossible de charger
+      // l'équipement » une fois le service revenu. Un retrait (404) arrête la
+      // relecture, et aucune réponse plus ancienne ne passe le jeton de rang.
+      if (!retire.current) setFatal(null)
       // Le résumé fait AUTORITÉ sur la liste des liens. `setSamples` n'était
       // appelé qu'au montage et le flux ne sait que fusionner : un WAN désactivé
       // depuis l'administration — que le serveur purge bien de son état et omet
@@ -518,7 +532,7 @@ export function DeviceShell() {
       <>
         {mast}
         <div className="page">
-          <div className="notice is-error">{fatal}</div>
+          <div className="notice is-error" role="alert">{fatal}</div>
         </div>
       </>
     )
@@ -530,14 +544,14 @@ export function DeviceShell() {
       {(refreshError || liveClosure) && (
         <div className="page" style={{ paddingBottom: 0 }}>
           {refreshError && (
-            <div className="notice warn">
+            <div className="notice is-warn" role="alert">
               <strong>État de l’équipement non rafraîchi.</strong> {refreshError}. Ce qui
               est à l’écran date du dernier échange abouti et vieillit : le bandeau le
               déclarera périmé.
             </div>
           )}
           {liveClosure && (
-            <div className="notice error">
+            <div className="notice is-error" role="alert">
               Flux temps réel refermé par le serveur : {liveClosure}. Aucune reconnexion
               ne sera tentée.
             </div>
