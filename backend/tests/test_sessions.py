@@ -227,7 +227,7 @@ def test_a_5g_sa_cell_never_yields_an_invented_station():
         _ligne("5", 0, cell_id=25735426, enb_id=None),
     ]
     fiche = build_summary(_session(), lignes, None)
-    assert fiche.sites == 0, "aucune station déterminable : la fiche ne doit rien inventer"
+    assert fiche.sites is None, "aucune station déterminable : la fiche ne doit rien inventer"
 
     # Deux SIM sur la même station LTE : une seule station, et elle est comptée.
     lignes = [_ligne("4", 0, cell_id=25735433), _ligne("5", 0, cell_id=25735436)]

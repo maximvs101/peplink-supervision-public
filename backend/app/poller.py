@@ -22,7 +22,6 @@ import httpx
 
 from .peplink.router_api import (
     _HORLOGE_SERIE_S,
-    AuthenticationError,
     CredentialsRefusedError,
     avant_echeance,
     redact,
@@ -351,7 +350,13 @@ class Poller:
         # Une horloge de routeur décalée daterait ses faits au mauvais endroit
         # du journal, loin des coupures qu'ils expliquent : on ne les lit pas
         # tant qu'elle l'est (R-3.9). L'alerte le dit.
+        #
+        # L'alerte admin, elle, est fondée sur ce journal : elle tombe avec lui.
+        # La sortie précédait son recalcul, et une alerte « connexions admin
+        # refusées » levée avant le décalage restait affichée tant qu'il durait,
+        # sur un journal que plus personne ne lisait.
         if record.id in self._alerte_horloge:
+            self._alerte_admin.pop(record.id, None)
             return
         maintenant_m = time.monotonic()
         dernier = self._journal_lu_a.get(record.id)
@@ -362,8 +367,18 @@ class Poller:
         faits = await lire(noms)
         if not self._still_supervised(record):
             return
+        # Une lecture ABOUTIE se note : sans elle, la fiche ne sait pas si
+        # « aucune manœuvre » est un constat ou un journal jamais lu. Un client
+        # qui n'a pas pu le lire rend `None` ; un refus définitif du firmware
+        # éteint `_supports_log` et rend `[]` — ni l'un ni l'autre n'est une
+        # lecture. (Une panne passagère rend encore `[]` côté client : seul
+        # `None` permettrait de la distinguer.)
+        lu = faits is not None and getattr(record.client, "_supports_log", True) is not False
+        faits = faits or []
         await self._repo.insert_router_events(record.id, faits)
         maintenant = utcnow()
+        if lu:
+            await self._repo.note_journal_read(record.id, maintenant)
         refus = await self._repo.router_events(
             record.id, maintenant - timedelta(seconds=_ADMIN_FENETRE_S), maintenant,
             kinds=("connexion admin refusée",),
@@ -801,15 +816,17 @@ class Poller:
         # repli, et elle a fait ses preuves.
         chassis = record.info.uptime_s if record.info is not None else None
         lu_a = record.info_lu_a if record.info is not None else None
-        courant_tot = self._session.get(record.id)
         if chassis is None and not vus:
             # Aucun témoin d'ancienneté sur ce cycle — 22,8 % des cycles réels de
-            # la session 1. Les relevés sont pourtant ÉCRITS : ne pas prolonger
-            # la session laissait sa fin geler jusqu'à 1 h 43 pendant que la
-            # collecte continuait, et la fiche de stationnement s'affichait
-            # complète en ayant perdu tout ce qui suivait.
-            if courant_tot is not None:
-                await self._repo.touch_session(courant_tot.id, utcnow(), 0)
+            # la session 1. Les relevés sont pourtant ÉCRITS, et la session
+            # courante reste la leur : c'est l'écriture du cycle qui la
+            # prolonge, avec eux (sans quoi sa fin gelait jusqu'à 1 h 43 pendant
+            # que la collecte continuait).
+            #
+            # AUCUNE session ne prolonge plus `last_seen` ici : la porter à
+            # « maintenant » avant d'écrire prolongeait une session dont le
+            # cycle n'écrivait finalement rien. `_poll_device_once` l'avance
+            # dans la transaction des relevés, à leur horodatage.
             return
         maintenant = utcnow()
         router_id = record.id
@@ -817,7 +834,6 @@ class Poller:
         courant = self._session.get(router_id)
         if courant is not None and not _redemarrage(courant.uptimes, vus, chassis, courant.chassis):
             self._session[router_id] = _Session(courant.id, vus, chassis, lu_a)
-            await self._repo.touch_session(courant.id, maintenant, 0)
             return
 
         # Les liens disent « redémarrage » et le châssis ne l'a pas encore
@@ -870,7 +886,6 @@ class Poller:
                     router_id, relu,
                 )
                 self._session[router_id] = _Session(courant.id, vus, relu, record.info_lu_a)
-                await self._repo.touch_session(courant.id, maintenant, 0)
                 return
             if relu is not None:
                 # La valeur relue, ET l'instant de sa lecture : c'est ce couple
@@ -911,7 +926,6 @@ class Poller:
                 if ecart <= _SESSION_MATCH_S:
                     session_id = int(derniere["id"])
                     self._session[router_id] = _Session(session_id, vus, chassis, lu_a)
-                    await self._repo.touch_session(session_id, maintenant, 0)
                     logger.info(
                         "Routeur %s : session %s reprise (allumé depuis %.0f s)",
                         router_id, session_id, haut,
@@ -924,7 +938,6 @@ class Poller:
         if not self._still_supervised(record):
             return
         self._session[router_id] = _Session(session_id, vus, chassis, lu_a)
-        await self._repo.touch_session(session_id, maintenant, 0)
 
     def _prune_absent_wans(
         self, router_id: str, seen: set[str], desactives: set[str] | frozenset[str] = frozenset()
@@ -1002,6 +1015,13 @@ class Poller:
                                 # recopier inventerait des micro-coupures au retour.
                                 "uptime_s": None,
                                 "tunnel": None,
+                                # La latence du lien aussi, comme dans la branche
+                                # « désactivé » : recopiée, elle s'écrivait dans
+                                # la colonne que la courbe trace, et le lien
+                                # disparu y gardait une latence mesurée.
+                                "path_latency_ms": None,
+                                "path_latency_recent_ms": None,
+                                "path_latency_at": None,
                             }
                         ),
                     }
@@ -1031,10 +1051,11 @@ class Poller:
             # Le numéro de série est la clé d'identité stable : on la retient dès
             # qu'elle est connue, y compris pour un équipement venu du fichier.
             record.config.serial = record.config.serial or info.serial
+            # Sans la série : l'identifiant de l'équipement la remplace au
+            # journal, et lui ne dit rien du matériel.
             logger.info(
-                "Équipement %s identifié : %s · firmware %s · série %s",
+                "Équipement %s identifié : %s · firmware %s",
                 record.id, info.model or "modèle inconnu", info.firmware or "?",
-                info.serial or "?",
             )
         try:
             caps = await client.get_capabilities()
@@ -1097,10 +1118,12 @@ class Poller:
         # enregistrés — mais se taire referait le mensonge que tout ce module
         # combat : la fiche affichée ne serait plus celle du châssis supervisé.
         if info.serial and record.config.serial and info.serial != record.config.serial:
+            # Le fait, sans les deux séries : elles n'ont rien à faire au
+            # journal, et l'exploitant les retrouve sur l'écran du poste local.
             logger.warning(
-                "Équipement %s : la fiche annonce le numéro de série %s, "
-                "supervisé sous %s — le matériel a-t-il été remplacé ?",
-                record.id, info.serial, record.config.serial,
+                "Équipement %s : la fiche annonce un autre numéro de série que celui "
+                "sous lequel il est supervisé — le matériel a-t-il été remplacé ?",
+                record.id,
             )
 
         record.info = info
@@ -1212,18 +1235,14 @@ class Poller:
             record.status, record.error = "identifiants refusés", message
             record.auth_blocked = True
             return
-        except AuthenticationError as exc:
-            # Un 401 sur une LECTURE n'est pas un refus d'identifiants : la
-            # session a expiré, et `_get` s'est déjà reconnecté. Si l'erreur
-            # remonte quand même, l'équipement est momentanément illisible —
-            # on le marque injoignable et on réessaiera, sans consommer de
-            # tentative de connexion supplémentaire.
-            message = redact(str(exc))
-            if record.status != "injoignable":
-                logger.warning("Routeur %s illisible : %s", router.id, message)
-            record.status, record.error = "injoignable", message
-            return
         except Exception as exc:
+            # Tout le reste — y compris une `AuthenticationError` qui ne serait
+            # pas un refus de connexion : un 401 sur une LECTURE est une session
+            # expirée, et `_get` s'est déjà reconnecté — rend l'équipement
+            # momentanément illisible : injoignable, et on réessaiera sans
+            # consommer de tentative de connexion. Une branche dédiée à
+            # `AuthenticationError` nue faisait la même chose, en code mort :
+            # le client ne lève que sa sous-classe `CredentialsRefusedError`.
             message = _cause_injoignable(exc)
             if record.status != "injoignable":
                 logger.warning("Routeur %s injoignable : %s", router.id, message)
@@ -1431,6 +1450,7 @@ class Poller:
                     )
 
         ecrits = 0
+        a_ecrire: list[RadioSample] = []
         # UN horodatage pour tout le cycle. Chaque relevé prenait le sien à sa
         # construction, après l'`await` d'écriture du précédent : sur un poste
         # de terrain où un insert attend derrière une relecture, les relevés
@@ -1518,18 +1538,32 @@ class Poller:
 
             self.latest.setdefault(router.id, {})[status.wan_id] = sample
             self._publish(router.id, sample)
-            try:
-                # Un seul commit par cycle, après la boucle : cinq relevés
-                # faisaient cinq commits, deux fsync chacun sur une clé USB.
-                await self._repo.insert(sample, commit=False)
-            except Exception as exc:
-                logger.warning(
-                    "Écriture du relevé impossible (%s) : %s", router.id, redact(str(exc))
-                )
-            else:
-                ecrits += 1
+            a_ecrire.append(sample)
+
+        # L'écriture du cycle, en UNE transaction sous le verrou du dépôt : les
+        # relevés, puis le compte et la fin de la session qu'ils prolongent.
+        # Un seul commit par cycle — cinq relevés faisaient cinq commits, deux
+        # fsync chacun sur une clé USB. Sans verrou, ces `insert(commit=False)`
+        # étaient validés par l'écriture d'un AUTRE équipement survenue entre
+        # deux d'entre eux ; et un commit raté laissait la transaction ouverte,
+        # validée plus tard par n'importe qui, sans que la session la compte.
+        # `last_seen` n'avance plus qu'ici : `_track_session` le portait à
+        # « maintenant » AVANT d'écrire, et un cycle dont rien n'était écrit
+        # prolongeait quand même la session.
+        session = self._session.get(router.id)
         try:
-            await self._repo.commit()
+            async with self._repo.transaction():
+                for sample in a_ecrire:
+                    try:
+                        await self._repo.insert(sample, commit=False)
+                    except Exception as exc:
+                        logger.warning(
+                            "Écriture du relevé impossible (%s) : %s", router.id, redact(str(exc))
+                        )
+                    else:
+                        ecrits += 1
+                if session is not None and ecrits:
+                    await self._repo.touch_session(session.id, lu_a, ecrits, commit=False)
         except Exception as exc:
             logger.warning(
                 "Validation des relevés impossible (%s) : %s", router.id, redact(str(exc))
@@ -1621,12 +1655,3 @@ class Poller:
             logger.warning(
                 "Lecture du journal du routeur impossible (%s) : %s", router.id, redact(str(exc))
             )
-
-        session = self._session.get(router.id)
-        if session is not None and ecrits:
-            try:
-                await self._repo.touch_session(session.id, utcnow(), ecrits)
-            except Exception as exc:
-                logger.warning(
-                    "Compte de session non avancé (%s) : %s", router.id, redact(str(exc))
-                )

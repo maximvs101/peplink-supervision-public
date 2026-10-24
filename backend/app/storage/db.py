@@ -7,14 +7,19 @@ un passage ultérieur à TimescaleDB/InfluxDB ne touche que ce fichier.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
+import secrets
+import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timedelta
 
 import aiosqlite
 
+from ..identite import FORME_ANCIEN_IDENTIFIANT, ancien_identifiant, identifiant_opaque
 from ..models import HistoryPoint, RadioSample, RouterEvent, STATUT_DESACTIVE, nom_du_reseau, utcnow
 from ..sessions import _TROU_MAX_S
 
@@ -269,6 +274,26 @@ CREATE INDEX IF NOT EXISTS idx_samples_router_wan_ts ON samples (router_id, wan_
 CREATE INDEX IF NOT EXISTS idx_samples_router_ts ON samples (router_id, ts);
 """
 
+# Étapes de migration jouées UNE fois, numérotées dans `PRAGMA user_version`.
+_VERSION_PURGE_HORS_GRILLE = 1
+_VERSION_IDENTIFIANTS_OPAQUES = 2
+
+# Les tables dont une colonne `router_id` porte l'identifiant d'équipement. La
+# table `devices` le porte sous le nom `device_id`, et migre à part.
+_TABLES_IDENTIFIANT: tuple[str, ...] = (
+    "samples", "router_history", "router_events", "router_journal_reads", "sessions",
+)
+
+# Ce qui est propre à l'installation et ne se recalcule pas : le sel des
+# identifiants opaques (`app/identite.py`). Dans la base, à côté des données
+# qu'il protège : copié avec elles par la sauvegarde du lanceur.
+_INSTALLATION_SCHEMA = """
+CREATE TABLE IF NOT EXISTS installation (
+    cle    TEXT PRIMARY KEY,
+    valeur BLOB NOT NULL
+);
+"""
+
 # Colonnes ajoutées après la première version : les bases déjà créées ne les ont pas,
 # et CREATE TABLE IF NOT EXISTS ne les rajoute pas. On les ajoute à la volée.
 _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -402,6 +427,18 @@ CREATE TABLE IF NOT EXISTS router_events (
     PRIMARY KEY (router_id, empreinte)
 );
 CREATE INDEX IF NOT EXISTS idx_router_events_ts ON router_events (router_id, ts);
+"""
+
+# Les LECTURES abouties du journal du routeur, une ligne par lecture. Un fait
+# absent de `router_events` ne dit rien tant qu'on ignore si le journal a été
+# lu : refus, client sans journal, horloge décalée — la fiche affichait alors
+# « 0 manœuvre » sur un journal que personne n'avait ouvert.
+_JOURNAL_LECTURES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS router_journal_reads (
+    router_id TEXT NOT NULL,
+    ts        TEXT NOT NULL,
+    PRIMARY KEY (router_id, ts)
+);
 """
 
 _SESSIONS_SCHEMA = """
@@ -556,14 +593,54 @@ def _reseau(operateur: str | None, plmn: str) -> str:
 class SampleRepository:
     """Accès aux relevés persistés."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, *, identifiants_fixes: set[str] | frozenset[str] = frozenset()) -> None:
         self._path = path
+        # Les identifiants déclarés tels quels dans `routers.yaml` : la
+        # migration vers les identifiants opaques ne les renomme jamais, même
+        # s'ils ont la forme d'une série.
+        self._identifiants_fixes = frozenset(identifiants_fixes)
+        self._sel: bytes | None = None
         self._conn: aiosqlite.Connection | None = None
         # Une connexion de LECTURE, pour le journal : ses cinq balayages
         # fenêtrés coûtaient 1,8 s sur une longue session, toutes les 30 s, sur
         # la connexion — donc le thread — de l'écrivain (C-31). En WAL, un
         # lecteur ne bloque pas l'écrivain.
         self._lecture: aiosqlite.Connection | None = None
+        # UNE connexion d'écriture, partagée par jusqu'à huit tâches de
+        # scrutation, les routes et la veille de reconnexion. Sans verrou, la
+        # transaction ouverte par les `insert(commit=False)` d'un équipement
+        # était validée par le `touch_session` d'un autre, qui écrivait pendant
+        # que le premier attendait ; et un `commit()` raté laissait la
+        # transaction ouverte, validée plus tard par n'importe qui. Toute unité
+        # d'écriture passe donc par `transaction()`.
+        self._ecriture = asyncio.Lock()
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Une unité d'écriture : sous verrou, validée en entier ou annulée.
+
+        Les écritures faites dans le bloc — `insert(..., commit=False)`,
+        `touch_session(..., commit=False)` — sont validées à la sortie. Une
+        exception, ou un `commit()` qui échoue, les ANNULE : rien ne reste en
+        suspens pour être validé par l'écriture suivante. Le verrou n'est pas
+        réentrant : dans le bloc, n'appeler que les variantes `commit=False`.
+        """
+        async with self._ecriture:
+            try:
+                yield
+                if self._conn is not None:
+                    await self._conn.commit()
+            except BaseException:
+                await self._annuler()
+                raise
+
+    async def _annuler(self) -> None:
+        if self._conn is None:
+            return
+        try:
+            await self._conn.rollback()
+        except Exception as exc:  # la cause d'origine compte davantage
+            logger.warning("Annulation de transaction impossible : %s", exc)
 
     async def connect(self) -> None:
         directory = os.path.dirname(os.path.abspath(self._path))
@@ -581,6 +658,8 @@ class SampleRepository:
         await self._conn.executescript(_DEVICES_SCHEMA)
         await self._conn.executescript(_SESSIONS_SCHEMA)
         await self._conn.executescript(_ROUTER_EVENTS_SCHEMA)
+        await self._conn.executescript(_JOURNAL_LECTURES_SCHEMA)
+        await self._conn.executescript(_INSTALLATION_SCHEMA)
         await self._conn.executescript(_ROUTER_HISTORY_SCHEMA)
         await self._migrate()
         await self._conn.commit()
@@ -607,23 +686,136 @@ class SampleRepository:
                 if column not in existing:
                     await self._conn.execute(
                         f"ALTER TABLE router_history ADD COLUMN {column} {definition}")
-        # Les points écrits hors de la grille de 10 s AVANT le calage : chaque
-        # relecture de l'heure les réécrivait décalés d'une seconde, en double
-        # (360 lignes le 25/09). Plus rien ne s'écrit hors de la grille depuis :
-        # l'étape ne retire que ces restes, et ne trouve plus rien ensuite. La
-        # base est sauvegardée par le lanceur avant chaque démarrage.
+        # Les étapes qui TRANSFORMENT des données sont numérotées et jouées
+        # une seule fois : `PRAGMA user_version` retient la dernière. Les
+        # colonnes ci-dessus se constatent, elles ; une suppression ne se
+        # constate pas, et elle balayait toute la table à chaque démarrage.
+        async with self._conn.execute("PRAGMA user_version") as cursor:
+            version = (await cursor.fetchone())[0]
+        if version < _VERSION_PURGE_HORS_GRILLE:
+            # Les points écrits hors de la grille de 10 s AVANT le calage :
+            # chaque relecture de l'heure les réécrivait décalés d'une seconde,
+            # en double (360 lignes le 25/09). Plus rien ne s'écrit hors de la
+            # grille depuis : l'étape ne retire que ces restes. La base est
+            # sauvegardée par le lanceur avant chaque démarrage.
+            await self._conn.execute(
+                "DELETE FROM router_history WHERE CAST(substr(ts, 18, 2) AS INTEGER) % 10 != 0")
+            # Dans la même transaction que la suppression : validées ensemble
+            # par `connect()`, ou pas du tout.
+            await self._conn.execute(f"PRAGMA user_version = {_VERSION_PURGE_HORS_GRILLE}")
+            await self._conn.commit()
+        self._sel = await self._sel_installation()
+        if version < _VERSION_IDENTIFIANTS_OPAQUES:
+            await self._migrer_identifiants(self._sel)
+
+    @property
+    def sel_identifiants(self) -> bytes:
+        """Le sel des identifiants opaques de cette installation."""
+        if self._sel is None:
+            raise RuntimeError("Stockage non connecté : `connect()` n'a pas été appelé.")
+        return self._sel
+
+    async def _sel_installation(self) -> bytes:
+        """Le sel de l'installation, tiré au sort à la première ouverture."""
+        assert self._conn is not None
+        async with self._conn.execute(
+            "SELECT valeur FROM installation WHERE cle = 'sel_identifiants'"
+        ) as cursor:
+            ligne = await cursor.fetchone()
+        if ligne is not None:
+            return bytes(ligne[0])
+        sel = secrets.token_bytes(32)
         await self._conn.execute(
-            "DELETE FROM router_history WHERE CAST(substr(ts, 18, 2) AS INTEGER) % 10 != 0")
+            "INSERT INTO installation (cle, valeur) VALUES ('sel_identifiants', ?)", (sel,))
+        await self._conn.commit()
+        return sel
+
+    async def _migrer_identifiants(self, sel: bytes) -> None:
+        """Remplace les identifiants dérivés de la série par leur empreinte opaque.
+
+        L'identifiant d'un équipement appairé valait sa série en minuscules :
+        elle était dans chaque table, chaque URL, chaque journal. Sont renommés,
+        dans UNE transaction — tout ou rien — marquée par `user_version` :
+
+          - les équipements connus (`devices`) dont l'identifiant est
+            exactement l'ancien identifiant dérivé de leur série ;
+          - l'historique d'un équipement OUBLIÉ depuis, dont seule la forme
+            de l'identifiant trahit la série (trois groupes de quatre) : son
+            empreinte se calcule sur l'ancien identifiant, et un ré-appairage
+            retombe dessus.
+
+        Un identifiant écrit dans `routers.yaml` n'est jamais touché. Une copie
+        de la base est faite juste avant, s'il y a quelque chose à renommer :
+        le lanceur en fait une à chaque démarrage, mais pas un `uvicorn` lancé
+        à la main.
+        """
+        assert self._conn is not None
+        renommer: dict[str, str] = {}
+        async with self._conn.execute("SELECT serial, device_id FROM devices") as cursor:
+            connus = [(r["serial"], r["device_id"]) for r in await cursor.fetchall()]
+        for serie, ident in connus:
+            if serie and ident == ancien_identifiant(serie) and ident not in self._identifiants_fixes:
+                renommer[ident] = identifiant_opaque(serie, sel)
+        gardes = {ident for _, ident in connus} | self._identifiants_fixes
+        for table in _TABLES_IDENTIFIANT:
+            async with self._conn.execute(f"SELECT DISTINCT router_id FROM {table}") as cursor:
+                for (ident,) in await cursor.fetchall():
+                    if (ident not in renommer and ident not in gardes
+                            and FORME_ANCIEN_IDENTIFIANT.match(ident or "")):
+                        renommer[ident] = identifiant_opaque(ident, sel)
+        if renommer:
+            await self._copie_avant_migration()
+        try:
+            for ancien, nouveau in renommer.items():
+                for table in _TABLES_IDENTIFIANT:
+                    await self._conn.execute(
+                        f"UPDATE {table} SET router_id = ? WHERE router_id = ?", (nouveau, ancien))
+                await self._conn.execute(
+                    "UPDATE devices SET device_id = ? WHERE device_id = ?", (nouveau, ancien))
+            await self._conn.execute(f"PRAGMA user_version = {_VERSION_IDENTIFIANTS_OPAQUES}")
+            await self._conn.commit()
+        except BaseException:
+            await self._annuler()
+            raise
+        if renommer:
+            # Le nombre seulement : les anciens identifiants SONT des séries.
+            logger.info("Identifiants d'équipement rendus opaques : %d renommé(s)", len(renommer))
+
+    async def _copie_avant_migration(self) -> None:
+        """Une copie de la base telle qu'avant la migration des identifiants.
+
+        Hors du motif des copies du lanceur (`samples.*.db.bak`), pour qu'elle
+        ne soit pas élaguée par les lancements suivants. Une seule : si elle
+        existe déjà, la migration a déjà été tentée sur cet état.
+        """
+        if self._path == ":memory:" or self._conn is None:
+            return
+        cible = Path(os.path.abspath(self._path))
+        cible = cible.with_name(cible.name + ".avant-identifiants-opaques.bak")
+        if cible.exists():
+            return
+        copie = sqlite3.connect(cible)
+        try:
+            await self._conn.backup(copie)
+        finally:
+            copie.close()
 
     async def commit(self) -> None:
-        """Valide ce que `insert(..., commit=False)` a écrit."""
-        if self._conn is not None:
-            await self._conn.commit()
+        """Valide ce que `insert(..., commit=False)` a écrit HORS de
+        `transaction()` — sous verrou, et annulé s'il échoue. Le cycle de
+        scrutation, lui, passe par `transaction()`."""
+        async with self.transaction():
+            pass
 
     async def insert(self, sample: RadioSample, *, commit: bool = True) -> None:
         """Écrit un relevé. `commit=False` laisse l'appelant valider une fois
         pour tout le cycle : cinq relevés faisaient cinq commits — et sur une
-        clé USB, deux fsync chacun — là où un seul suffit."""
+        clé USB, deux fsync chacun — là où un seul suffit. Avec `commit=False`,
+        l'appelant tient `transaction()` ; sans, l'écriture prend la sienne."""
+        if commit:
+            async with self.transaction():
+                await self.insert(sample, commit=False)
+            return
         if self._conn is None:
             # Un relevé PERDU, et personne pour l'apprendre : le `return` nu
             # rendait l'écriture silencieusement sans effet, et la seule trace
@@ -702,8 +894,6 @@ class SampleRepository:
                 wan.uptime_s,
             ),
         )
-        if commit:
-            await self._conn.commit()
 
     async def insert_latency_series(
         self, router_id: str, series: dict[str, list[tuple[datetime, float | None]]],
@@ -712,20 +902,20 @@ class SampleRepository:
         l'heure écrase les points déjà connus par leur dernière valeur."""
         if self._conn is None or not series:
             return
-        await self._conn.executemany(
-            """
-            INSERT INTO router_history (router_id, wan_id, ts, path_latency_ms, serie_latence)
-            VALUES (?, ?, ?, ?, 1)
-            ON CONFLICT(router_id, wan_id, ts) DO UPDATE SET
-                path_latency_ms = excluded.path_latency_ms, serie_latence = 1
-            """,
-            [
-                (router_id, wan_id, ts.isoformat(), valeur)
-                for wan_id, points in series.items()
-                for ts, valeur in points
-            ],
-        )
-        await self._conn.commit()
+        async with self.transaction():
+            await self._conn.executemany(
+                """
+                INSERT INTO router_history (router_id, wan_id, ts, path_latency_ms, serie_latence)
+                VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(router_id, wan_id, ts) DO UPDATE SET
+                    path_latency_ms = excluded.path_latency_ms, serie_latence = 1
+                """,
+                [
+                    (router_id, wan_id, ts.isoformat(), valeur)
+                    for wan_id, points in series.items()
+                    for ts, valeur in points
+                ],
+            )
 
     async def insert_quality_series(
         self, router_id: str, series: dict[str, list[tuple[datetime, dict]]],
@@ -734,21 +924,21 @@ class SampleRepository:
         écraser ses colonnes : chacune ne met à jour que les siennes."""
         if self._conn is None or not series:
             return
-        await self._conn.executemany(
-            """
-            INSERT INTO router_history (router_id, wan_id, ts, rsrp, rsrq, sinr, rat)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(router_id, wan_id, ts) DO UPDATE SET
-                rsrp = excluded.rsrp, rsrq = excluded.rsrq,
-                sinr = excluded.sinr, rat = excluded.rat
-            """,
-            [
-                (router_id, wan_id, ts.isoformat(), m["rsrp"], m["rsrq"], m["sinr"], m["rat"])
-                for wan_id, points in series.items()
-                for ts, m in points
-            ],
-        )
-        await self._conn.commit()
+        async with self.transaction():
+            await self._conn.executemany(
+                """
+                INSERT INTO router_history (router_id, wan_id, ts, rsrp, rsrq, sinr, rat)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(router_id, wan_id, ts) DO UPDATE SET
+                    rsrp = excluded.rsrp, rsrq = excluded.rsrq,
+                    sinr = excluded.sinr, rat = excluded.rat
+                """,
+                [
+                    (router_id, wan_id, ts.isoformat(), m["rsrp"], m["rsrq"], m["sinr"], m["rat"])
+                    for wan_id, points in series.items()
+                    for ts, m in points
+                ],
+            )
 
     async def filled_rsrp(self, router_id: str, debut: str, fin: str) -> dict[str, list[float]]:
         """Par WAN, le RSRP de l'heure du routeur dans les TROUS de supervision
@@ -868,12 +1058,33 @@ class SampleRepository:
         """Retient les faits du journal du routeur, une fois chacun."""
         if self._conn is None or not faits:
             return
-        await self._conn.executemany(
-            "INSERT OR IGNORE INTO router_events (router_id, ts, kind, wan_id, detail, empreinte) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [(router_id, f.ts.isoformat(), f.kind, f.wan_id, f.detail, f.empreinte) for f in faits],
-        )
-        await self._conn.commit()
+        async with self.transaction():
+            await self._conn.executemany(
+                "INSERT OR IGNORE INTO router_events (router_id, ts, kind, wan_id, detail, empreinte) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [(router_id, f.ts.isoformat(), f.kind, f.wan_id, f.detail, f.empreinte) for f in faits],
+            )
+
+    async def note_journal_read(self, router_id: str, lu_a: datetime) -> None:
+        """Retient qu'une lecture du journal du routeur a ABOUTI à `lu_a`."""
+        if self._conn is None:
+            return
+        async with self.transaction():
+            await self._conn.execute(
+                "INSERT OR IGNORE INTO router_journal_reads (router_id, ts) VALUES (?, ?)",
+                (router_id, lu_a.isoformat()),
+            )
+
+    async def journal_read_between(self, router_id: str, debut: datetime, fin: datetime) -> bool:
+        """Le journal du routeur a-t-il été lu au moins une fois entre `debut`
+        et `fin` ? Sans cela, l'absence d'un fait n'en est pas la preuve."""
+        if self._conn is None:
+            return False
+        async with self._conn.execute(
+            "SELECT 1 FROM router_journal_reads WHERE router_id = ? AND ts >= ? AND ts <= ? LIMIT 1",
+            (router_id, debut.isoformat(), fin.isoformat()),
+        ) as cursor:
+            return await cursor.fetchone() is not None
 
     async def router_events(
         self, router_id: str, debut: datetime, fin: datetime, kinds: tuple[str, ...] | None = None,
@@ -1133,18 +1344,18 @@ class SampleRepository:
         if self._conn is None or not serial:
             return
         now = utcnow().isoformat()
-        await self._conn.execute(
-            """
-            INSERT INTO devices (serial, device_id, name, host, model, firmware,
-                                 first_seen, last_seen)
-            VALUES (?,?,?,?,?,?,?,?)
-            ON CONFLICT(serial) DO UPDATE SET
-                device_id=excluded.device_id, name=excluded.name, host=excluded.host,
-                model=excluded.model, firmware=excluded.firmware, last_seen=excluded.last_seen
-            """,
-            (serial, device_id, name, host, model, firmware, now, now),
-        )
-        await self._conn.commit()
+        async with self.transaction():
+            await self._conn.execute(
+                """
+                INSERT INTO devices (serial, device_id, name, host, model, firmware,
+                                     first_seen, last_seen)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(serial) DO UPDATE SET
+                    device_id=excluded.device_id, name=excluded.name, host=excluded.host,
+                    model=excluded.model, firmware=excluded.firmware, last_seen=excluded.last_seen
+                """,
+                (serial, device_id, name, host, model, firmware, now, now),
+            )
 
     async def known_devices(self) -> list[dict]:
         """Équipements appairés lors de sessions précédentes."""
@@ -1159,8 +1370,8 @@ class SampleRepository:
     async def forget_device(self, serial: str) -> bool:
         if self._conn is None:
             return False
-        cursor = await self._conn.execute("DELETE FROM devices WHERE serial = ?", (serial,))
-        await self._conn.commit()
+        async with self.transaction():
+            cursor = await self._conn.execute("DELETE FROM devices WHERE serial = ?", (serial,))
         return cursor.rowcount > 0
 
     # --- sessions d'alimentation ---------------------------------------------
@@ -1187,26 +1398,34 @@ class SampleRepository:
         """
         if self._conn is None:
             raise RuntimeError("Stockage non connecté : `connect()` n'a pas été appelé.")
-        cursor = await self._conn.execute(
-            "INSERT INTO sessions (router_id, started_at, last_seen, samples) VALUES (?,?,?,0)",
-            (router_id, started_at.isoformat(), started_at.isoformat()),
-        )
-        await self._conn.commit()
+        async with self.transaction():
+            cursor = await self._conn.execute(
+                "INSERT INTO sessions (router_id, started_at, last_seen, samples) VALUES (?,?,?,0)",
+                (router_id, started_at.isoformat(), started_at.isoformat()),
+            )
         return int(cursor.lastrowid or 0)
 
-    async def touch_session(self, session_id: int, seen_at: datetime, samples: int) -> None:
+    async def touch_session(
+        self, session_id: int, seen_at: datetime, samples: int, *, commit: bool = True,
+    ) -> None:
         """Avance la fin d'une session en cours.
 
         Il n'y a pas d'instant de fin observable : l'équipement s'éteint sans
         prévenir, et c'est le dernier relevé reçu qui borne la session.
+        `commit=False` : dans la `transaction()` de l'appelant — celle des
+        relevés qu'elle compte, pour que le compte et la fin ne s'écrivent
+        qu'avec eux.
         """
         if self._conn is None:
+            return
+        if commit:
+            async with self.transaction():
+                await self.touch_session(session_id, seen_at, samples, commit=False)
             return
         await self._conn.execute(
             "UPDATE sessions SET last_seen = ?, samples = samples + ? WHERE id = ?",
             (seen_at.isoformat(), samples, session_id),
         )
-        await self._conn.commit()
 
     async def wans_connected_since(self, router_id: str, since: datetime | None) -> set[str]:
         """Les WAN qui ont été connectés au moins une fois DEPUIS `since`.
@@ -1359,10 +1578,10 @@ class SampleRepository:
         """Nomme une session. C'est ce qui rend deux stationnements comparables."""
         if self._conn is None:
             return False
-        cursor = await self._conn.execute(
-            "UPDATE sessions SET label = ? WHERE id = ?", (label, session_id)
-        )
-        await self._conn.commit()
+        async with self.transaction():
+            cursor = await self._conn.execute(
+                "UPDATE sessions SET label = ? WHERE id = ?", (label, session_id)
+            )
         return cursor.rowcount > 0
 
     async def count(self) -> int:
@@ -1820,7 +2039,11 @@ class SampleRepository:
                    -- zéro serait une vraie stabilité.
                    SUM(f.cell_id IS NOT NULL)                AS avec_cellule,
                    COALESCE(MAX(ch.cellules), 0)             AS cellules,
-                   COALESCE(MAX(ch.stations), 0)             AS stations,
+                   -- Même règle pour la STATION : sans aucune station
+                   -- relevée (5G SA, lignes sans `enb_id`), le compte est
+                   -- inconnu, pas nul.
+                   CASE WHEN SUM(f.station IS NOT NULL) > 0
+                        THEN COALESCE(MAX(ch.stations), 0) END AS stations,
                    -- Les coupures de CETTE fenêtre. Le compteur de l'écran les
                    -- cumulait depuis le démarrage du processus superviseur : une
                    -- base de temps qui n'apparaissait nulle part, et qui se

@@ -539,7 +539,7 @@
     "link_kind": "ethernet",
     "has_cells": false,
     "cell_changes": 0,
-    "station_changes": 0,
+    "station_changes": null,
     "outages": 0
    },
    {

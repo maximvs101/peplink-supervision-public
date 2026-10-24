@@ -48,10 +48,16 @@ async def lifespan(app: FastAPI):
         settings.poll_interval_seconds,
     )
 
-    repo = SampleRepository(settings.database_file)
+    # Les identifiants que l'exploitant a écrits dans `routers.yaml` restent
+    # tels quels : la migration vers les identifiants opaques ne les touche pas.
+    repo = SampleRepository(settings.database_file, identifiants_fixes={r.id for r in fleet})
     await repo.connect()
 
-    registry = DeviceRegistry(default_mode=settings.peplink_mode)
+    # Le sel des identifiants opaques est celui de la base : un équipement
+    # retrouve son identifiant, donc son historique, d'un lancement à l'autre.
+    registry = DeviceRegistry(
+        default_mode=settings.peplink_mode, sel_identifiants=repo.sel_identifiants,
+    )
 
     # Un équipement mal configuré ne doit pas emporter tout le démarrage :
     # le registre l'enregistre en erreur et la supervision continue sans lui.
@@ -64,9 +70,10 @@ async def lifespan(app: FastAPI):
     for known in await repo.known_devices():
         if registry.find_by_serial(known.get("serial")) is None:
             retenu = coffre.lire(known.get("serial") or "") is not None
+            # Jamais la série : le nom, sinon l'identifiant opaque.
             logger.info(
                 "Équipement appairé connu : %s (%s) — %s",
-                known.get("name") or known.get("serial"), known.get("host"),
+                known.get("name") or known.get("device_id"), known.get("host"),
                 "identifiants retenus, reconnexion" if retenu else "identifiants à ressaisir",
             )
 
@@ -89,6 +96,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         reconnexion.cancel()
+        # ATTENDUE, et pas seulement annulée : une tentative en vol finit son
+        # `await` — fermeture de client, `registry.add` — après l'annulation, et
+        # elle le faisait pendant que `registry.close()` fermait tout.
+        await asyncio.gather(reconnexion, return_exceptions=True)
         await poller.stop()
         await registry.close()
         await repo.close()

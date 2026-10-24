@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from dataclasses import dataclass, field
 
 from ..fleet import RouterConfig
+from ..identite import identifiant_opaque
 from ..models import DeviceCapabilities, DeviceInfo
 from ..peplink.base import PeplinkClient
 from ..peplink.factory import make_client
@@ -95,8 +97,20 @@ class DeviceRegistry:
     """Flotte vivante : ajout et retrait sans redémarrage."""
 
     default_mode: str = "mock"
+    # Le sel des identifiants opaques (`app/identite.py`). Le serveur y pose
+    # celui que la base garde, pour qu'un équipement retrouve son identifiant
+    # — donc son historique — d'un lancement à l'autre ; à défaut (tests,
+    # scripts), un sel de passage.
+    sel_identifiants: bytes = field(default_factory=lambda: secrets.token_bytes(32), repr=False)
     _records: dict[str, DeviceRecord] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Un verrou d'APPAIRAGE par hôte canonique : `pair()`, la route
+    # d'appairage et la veille de reconnexion le prennent tous. Le verrou était
+    # par série et seule la veille le prenait — or la série n'est connue
+    # qu'APRÈS la connexion : la route et la veille ouvraient deux connexions
+    # admin sur le même routeur, et deux `add` se remplaçaient. Porté par le
+    # registre, qui est l'objet que tous partagent, et non par le module.
+    _verrous_appairage: dict[str, asyncio.Lock] = field(default_factory=dict)
 
     # --- lecture ---
     def snapshot(self) -> list[DeviceRecord]:
@@ -143,6 +157,15 @@ class DeviceRegistry:
             (r for r in self._records.values() if hote_canonique(r.config.host) == cible),
             None,
         )
+
+    def identifiant_pour(self, serie: str) -> str:
+        """L'identifiant opaque d'un équipement de cette série, dans cette installation."""
+        return identifiant_opaque(serie, self.sel_identifiants)
+
+    def verrou_appairage(self, host: str | None) -> asyncio.Lock:
+        """Le verrou d'appairage de cette adresse, quelle qu'en soit la graphie."""
+        cle = hote_canonique(host) or (host or "")
+        return self._verrous_appairage.setdefault(cle, asyncio.Lock())
 
     # --- mutation ---
     async def add(self, config: RouterConfig, client=None) -> DeviceRecord:

@@ -975,8 +975,9 @@ class SessionLink(BaseModel):
     operators: list[str] = []
     # Les MANŒUVRES de l'exploitant sur ce lien, lues dans le journal du
     # routeur : bascule de SIM, configuration modifiée, désactivation. Comptées
-    # à part des coupures, qu'elles ne sont pas.
-    maneuvers: int = 0
+    # à part des coupures, qu'elles ne sont pas. `None` quand le journal n'a
+    # pas été lu sur la fenêtre : zéro affirmerait une absence non vérifiée.
+    maneuvers: int | None = None
     samples: int = 0
     # Volumes INTÉGRÉS depuis les débits relevés, pas lus d'un compteur : le
     # routeur ne publie qu'un cumul depuis son installation — février 2022 sur cet
@@ -1159,7 +1160,8 @@ class SessionSummary(BaseModel):
     availability: BondAvailability | None = None
     diversity: PathDiversity | None = None
     # Stations de base distinctes vues pendant la session, tous liens confondus.
-    sites: int = 0
+    # `None` quand aucune n'est identifiable (5G SA, lignes sans `enb_id`).
+    sites: int | None = None
 
 
 class TimelineSlice(BaseModel):
@@ -1293,7 +1295,9 @@ class LinkChurn(BaseModel):
     # « 0 changement » n'est pas une stabilité : c'est une absence de grandeur.
     has_cells: bool = False
     cell_changes: int = 0
-    station_changes: int = 0
+    # `None` quand le lien n'a publié aucune station sur la fenêtre — l'équivalent
+    # de `has_cells` pour les stations : sans station, pas de « 0 changement ».
+    station_changes: int | None = None
     # Coupures et rétablissements que seul un `uptime` qui recule trahit, sur la
     # FENÊTRE. L'écran les cumulait depuis le démarrage du processus superviseur
     # — une base de temps qui n'apparaissait nulle part et qui se remettait à

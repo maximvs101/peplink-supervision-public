@@ -266,6 +266,8 @@ async def test_the_rows_written_off_the_grid_before_the_fix_are_removed_at_openi
         await db.executemany(
             "INSERT INTO router_history (router_id, wan_id, ts, path_latency_ms, serie_latence) VALUES ('r1', '3', ?, 31.0, 1)",
             [((t0 + timedelta(seconds=10 * i + 1)).isoformat(),) for i in range(6)])
+        # Une base d'AVANT la migration : elle ne porte pas encore de version.
+        await db.execute("PRAGMA user_version = 0")
         await db.commit()
     repo = SampleRepository(chemin)
     await repo.connect()

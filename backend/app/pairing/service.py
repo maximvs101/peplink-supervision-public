@@ -23,6 +23,7 @@ import re
 
 from ..devices.registry import DeviceRecord, DeviceRegistry
 from ..fleet import RouterConfig
+from ..identite import identifiant_opaque
 from ..peplink.router_api import (
     AuthenticationError,
     RouterApiError,
@@ -36,21 +37,35 @@ LOCKOUT_AFTER = 5
 
 
 class PairingError(RuntimeError):
-    """Échec d'appairage, avec un message destiné à l'utilisateur."""
+    """Échec d'appairage, avec un message destiné à l'utilisateur.
 
-    def __init__(self, message: str, *, credentials: bool = False) -> None:
+    `autre_equipement` : la connexion a abouti, mais sur un AUTRE équipement
+    que celui attendu — ou sur un équipement sans série. Ce n'est ni un refus
+    ni une absence : la veille recule alors bien plus loin (voir `Reconnexion`).
+    """
+
+    def __init__(
+        self, message: str, *, credentials: bool = False, autre_equipement: bool = False,
+    ) -> None:
         super().__init__(message)
         self.credentials = credentials
+        self.autre_equipement = autre_equipement
 
 
-def _device_id(serial: str | None, host: str) -> str:
-    """Identifiant stable et lisible, dérivé du numéro de série.
+def _device_id(serial: str | None, host: str, sel: bytes) -> str:
+    """Identifiant stable, dérivé du numéro de série — mais OPAQUE.
 
-    Le série sert de clé ; à défaut, l'adresse, qui n'est stable que le temps
-    d'un branchement.
+    Il valait la série en minuscules, et se retrouvait donc dans chaque ligne
+    de journal, chaque ligne de la base, chaque URL de l'API et de l'interface.
+    C'est désormais son empreinte sous le sel de l'installation (voir
+    `app/identite.py`) : la même série donne le même identifiant à chaque
+    lancement, sans qu'on puisse en remonter à la série.
+
+    À défaut de série, l'adresse, qui n'est stable que le temps d'un
+    branchement — et ne dit rien du matériel.
     """
     if serial:
-        return re.sub(r"[^a-z0-9]+", "-", serial.lower()).strip("-")
+        return identifiant_opaque(serial, sel)
     return re.sub(r"[^a-z0-9]+", "-", host.lower()).strip("-")
 
 
@@ -72,7 +87,33 @@ async def pair(
     Lève `PairingError` sans jamais réessayer. La distinction entre un refus
     d'identifiants et une injoignabilité est portée jusqu'à l'interface : elle
     décide si l'utilisateur doit corriger un mot de passe ou vérifier un câble.
+
+    Sous le verrou d'appairage de l'HÔTE (`registry.verrou_appairage`), partagé
+    avec la veille de reconnexion : deux appairages de la même adresse se
+    suivent au lieu d'ouvrir deux connexions admin et deux `registry.add`.
     """
+    async with registry.verrou_appairage(host):
+        return await _pair_sous_verrou(
+            registry, host, username=username, password=password,
+            client_id=client_id, client_secret=client_secret, name=name,
+            verify_ssl=verify_ssl, poller=poller, serie_attendue=serie_attendue,
+        )
+
+
+async def _pair_sous_verrou(
+    registry: DeviceRegistry,
+    host: str,
+    *,
+    username: str | None,
+    password: str | None,
+    client_id: str | None,
+    client_secret: str | None,
+    name: str | None,
+    verify_ssl: bool,
+    poller,
+    serie_attendue: str | None,
+) -> DeviceRecord:
+    """`pair()`, l'appelant tenant déjà le verrou d'appairage de `host`."""
     if not (username or client_id):
         raise PairingError(
             "Renseigner un compte administrateur ou un client API.", credentials=True
@@ -137,9 +178,12 @@ async def _identifier_puis_enregistrer(
             "Vérifier l'adresse et le raccordement."
         ) from exc
     if info is None:
+        # Connecté, mais sans identité : pour la veille, c'est un écart de
+        # série comme un autre — elle ne peut pas savoir qui répond.
         raise PairingError(
             "Connexion réussie, mais l'équipement n'a pas publié son identité. "
-            "Il est peut-être trop ancien pour être supervisé."
+            "Il est peut-être trop ancien pour être supervisé.",
+            autre_equipement=serie_attendue is not None,
         )
     # Une reconnexion vise UN équipement. Un autre occupe peut-être l'adresse
     # retenue — même mot de passe, courant sur une flotte — : l'appairer en
@@ -147,7 +191,8 @@ async def _identifier_puis_enregistrer(
     # chaque tour, une connexion admin toutes les trois secondes (revue du 17/10).
     if serie_attendue and info.serial != serie_attendue:
         raise PairingError(
-            f"Un autre équipement répond à {host} : ce n'est pas celui qui y était retenu."
+            f"Un autre équipement répond à {host} : ce n'est pas celui qui y était retenu.",
+            autre_equipement=True,
         )
 
     # Le numéro de série d'abord : c'est la clé d'identité stable, celle qui
@@ -178,7 +223,7 @@ async def _identifier_puis_enregistrer(
                 "appairage rattaché plutôt que dédoublé",
                 host, candidat.id,
             )
-    device_id = existing.id if existing else _device_id(info.serial, host)
+    device_id = existing.id if existing else _device_id(info.serial, host, registry.sel_identifiants)
 
     config = RouterConfig(
         id=device_id,
@@ -202,8 +247,10 @@ async def _identifier_puis_enregistrer(
         poller.forget(config.id, conserver_abonnes=True)
     record = await registry.add(config, client=client)
     record.info = info
+    # Ni la série ni rien qui en dérive en clair : l'identifiant opaque suffit
+    # à retrouver l'équipement dans la suite du journal.
     logger.info(
-        "Équipement appairé : %s · %s · série %s", config.name, info.model or "?", info.serial
+        "Équipement appairé : %s · %s · identifiant %s", config.name, info.model or "?", config.id
     )
     return record
 
@@ -218,21 +265,23 @@ async def reconnecter(registry: DeviceRegistry, repo, connu: dict, *, poller=Non
     from .. import coffre
 
     serie = connu["serial"]
-    # Un verrou par équipement : la veille, « Reconnecter » et le formulaire
-    # pouvaient appairer le même routeur au même instant — deux connexions
-    # admin, et deux `registry.add` qui se remplacent (revue du 17/10).
-    async with _VERROUS.setdefault(serie, asyncio.Lock()):
+    # Le verrou d'appairage de l'HÔTE, celui que `pair()` prend aussi : la
+    # veille, « Reconnecter » et le formulaire pouvaient appairer le même
+    # routeur au même instant — deux connexions admin, et deux `registry.add`
+    # qui se remplacent (revues du 17/10 et du 24/10). Le verrou par série ne
+    # couvrait pas le formulaire, qui ne connaît pas encore la série.
+    async with registry.verrou_appairage(connu["host"]):
         deja = registry.find_by_serial(serie)
         if deja is not None:
             return deja
         ident = coffre.lire(serie)
         if ident is None:
             raise PairingError("Aucun identifiant retenu pour cet équipement.", credentials=True)
-        record = await pair(
+        record = await _pair_sous_verrou(
             registry, connu["host"],
             username=ident.username, password=ident.password,
             client_id=ident.client_id, client_secret=ident.client_secret,
-            name=connu.get("name"), poller=poller, serie_attendue=serie,
+            name=connu.get("name"), verify_ssl=False, poller=poller, serie_attendue=serie,
         )
         if record.info and record.info.serial:
             await repo.remember_device(
@@ -242,7 +291,18 @@ async def reconnecter(registry: DeviceRegistry, repo, connu: dict, *, poller=Non
         return record
 
 
-_VERROUS: dict[str, asyncio.Lock] = {}
+# Plafond du recul de la veille après un ÉCART DE SÉRIE : un autre routeur
+# occupe l'adresse retenue, ou l'équipement n'a pas publié de série. Chaque
+# tentative y est une connexion admin RÉUSSIE sur un routeur que personne n'a
+# choisi ; au plafond ordinaire de 30 s, elles se répétaient indéfiniment. Cinq
+# minutes : la situation ne se résout pas d'elle-même en quelques secondes.
+_RECUL_ECART_MAX_S = 300.0
+
+
+def _nom_journal(connu: dict) -> str:
+    """Comment nommer un équipement retenu dans le journal : son nom, sinon
+    son identifiant opaque, sinon son modèle — jamais sa série."""
+    return connu.get("name") or connu.get("device_id") or connu.get("model") or "équipement retenu"
 
 
 class Reconnexion:
@@ -303,18 +363,19 @@ class Reconnexion:
                 self._refuses[serie] = ident
                 logger.warning(
                     "Reconnexion de %s refusée : plus de tentative tant que les identifiants "
-                    "retenus ne changent pas", connu.get("name") or serie,
+                    "retenus ne changent pas", _nom_journal(connu),
                 )
             else:
-                pause = min(_RECUL_MAX_S, self._pause.get(serie, self._cadence / 2) * 2)
+                plafond = _RECUL_ECART_MAX_S if exc.autre_equipement else _RECUL_MAX_S
+                pause = min(plafond, self._pause.get(serie, self._cadence / 2) * 2)
                 self._pause[serie] = pause
                 self._prochain[serie] = maintenant + pause
                 logger.debug("Reconnexion de %s : %s — prochain essai dans %.0f s",
-                             connu.get("name") or serie, exc, pause)
+                             _nom_journal(connu), exc, pause)
         else:
             self._pause.pop(serie, None)
             self._prochain.pop(serie, None)
-            logger.info("Équipement retenu reconnecté : %s", connu.get("name") or serie)
+            logger.info("Équipement retenu reconnecté : %s", _nom_journal(connu))
 
     async def boucle(self) -> None:
         """Un tour par cadence, pour toujours ; une erreur coûte un tour."""

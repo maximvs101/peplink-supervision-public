@@ -52,14 +52,9 @@ def _requete_intersite(request: Request) -> bool:
     return not (netloc and netloc == hote and hote_de_confiance(hote, settings.allowed_host_list))
 
 
-async def require_loopback(request: Request) -> None:
-    """Restreint une route à la machine locale.
-
-    À appliquer à toute route qui écrit, et en particulier à celles qui
-    manipulent des identifiants d'équipement : lancé avec `--host 0.0.0.0` pour
-    être consulté depuis un autre poste du réseau, le serveur exposerait sinon
-    ces routes à tout le réseau, sans mot de passe.
-    """
+def _client_effectif(request: Request) -> str | None:
+    """L'adresse que l'on juge : celle du voisin TCP, ou celle que transmet un
+    mandataire LOCAL (voir `require_loopback`)."""
     client = request.client.host if request.client else None
     # Un MANDATAIRE local trahit le garde. Le serveur de développement de Vite
     # écoute sur toutes les interfaces — c'est fait pour ouvrir l'écran depuis
@@ -80,6 +75,28 @@ async def require_loopback(request: Request) -> None:
             # Avec un seul mandataire de confiance, seul le dernier élément
             # vient de lui.
             client = transmis.rsplit(",", 1)[-1].strip()
+    return client
+
+
+def est_poste_local(request: Request) -> bool:
+    """La requête vient-elle du poste qui héberge la supervision ?
+
+    Le jugement de `require_loopback`, sans refus : pour les routes ouvertes au
+    réseau qui ne doivent livrer certains champs — le numéro de série — qu'au
+    poste local, comme `/devices/known` le fait pour la liste entière.
+    """
+    return _is_loopback(_client_effectif(request))
+
+
+async def require_loopback(request: Request) -> None:
+    """Restreint une route à la machine locale.
+
+    À appliquer à toute route qui écrit, et en particulier à celles qui
+    manipulent des identifiants d'équipement : lancé avec `--host 0.0.0.0` pour
+    être consulté depuis un autre poste du réseau, le serveur exposerait sinon
+    ces routes à tout le réseau, sans mot de passe.
+    """
+    client = _client_effectif(request)
     if not _is_loopback(client):
         logger.warning("Route locale refusée à %s (%s)", client, request.url.path)
         raise HTTPException(
