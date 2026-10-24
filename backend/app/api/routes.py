@@ -36,7 +36,7 @@ from ..models import (
 )
 from ..sessions import _identifiant_reseau, build_summary
 from ..storage.db import METRICS
-from .security import require_loopback
+from .security import est_poste_local, require_loopback
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,22 @@ def _wan_order(wan_id: str) -> tuple[int, int, str]:
     return (0, int(wan_id), "") if wan_id.isdigit() else (1, 0, wan_id)
 
 
-def _summary(latest: dict[str, dict], cfg: RouterConfig, poller=None) -> RouterSummary:
+def _sans_serie(info, local: bool):
+    """La fiche d'identité, sans le numéro de série hors du poste local.
+
+    `GET /routers` et `GET /devices` sont ouvertes au réseau — l'écran se
+    consulte depuis un autre poste — alors que `/devices/known`, qui liste les
+    séries appairées, est réservée au poste local (C-37). Les deux premières
+    publiaient pourtant la série de chaque équipement à tout le réseau.
+    """
+    if info is None or local or info.serial is None:
+        return info
+    return info.model_copy(update={"serial": None})
+
+
+def _summary(
+    latest: dict[str, dict], cfg: RouterConfig, poller=None, *, local: bool = True,
+) -> RouterSummary:
     wans = latest.get(cfg.id, {})
     samples = [wans[k] for k in sorted(wans, key=_wan_order)]
     record = poller.registry.get(cfg.id) if poller else None
@@ -198,7 +213,7 @@ def _summary(latest: dict[str, dict], cfg: RouterConfig, poller=None) -> RouterS
         site_lat=site_lat,
         site_lon=site_lon,
         wans=samples,
-        device=poller.devices.get(cfg.id) if poller else None,
+        device=_sans_serie(poller.devices.get(cfg.id) if poller else None, local),
         capabilities=poller.capabilities.get(cfg.id) if poller else None,
         status=record.status if record else "en attente",
         error=record.error if record else None,
@@ -254,7 +269,8 @@ async def health(request: Request) -> dict:
 @router.get("/routers", response_model=list[RouterSummary])
 async def list_routers(request: Request) -> list[RouterSummary]:
     poller = request.app.state.poller
-    return [_summary(poller.latest, cfg, poller) for cfg in poller.fleet]
+    local = est_poste_local(request)
+    return [_summary(poller.latest, cfg, poller, local=local) for cfg in poller.fleet]
 
 
 @router.get("/routers/{router_id}", response_model=RouterSummary)
@@ -263,7 +279,7 @@ async def get_router(router_id: str, request: Request) -> RouterSummary:
     cfg = poller.get_router(router_id)
     if cfg is None:
         raise HTTPException(status_code=404, detail=f"Routeur inconnu : {router_id}")
-    return _summary(poller.latest, cfg, poller)
+    return _summary(poller.latest, cfg, poller, local=est_poste_local(request))
 
 
 # Les séries appairées identifient la flotte : réservées au poste local, comme
@@ -970,18 +986,21 @@ async def list_devices(request: Request) -> list[DeviceStatus]:
     « injoignable » et « erreur de configuration » : c'est ce qui dit à
     l'utilisateur s'il doit corriger un mot de passe, vérifier un raccordement
     ou revoir la déclaration de l'équipement.
+
+    La série, au poste local seulement (voir `_sans_serie`) : `null` ailleurs.
     """
+    local = est_poste_local(request)
     return [
         DeviceStatus(
             id=record.id,
             name=record.config.name,
             host=record.config.host,
-            serial=record.config.serial,
+            serial=record.config.serial if local else None,
             mode=record.config.mode or request.app.state.settings.peplink_mode,
             source=record.config.source,
             status=record.status,
             error=record.error,
-            device=record.info,
+            device=_sans_serie(record.info, local),
         )
         for record in request.app.state.registry.snapshot()
     ]

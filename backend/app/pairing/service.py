@@ -23,6 +23,7 @@ import re
 
 from ..devices.registry import DeviceRecord, DeviceRegistry
 from ..fleet import RouterConfig
+from ..identite import identifiant_opaque
 from ..peplink.router_api import (
     AuthenticationError,
     RouterApiError,
@@ -51,14 +52,20 @@ class PairingError(RuntimeError):
         self.autre_equipement = autre_equipement
 
 
-def _device_id(serial: str | None, host: str) -> str:
-    """Identifiant stable et lisible, dérivé du numéro de série.
+def _device_id(serial: str | None, host: str, sel: bytes) -> str:
+    """Identifiant stable, dérivé du numéro de série — mais OPAQUE.
 
-    Le série sert de clé ; à défaut, l'adresse, qui n'est stable que le temps
-    d'un branchement.
+    Il valait la série en minuscules, et se retrouvait donc dans chaque ligne
+    de journal, chaque ligne de la base, chaque URL de l'API et de l'interface.
+    C'est désormais son empreinte sous le sel de l'installation (voir
+    `app/identite.py`) : la même série donne le même identifiant à chaque
+    lancement, sans qu'on puisse en remonter à la série.
+
+    À défaut de série, l'adresse, qui n'est stable que le temps d'un
+    branchement — et ne dit rien du matériel.
     """
     if serial:
-        return re.sub(r"[^a-z0-9]+", "-", serial.lower()).strip("-")
+        return identifiant_opaque(serial, sel)
     return re.sub(r"[^a-z0-9]+", "-", host.lower()).strip("-")
 
 
@@ -216,7 +223,7 @@ async def _identifier_puis_enregistrer(
                 "appairage rattaché plutôt que dédoublé",
                 host, candidat.id,
             )
-    device_id = existing.id if existing else _device_id(info.serial, host)
+    device_id = existing.id if existing else _device_id(info.serial, host, registry.sel_identifiants)
 
     config = RouterConfig(
         id=device_id,
@@ -240,8 +247,10 @@ async def _identifier_puis_enregistrer(
         poller.forget(config.id, conserver_abonnes=True)
     record = await registry.add(config, client=client)
     record.info = info
+    # Ni la série ni rien qui en dérive en clair : l'identifiant opaque suffit
+    # à retrouver l'équipement dans la suite du journal.
     logger.info(
-        "Équipement appairé : %s · %s · série %s", config.name, info.model or "?", info.serial
+        "Équipement appairé : %s · %s · identifiant %s", config.name, info.model or "?", config.id
     )
     return record
 
@@ -288,6 +297,12 @@ async def reconnecter(registry: DeviceRegistry, repo, connu: dict, *, poller=Non
 # choisi ; au plafond ordinaire de 30 s, elles se répétaient indéfiniment. Cinq
 # minutes : la situation ne se résout pas d'elle-même en quelques secondes.
 _RECUL_ECART_MAX_S = 300.0
+
+
+def _nom_journal(connu: dict) -> str:
+    """Comment nommer un équipement retenu dans le journal : son nom, sinon
+    son identifiant opaque, sinon son modèle — jamais sa série."""
+    return connu.get("name") or connu.get("device_id") or connu.get("model") or "équipement retenu"
 
 
 class Reconnexion:
@@ -348,7 +363,7 @@ class Reconnexion:
                 self._refuses[serie] = ident
                 logger.warning(
                     "Reconnexion de %s refusée : plus de tentative tant que les identifiants "
-                    "retenus ne changent pas", connu.get("name") or serie,
+                    "retenus ne changent pas", _nom_journal(connu),
                 )
             else:
                 plafond = _RECUL_ECART_MAX_S if exc.autre_equipement else _RECUL_MAX_S
@@ -356,11 +371,11 @@ class Reconnexion:
                 self._pause[serie] = pause
                 self._prochain[serie] = maintenant + pause
                 logger.debug("Reconnexion de %s : %s — prochain essai dans %.0f s",
-                             connu.get("name") or serie, exc, pause)
+                             _nom_journal(connu), exc, pause)
         else:
             self._pause.pop(serie, None)
             self._prochain.pop(serie, None)
-            logger.info("Équipement retenu reconnecté : %s", connu.get("name") or serie)
+            logger.info("Équipement retenu reconnecté : %s", _nom_journal(connu))
 
     async def boucle(self) -> None:
         """Un tour par cadence, pour toujours ; une erreur coûte un tour."""

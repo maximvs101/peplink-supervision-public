@@ -30,18 +30,22 @@ def _patch_identify(result=None, error: Exception | None = None):
 
 
 async def test_successful_pairing_uses_the_serial_as_identity():
-    """L'adresse dépend du réseau, le nom est modifiable : seul le série tient."""
+    """L'adresse dépend du réseau, le nom est modifiable : seul le série tient.
+
+    L'identifiant en DÉRIVE, sans le porter : une empreinte sous le sel de
+    l'installation (revue du 24/10)."""
     registry = DeviceRegistry(default_mode="mock")
     with _patch_identify(INFO), patch(
         "app.pairing.service.RouterApiPeplinkClient.aclose", AsyncMock()
     ):
         record = await pair(registry, "192.0.2.1", username="admin", password="x")
 
-    assert record.id == "0000-0000-0010"
+    assert record.id == registry.identifiant_pour("0000-0000-0010")
+    assert "0010" not in record.id
     assert record.config.serial == "0000-0000-0010"
     assert record.config.source == "paired" and record.config.mode == "router"
     assert record.config.name == "GC-MBX-EXT8-F634"
-    assert registry.get("0000-0000-0010") is not None
+    assert registry.get(record.id) is not None
     await registry.close()
 
 
@@ -139,14 +143,22 @@ async def test_other_api_errors_are_not_credential_errors():
 @pytest.mark.parametrize(
     "serial,host,expected",
     [
-        ("0000-0000-0010", "192.168.1.1", "0000-0000-0010"),
-        ("ABCD 1234", "10.0.0.1", "abcd-1234"),
         (None, "192.168.63.1", "192-168-63-1"),
         ("", "10.0.0.1", "10-0-0-1"),
     ],
 )
-def test_identifier_derivation(serial, host, expected):
-    assert _device_id(serial, host) == expected
+def test_identifier_derivation_without_serial(serial, host, expected):
+    assert _device_id(serial, host, b"s" * 32) == expected
+
+
+def test_identifier_derivation_with_a_serial_is_opaque():
+    from app.identite import identifiant_opaque
+
+    sel = b"s" * 32
+    assert _device_id("0000-0000-0010", "192.168.1.1", sel) == identifiant_opaque("0000-0000-0010", sel)
+    # Deux graphies de la même série : un seul équipement.
+    assert _device_id("ABCD 1234", "10.0.0.1", sel) == _device_id("abcd-1234", "10.0.0.2", sel)
+    assert _device_id("0000-0000-0010", "x", sel).startswith("eq-")
 
 
 async def test_re_pairing_purges_what_the_identifier_carried_before():
@@ -200,7 +212,7 @@ async def test_pairing_without_a_poller_still_works():
         "app.pairing.service.RouterApiPeplinkClient.aclose", AsyncMock()
     ):
         record = await pair(registry, "192.0.2.1", username="admin", password="x")
-    assert record.id == "0000-0000-0010"
+    assert record.id == registry.identifiant_pour("0000-0000-0010")
     await registry.close()
 
 
@@ -248,7 +260,7 @@ async def test_a_different_device_at_the_same_address_is_not_merged():
     ):
         record = await pair(registry, "192.0.2.1", username="admin", password="x")
 
-    assert record.id == "0000-0000-0010"
+    assert record.id == registry.identifiant_pour("0000-0000-0010")
     assert len(registry.snapshot()) == 2
     await registry.close()
 
@@ -318,7 +330,7 @@ async def test_the_paired_client_is_adopted_under_the_final_identifier():
     with _patch_identify(INFO), patch("app.pairing.service.RouterApiPeplinkClient.aclose", fermer):
         premier = await pair(registry, "192.0.2.1", username="admin", password="x")
         assert fermer.await_count == 0, "le client qui a identifié n'est pas fermé"
-        assert premier.client.router_id == "0000-0000-0010"
+        assert premier.client.router_id == registry.identifiant_pour("0000-0000-0010")
         client_du_premier = premier.client
         # Ré-appairer : l'ancien client est fermé, le nouveau adopté.
         second = await pair(registry, "10.0.0.1", username="admin", password="x")

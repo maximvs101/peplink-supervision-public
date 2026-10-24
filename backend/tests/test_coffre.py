@@ -160,8 +160,8 @@ async def test_reconnecter_avec_les_identifiants_retenus(trousseau):
         r = web.post("/api/devices/known/0000-0000-0042/reconnect")
     assert r.status_code == 200, r.text
     assert identify.await_count == 1, "une seule tentative"
-    assert registry.get("0000-0000-0042").config.host == "http://192.0.2.7"
-    assert registry.get("0000-0000-0042").config.password == "secret"
+    assert registry.find_by_serial("0000-0000-0042").config.host == "http://192.0.2.7"
+    assert registry.find_by_serial("0000-0000-0042").config.password == "secret"
     assert depot.memorises == ["0000-0000-0042"]
     await registry.close()
 
@@ -194,7 +194,8 @@ async def test_retirer_un_equipement_efface_son_entree(trousseau):
     web = _web(depot, registry)
     with _identify(INFO):
         web.post("/api/devices/known/0000-0000-0042/reconnect")
-    assert web.delete("/api/devices/0000-0000-0042").status_code == 200
+    ident = registry.find_by_serial("0000-0000-0042").id
+    assert web.delete(f"/api/devices/{ident}").status_code == 200
     assert coffre.lire("0000-0000-0042") is None
     await registry.close()
 
@@ -212,7 +213,7 @@ async def test_au_lancement_une_tentative_par_equipement_retenu(trousseau):
     with _identify(INFO) as identify:
         await _veille(registry, _Depot([CONNU, autre])).tour(maintenant=0.0)
     assert identify.await_count == 1
-    assert registry.get("0000-0000-0042") is not None
+    assert registry.find_by_serial("0000-0000-0042") is not None
     await registry.close()
 
 
@@ -231,7 +232,7 @@ async def test_un_equipement_qui_apparait_apres_le_lancement_est_reconnecte(trou
     with _identify(INFO) as identify:
         await veille.tour(maintenant=75.0)
     assert identify.await_count == 1
-    assert registry.get("0000-0000-0042") is not None
+    assert registry.find_by_serial("0000-0000-0042") is not None
     await registry.close()
 
 

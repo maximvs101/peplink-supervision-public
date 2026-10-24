@@ -1051,10 +1051,11 @@ class Poller:
             # Le numéro de série est la clé d'identité stable : on la retient dès
             # qu'elle est connue, y compris pour un équipement venu du fichier.
             record.config.serial = record.config.serial or info.serial
+            # Sans la série : l'identifiant de l'équipement la remplace au
+            # journal, et lui ne dit rien du matériel.
             logger.info(
-                "Équipement %s identifié : %s · firmware %s · série %s",
+                "Équipement %s identifié : %s · firmware %s",
                 record.id, info.model or "modèle inconnu", info.firmware or "?",
-                info.serial or "?",
             )
         try:
             caps = await client.get_capabilities()
@@ -1117,10 +1118,12 @@ class Poller:
         # enregistrés — mais se taire referait le mensonge que tout ce module
         # combat : la fiche affichée ne serait plus celle du châssis supervisé.
         if info.serial and record.config.serial and info.serial != record.config.serial:
+            # Le fait, sans les deux séries : elles n'ont rien à faire au
+            # journal, et l'exploitant les retrouve sur l'écran du poste local.
             logger.warning(
-                "Équipement %s : la fiche annonce le numéro de série %s, "
-                "supervisé sous %s — le matériel a-t-il été remplacé ?",
-                record.id, info.serial, record.config.serial,
+                "Équipement %s : la fiche annonce un autre numéro de série que celui "
+                "sous lequel il est supervisé — le matériel a-t-il été remplacé ?",
+                record.id,
             )
 
         record.info = info

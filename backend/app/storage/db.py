@@ -11,12 +11,15 @@ import asyncio
 import logging
 import math
 import os
+import secrets
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timedelta
 
 import aiosqlite
 
+from ..identite import FORME_ANCIEN_IDENTIFIANT, ancien_identifiant, identifiant_opaque
 from ..models import HistoryPoint, RadioSample, RouterEvent, STATUT_DESACTIVE, nom_du_reseau, utcnow
 from ..sessions import _TROU_MAX_S
 
@@ -273,6 +276,23 @@ CREATE INDEX IF NOT EXISTS idx_samples_router_ts ON samples (router_id, ts);
 
 # Étapes de migration jouées UNE fois, numérotées dans `PRAGMA user_version`.
 _VERSION_PURGE_HORS_GRILLE = 1
+_VERSION_IDENTIFIANTS_OPAQUES = 2
+
+# Les tables dont une colonne `router_id` porte l'identifiant d'équipement. La
+# table `devices` le porte sous le nom `device_id`, et migre à part.
+_TABLES_IDENTIFIANT: tuple[str, ...] = (
+    "samples", "router_history", "router_events", "router_journal_reads", "sessions",
+)
+
+# Ce qui est propre à l'installation et ne se recalcule pas : le sel des
+# identifiants opaques (`app/identite.py`). Dans la base, à côté des données
+# qu'il protège : copié avec elles par la sauvegarde du lanceur.
+_INSTALLATION_SCHEMA = """
+CREATE TABLE IF NOT EXISTS installation (
+    cle    TEXT PRIMARY KEY,
+    valeur BLOB NOT NULL
+);
+"""
 
 # Colonnes ajoutées après la première version : les bases déjà créées ne les ont pas,
 # et CREATE TABLE IF NOT EXISTS ne les rajoute pas. On les ajoute à la volée.
@@ -573,8 +593,13 @@ def _reseau(operateur: str | None, plmn: str) -> str:
 class SampleRepository:
     """Accès aux relevés persistés."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, *, identifiants_fixes: set[str] | frozenset[str] = frozenset()) -> None:
         self._path = path
+        # Les identifiants déclarés tels quels dans `routers.yaml` : la
+        # migration vers les identifiants opaques ne les renomme jamais, même
+        # s'ils ont la forme d'une série.
+        self._identifiants_fixes = frozenset(identifiants_fixes)
+        self._sel: bytes | None = None
         self._conn: aiosqlite.Connection | None = None
         # Une connexion de LECTURE, pour le journal : ses cinq balayages
         # fenêtrés coûtaient 1,8 s sur une longue session, toutes les 30 s, sur
@@ -634,6 +659,7 @@ class SampleRepository:
         await self._conn.executescript(_SESSIONS_SCHEMA)
         await self._conn.executescript(_ROUTER_EVENTS_SCHEMA)
         await self._conn.executescript(_JOURNAL_LECTURES_SCHEMA)
+        await self._conn.executescript(_INSTALLATION_SCHEMA)
         await self._conn.executescript(_ROUTER_HISTORY_SCHEMA)
         await self._migrate()
         await self._conn.commit()
@@ -677,6 +703,102 @@ class SampleRepository:
             # Dans la même transaction que la suppression : validées ensemble
             # par `connect()`, ou pas du tout.
             await self._conn.execute(f"PRAGMA user_version = {_VERSION_PURGE_HORS_GRILLE}")
+            await self._conn.commit()
+        self._sel = await self._sel_installation()
+        if version < _VERSION_IDENTIFIANTS_OPAQUES:
+            await self._migrer_identifiants(self._sel)
+
+    @property
+    def sel_identifiants(self) -> bytes:
+        """Le sel des identifiants opaques de cette installation."""
+        if self._sel is None:
+            raise RuntimeError("Stockage non connecté : `connect()` n'a pas été appelé.")
+        return self._sel
+
+    async def _sel_installation(self) -> bytes:
+        """Le sel de l'installation, tiré au sort à la première ouverture."""
+        assert self._conn is not None
+        async with self._conn.execute(
+            "SELECT valeur FROM installation WHERE cle = 'sel_identifiants'"
+        ) as cursor:
+            ligne = await cursor.fetchone()
+        if ligne is not None:
+            return bytes(ligne[0])
+        sel = secrets.token_bytes(32)
+        await self._conn.execute(
+            "INSERT INTO installation (cle, valeur) VALUES ('sel_identifiants', ?)", (sel,))
+        await self._conn.commit()
+        return sel
+
+    async def _migrer_identifiants(self, sel: bytes) -> None:
+        """Remplace les identifiants dérivés de la série par leur empreinte opaque.
+
+        L'identifiant d'un équipement appairé valait sa série en minuscules :
+        elle était dans chaque table, chaque URL, chaque journal. Sont renommés,
+        dans UNE transaction — tout ou rien — marquée par `user_version` :
+
+          - les équipements connus (`devices`) dont l'identifiant est
+            exactement l'ancien identifiant dérivé de leur série ;
+          - l'historique d'un équipement OUBLIÉ depuis, dont seule la forme
+            de l'identifiant trahit la série (trois groupes de quatre) : son
+            empreinte se calcule sur l'ancien identifiant, et un ré-appairage
+            retombe dessus.
+
+        Un identifiant écrit dans `routers.yaml` n'est jamais touché. Une copie
+        de la base est faite juste avant, s'il y a quelque chose à renommer :
+        le lanceur en fait une à chaque démarrage, mais pas un `uvicorn` lancé
+        à la main.
+        """
+        assert self._conn is not None
+        renommer: dict[str, str] = {}
+        async with self._conn.execute("SELECT serial, device_id FROM devices") as cursor:
+            connus = [(r["serial"], r["device_id"]) for r in await cursor.fetchall()]
+        for serie, ident in connus:
+            if serie and ident == ancien_identifiant(serie) and ident not in self._identifiants_fixes:
+                renommer[ident] = identifiant_opaque(serie, sel)
+        gardes = {ident for _, ident in connus} | self._identifiants_fixes
+        for table in _TABLES_IDENTIFIANT:
+            async with self._conn.execute(f"SELECT DISTINCT router_id FROM {table}") as cursor:
+                for (ident,) in await cursor.fetchall():
+                    if (ident not in renommer and ident not in gardes
+                            and FORME_ANCIEN_IDENTIFIANT.match(ident or "")):
+                        renommer[ident] = identifiant_opaque(ident, sel)
+        if renommer:
+            await self._copie_avant_migration()
+        try:
+            for ancien, nouveau in renommer.items():
+                for table in _TABLES_IDENTIFIANT:
+                    await self._conn.execute(
+                        f"UPDATE {table} SET router_id = ? WHERE router_id = ?", (nouveau, ancien))
+                await self._conn.execute(
+                    "UPDATE devices SET device_id = ? WHERE device_id = ?", (nouveau, ancien))
+            await self._conn.execute(f"PRAGMA user_version = {_VERSION_IDENTIFIANTS_OPAQUES}")
+            await self._conn.commit()
+        except BaseException:
+            await self._annuler()
+            raise
+        if renommer:
+            # Le nombre seulement : les anciens identifiants SONT des séries.
+            logger.info("Identifiants d'équipement rendus opaques : %d renommé(s)", len(renommer))
+
+    async def _copie_avant_migration(self) -> None:
+        """Une copie de la base telle qu'avant la migration des identifiants.
+
+        Hors du motif des copies du lanceur (`samples.*.db.bak`), pour qu'elle
+        ne soit pas élaguée par les lancements suivants. Une seule : si elle
+        existe déjà, la migration a déjà été tentée sur cet état.
+        """
+        if self._path == ":memory:" or self._conn is None:
+            return
+        cible = Path(os.path.abspath(self._path))
+        cible = cible.with_name(cible.name + ".avant-identifiants-opaques.bak")
+        if cible.exists():
+            return
+        copie = sqlite3.connect(cible)
+        try:
+            await self._conn.backup(copie)
+        finally:
+            copie.close()
 
     async def commit(self) -> None:
         """Valide ce que `insert(..., commit=False)` a écrit HORS de

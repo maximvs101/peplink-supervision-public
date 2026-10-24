@@ -41,6 +41,10 @@ async def test_la_veille_est_attendue_avant_la_fermeture_du_registre(tmp_path, m
 
     monkeypatch.setattr(main, "Reconnexion", VeilleLente)
     monkeypatch.setattr(DeviceRegistry, "close", fermer_en_notant)
-    async with main.lifespan(FastAPI()):
+    app = FastAPI()
+    async with main.lifespan(app):
         await asyncio.sleep(0.05)
+        # Le registre nomme les équipements sous le sel que la BASE garde : un
+        # équipement retrouve ainsi son identifiant d'un lancement à l'autre.
+        assert app.state.registry.sel_identifiants == app.state.repo.sel_identifiants
     assert etat["vue_a_la_fermeture"] is True, "le registre a fermé pendant que la veille tournait"
