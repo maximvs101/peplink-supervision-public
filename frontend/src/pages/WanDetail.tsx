@@ -13,6 +13,7 @@ const HistoryChart = lazy(() =>
 )
 import { ChartBoundary } from '../components/ChartBoundary'
 import { WanCard } from '../components/WanCard'
+import { Fraicheur } from '../components/Fraicheur'
 import { useDevice } from './DeviceShell'
 import { SansMesure } from '../components/SansMesure'
 import { etiquetteSupport } from '../lib/format'
@@ -28,7 +29,7 @@ export function WanDetail() {
   const { wanId = '' } = useParams()
   const {
     routerId, samples, showThroughput, hasTunnel, periodSeconds, events, windowLabel,
-    sessions, rafraichirSessions, status,
+    sessions, rafraichirSessions, status, fraicheur, router,
   } = useDevice()
   const sample = samples.find((s) => s.wan.wan_id === wanId)
 
@@ -65,6 +66,10 @@ export function WanDetail() {
         churn={events?.churn?.find((c) => c.wan_id === sample.wan.wan_id) ?? null}
         windowLabel={windowLabel}
       />
+      {/* Le sélecteur de sessions et les repères du journal posés sur la
+          courbe viennent des relectures de l'enveloppe : leur âge se dit ici. */}
+      <Fraicheur nom="Liste des sessions" etat={fraicheur.sessions} />
+      <Fraicheur nom="Journal (repères de la courbe)" etat={fraicheur.journal} />
       {/* Le repli dit ce qu'il attend, et non « chargement » : sur un poste de
           terrain la seule chose qui puisse retarder ce module est le disque. */}
       <ChartBoundary>
@@ -88,6 +93,7 @@ export function WanDetail() {
           kind={sample.wan.kind}
           hasTunnel={hasTunnel}
           episodes={events?.episodes ?? []}
+          equipement={router?.name ?? null}
         />
       </Suspense>
       </ChartBoundary>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { fetchEvents, fetchHistory, fetchSessionSummary, nameSession } from '../api/client'
@@ -12,6 +13,8 @@ import { useElementSize } from '../lib/useElementSize'
 import { LOSS_MIN_PACKETS } from '../lib/verdict'
 import { RESUME_MS, debutObserve } from '../lib/session'
 import { SessionSheet } from './SessionSheet'
+import { courbeCsv, nomFichierCourbe, telecharger } from '../lib/exportCourbe'
+import { ecrireReglage, lireReglage } from '../lib/reglageHistorique'
 
 /** Fenêtres d'historique proposées. Le maximum suit le plafond de la route.
  *  Une session de stationnement dure couramment trois heures et plus — c'est la
@@ -47,32 +50,38 @@ interface Props {
   sessions?: Session[]
   /** Après un renommage, demande à `DeviceShell` de relire la liste. */
   onRafraichirSessions?: () => Promise<void>
+  /** Le NOM de l'équipement, pour nommer le fichier exporté — jamais son
+   *  identifiant opaque, qui ne dit rien à qui ouvre le fichier. */
+  equipement?: string | null
 }
 
 /** Historique glissant d'une métrique, rafraîchi périodiquement. */
 
 export function HistoryChart({
   routerId, wanId, wanName, kind, hasTunnel = false, periodSeconds = null,
-  sessions: sessionsProp, onRafraichirSessions, episodes = [],
+  sessions: sessionsProp, onRafraichirSessions, episodes = [], equipement = null,
 }: Props) {
   // Les grandeurs du tunnel étaient offertes sur tous les liens de tous les
   // équipements. Sur un boîtier sans SpeedFusion, cela faisait deux boutons de
   // plus — « Latence », « Perte » — qui traçaient un graphe VIDE sur un axe
   // gradué de 0 à 100 : l'historique renvoie des points datés à valeur nulle, le
   // garde-fou « Collecte en cours » n'est donc jamais atteint. Mémoïsé parce que
-  // la liste sert de dépendance à l'effet de repli ci-dessous.
+  // la liste sert de dépendance aux effets de lecture ci-dessous.
   const metrics = useMemo(() => metricsFor(kind, { hasTunnel }), [kind, hasTunnel])
-  const [metric, setMetric] = useState<string>(metrics[0].key)
-
-  // Passer d'un lien cellulaire à un lien filaire depuis le même écran laisserait
-  // une métrique sélectionnée qui n'existe pas pour ce type de lien.
-  useEffect(() => {
-    if (!metrics.some((m) => m.key === metric)) setMetric(metrics[0].key)
-  }, [metrics, metric])
+  // Grandeur, fenêtre et session viennent de l'ADRESSE (`lib/reglageHistorique`) :
+  // un lien rouvre la même courbe, et « Précédent » rend le réglage d'avant.
+  // Chaque valeur est validée contre ce que cet écran propose, et une valeur
+  // inconnue retombe sur le défaut. C'est aussi ce qui couvre le passage d'un
+  // lien cellulaire à un lien filaire : une grandeur qui n'existe pas pour ce
+  // type de lien n'est plus « corrigée » après coup par un effet, elle n'est
+  // simplement jamais retenue.
+  const [params, setParams] = useSearchParams()
+  const brut = lireReglage(params)
+  const metric = metrics.some((m) => m.key === brut.grandeur) ? brut.grandeur! : metrics[0].key
   // Fenêtres proposées. Les sessions réelles durent trois heures et plus : ne
   // savoir regarder que la dernière demi-heure interdisait de voir ce qui s'est
   // passé avant l'arrivée de celui qui prend la relève.
-  const [minutes, setMinutes] = useState(30)
+  const minutes = FENETRES.some((f) => f.minutes === brut.fenetre) ? brut.fenetre! : FENETRES[0].minutes
   // La série LUE, avec la clé de sa requête : grandeur, fenêtre, session. Au
   // changement de grandeur, l'ancienne restait affichée sous le nouveau libellé
   // pendant le chargement, jugée par les règles de la nouvelle — le pied
@@ -89,7 +98,29 @@ export function HistoryChart({
   // du code une fois écartée la fausse piste du second onglet. Le `last_seen`
   // de la session en cours suit donc la cadence de `DeviceShell`.
   const sessions = sessionsProp ?? []
-  const [sessionId, setSessionId] = useState<number | null>(null)
+  // Une session que la liste ne porte pas — identifiant inventé, session
+  // purgée, ou liste pas encore lue — n'est pas retenue : la courbe reste sur
+  // la fenêtre glissante, et bascule sur la session dès que la liste la porte.
+  const sessionId = brut.session !== null && sessions.some((s) => s.id === brut.session)
+    ? brut.session : null
+
+  // Un CHOIX de l'exploitant ajoute une entrée d'historique (`push`) : c'est
+  // ce qui fait de « Précédent » un retour au réglage d'avant. Tous les
+  // réglages sont des gestes discrets — un bouton, une option —, jamais un
+  // curseur qui en produirait des dizaines ; et un choix qui ne change rien
+  // n'écrit rien, si bien que l'historique ne se remplit pas de doublons. La
+  // validation, elle, n'écrit JAMAIS : réécrire l'adresse au rendu (en
+  // `replace`) effacerait une grandeur du tunnel pendant l'instant où
+  // `hasTunnel` n'est pas encore connu, et le lien partagé perdrait son réglage.
+  const regler = (choix: { grandeur?: string; fenetre?: number; session?: number | null }) => {
+    const suivant = ecrireReglage(params, {
+      grandeur: choix.grandeur ?? metric,
+      fenetre: choix.fenetre ?? minutes,
+      session: choix.session === undefined ? sessionId : choix.session,
+    }, { grandeur: metrics[0].key, fenetre: FENETRES[0].minutes })
+    if (suivant.toString() === params.toString()) return
+    setParams(suivant)
+  }
   // La fiche de la session choisie. C'est elle qui rend deux stationnements
   // comparables : sans elle, une session n'est qu'un intervalle de temps.
   const [fiche, setFiche] = useState<SessionSummary | null>(null)
@@ -311,6 +342,40 @@ export function HistoryChart({
   const trous = enveloppe ? [] : trousLisibles(trousDeSupervision(points), desactivations)
   const transitions = reperes.filter((r) => r.genre !== 'désactivation')
 
+  // La fenêtre en clair, une fois pour le pied et pour l'export. Une session
+  // choisie que la liste ne porte plus — relue entre deux lectures — n'a pas de
+  // date à inventer : `new Date('')` écrivait « Invalid Date ».
+  const libelleFenetre = sessionId !== null
+    ? (sessionChoisie
+        ? `session du ${new Date(sessionChoisie.started_at).toLocaleString('fr-FR')}`
+        : 'session choisie')
+    : (FENETRES.find((f) => f.minutes === minutes)?.label ?? `${minutes} min`)
+
+  // Exactement ce qui est tracé : les relevés de `data` — sans les points
+  // fictifs que `withGaps` insère pour couper le trait —, dans l'unité de
+  // l'axe, un taux retiré laissé vide avec sa raison.
+  const exporterCsv = () => {
+    const courbe = {
+      equipement: equipement ?? 'équipement',
+      lien: wanName,
+      grandeur: { key: current.key, label: current.label, unit: current.unit },
+      fenetre: {
+        libelle: libelleFenetre,
+        jeton: sessionId !== null ? `session-${sessionId}` : libelleFenetre.replace(/\s+/g, ''),
+      },
+      enveloppe,
+      disponibles: available,
+      seuilPaquets: LOSS_MIN_PACKETS,
+      lignes: data.map((p, i) => ({
+        t: bruts[i].t,
+        value: bruts[i].value,
+        comble: bruts[i].comble,
+        retire: p.value !== null && !publiable(p),
+      })),
+    }
+    telecharger(nomFichierCourbe(courbe), courbeCsv(courbe))
+  }
+
   return (
     <section className="card">
       <header className="card-head">
@@ -323,7 +388,7 @@ export function HistoryChart({
               type="button"
               className={m.key === metric ? 'is-active' : ''}
               aria-pressed={m.key === metric}
-              onClick={() => setMetric(m.key)}
+              onClick={() => regler({ grandeur: m.key })}
             >
               {m.label}
             </button>
@@ -338,7 +403,7 @@ export function HistoryChart({
               type="button"
               className={sessionId === null && f.minutes === minutes ? 'is-active' : ''}
               aria-pressed={sessionId === null && f.minutes === minutes}
-              onClick={() => { setSessionId(null); setMinutes(f.minutes) }}
+              onClick={() => regler({ fenetre: f.minutes, session: null })}
             >
               {f.label}
             </button>
@@ -347,7 +412,7 @@ export function HistoryChart({
             <select
               className={sessionId !== null ? 'is-active' : ''}
               value={sessionId ?? ''}
-              onChange={(e) => setSessionId(e.target.value === '' ? null : Number(e.target.value))}
+              onChange={(e) => regler({ session: e.target.value === '' ? null : Number(e.target.value) })}
               aria-label="Session d’alimentation"
             >
               <option value="">Session…</option>
@@ -608,15 +673,20 @@ export function HistoryChart({
           </div>
         )}
 
+        {/* Emporter la courbe AFFICHÉE — pas la session entière, que le
+            rapport exporte déjà : seulement quand une courbe est tracée. */}
+        {!error && mesures > 0 && (
+          <p className="disclaimer">
+            <button type="button" className="is-quiet" onClick={exporterCsv}>
+              Exporter en CSV
+            </button>{' '}
+            la courbe affichée : cette grandeur, cette fenêtre
+            {enveloppe ? ', en enveloppe (dit en tête du fichier)' : ''}.
+          </p>
+        )}
+
         <p className="disclaimer">
-          {sessionId !== null
-            // Une session choisie que la liste ne porte plus — relue entre
-            // deux lectures — n'a pas de date à inventer : `new Date('')`
-            // écrivait « Invalid Date », un mot que l'écran s'interdit.
-            ? (sessionChoisie
-                ? `session du ${new Date(sessionChoisie.started_at).toLocaleString('fr-FR')}`
-                : 'session choisie')
-            : (FENETRES.find((f) => f.minutes === minutes)?.label ?? `${minutes} min`)}{' '}
+          {libelleFenetre}{' '}
           ·{' '}
           {enveloppe
             ? `${available} mesures, tracées en enveloppe — ${data.length} points, `

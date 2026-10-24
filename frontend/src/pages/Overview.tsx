@@ -7,6 +7,7 @@ import { SansMesure } from '../components/SansMesure'
 import { BondPlan } from '../components/BondPlan'
 import { DeviceCard } from '../components/DeviceCard'
 import { EventLog } from '../components/EventLog'
+import { Fraicheur } from '../components/Fraicheur'
 import { LinkTable } from '../components/LinkTable'
 import { pathDiversity } from '../lib/diversity'
 import { bondRedundancy } from '../lib/redundancy'
@@ -42,6 +43,7 @@ export function Overview() {
   const {
     routerId, router, samples, showThroughput, hasTunnel, status,
     timeline, events, periodSeconds, health, role, windowLabel, sessions, resume, session, verdict,
+    fraicheur,
   } = useDevice()
 
   // Mémorisées sur `samples`. Ces trois dérivations rendent des objets NEUFS à
@@ -151,6 +153,9 @@ export function Overview() {
             tunnelUptimeS={router?.tunnel_uptime_s ?? null}
             throughputLimitMbps={router?.capabilities?.sfc_throughput_limit_mbps ?? null}
           />
+          {/* Chaque partie relue à part dit SOUS ELLE quand elle date — et rien
+              tant qu'elle est fraîche. Le volume du bond vient de la fiche. */}
+          {session && <Fraicheur nom="Fiche du stationnement (volume)" etat={fraicheur.fiche} />}
 
           <LinkTable
             routerId={routerId}
@@ -166,10 +171,13 @@ export function Overview() {
             tunnelAttendu={router?.tunnel_attendu ?? null}
             neverConnected={router?.never_connected ?? []}
           />
+          <Fraicheur nom="Bande de stationnement" etat={fraicheur.bande} />
+          <Fraicheur nom="Liste des sessions" etat={fraicheur.sessions} />
 
           {/* Le journal et la fiche technique se partagent la dernière rangée :
               l'un est long et étroit, l'autre courte et large, et les empiler
               coûtait deux cents pixels pour rien. */}
+          <Fraicheur nom="Journal" etat={fraicheur.journal} />
           <div className="grid-side">
             <EventLog log={events} windowLabel={fenetre} />
             {ficheEquipement}

@@ -832,6 +832,12 @@ code {
   line-height: 1.5;
 }
 
+/* L'âge d'une partie restée sur une donnée ancienne : le ton d'une note de pied,
+   mais à l'encre secondaire — c'est une réserve sur ce qui est affiché juste
+   au-dessus, et elle n'apparaît que lorsqu'elle compte. */
+.disclaimer.fraicheur { color: var(--ink-2); }
+.notice .reessayer { margin-left: var(--s2); padding: 2px 8px; }
+
 /* ==========================================================================
    ÉCRAN DE DÉTAIL D'UN LIEN
    ========================================================================== */
