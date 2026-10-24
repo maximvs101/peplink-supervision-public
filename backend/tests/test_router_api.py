@@ -798,6 +798,73 @@ async def test_capabilities_out_of_scope_are_probed_once_and_settled():
     await client.aclose()
 
 
+async def test_a_login_cut_by_the_deadline_still_records_its_refusal():
+    """L'échéance des compléments annule leur coroutine — y compris une
+    reconnexion en vol. Le `POST /api/login` partait, le routeur comptait
+    l'échec, mais l'annulation tombait avant la lecture de la réponse : le
+    refus n'était pas mémorisé, et le cycle suivant retentait un login. Cinq
+    cycles coupés ainsi suffisaient à suspendre l'accès admin cinq minutes.
+
+    La reconnexion va désormais à son terme quoi qu'il arrive à l'appelant, et
+    un appel concurrent attend LA MÊME tentative au lieu d'en ouvrir une autre.
+    """
+    from app.peplink.router_api import avant_echeance
+
+    logins = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal logins
+        if request.url.path == "/api/login":
+            logins += 1
+            await asyncio.sleep(0.2)
+            return httpx.Response(200, json={"stat": "fail", "message": "mauvais mot de passe"})
+        return httpx.Response(200, json={"stat": "ok", "response": {}})
+
+    client = await _client(handler)
+    boucle = asyncio.get_running_loop()
+    fait, _ = await avant_echeance(boucle.time() + 0.05, client._get("status.traffic"))
+    assert fait is False, "l'échéance a bien coupé l'appelant"
+
+    # Pendant que la tentative est encore en vol, un autre appel la rejoint.
+    with pytest.raises(CredentialsRefusedError):
+        await client._get("status.wan.connection")
+    assert logins == 1
+    assert client._credentials_refused is True
+
+    # Et le refus tient : plus aucun login.
+    with pytest.raises(CredentialsRefusedError):
+        await client._get("status.wan.connection")
+    assert logins == 1
+    await client.aclose()
+
+
+async def test_a_cancelled_caller_alone_does_not_lose_the_refusal():
+    """Même scénario sans appel concurrent : le refus est mémorisé par la
+    tentative elle-même, une fois la réponse arrivée."""
+    from app.peplink.router_api import avant_echeance
+
+    logins = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal logins
+        if request.url.path == "/api/login":
+            logins += 1
+            await asyncio.sleep(0.1)
+            return httpx.Response(200, json={"stat": "fail", "message": "refusé"})
+        return httpx.Response(200, json={"stat": "ok", "response": {}})
+
+    client = await _client(handler)
+    boucle = asyncio.get_running_loop()
+    fait, _ = await avant_echeance(boucle.time() + 0.02, client._get("status.traffic"))
+    assert fait is False
+    await asyncio.sleep(0.2)
+    assert client._credentials_refused is True
+    with pytest.raises(CredentialsRefusedError):
+        await client._get("status.wan.connection")
+    assert logins == 1
+    await client.aclose()
+
+
 async def test_concurrent_first_reads_share_a_single_login():
     """Identité, fiche et relevé partent ensemble au premier cycle.
 

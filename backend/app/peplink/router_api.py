@@ -756,6 +756,9 @@ class RouterApiPeplinkClient:
         # qui a vu sa session expirer si un autre l'a déjà renouvelée.
         self._auth_lock = asyncio.Lock()
         self._auth_generation = 0
+        # La tentative d'authentification en cours, s'il y en a une. Voir
+        # `_ensure_authenticated` : elle survit à l'annulation de qui l'a lancée.
+        self._auth_en_vol: asyncio.Future | None = None
         self._credentials_refused = False
         # Passe à False si l'équipement refuse `status.traffic` : inutile de le
         # redemander à chaque cycle sur un modèle qui ne le propose pas.
@@ -872,7 +875,23 @@ class RouterApiPeplinkClient:
                 self._authenticated = False
                 self._token = None
             if not self._authenticated:
-                await self._authenticate()
+                # La tentative vit dans sa PROPRE tâche, protégée de l'annulation
+                # de l'appelant. Un complément coupé par l'échéance du cycle
+                # (`avant_echeance`) annulait sinon un `POST /api/login` déjà
+                # parti : le routeur comptait l'échec, mais la réponse n'était
+                # jamais lue — le refus n'était pas mémorisé, et le cycle suivant
+                # retentait. Cinq cycles ainsi coupés suspendaient l'accès admin.
+                # L'appelant annulé s'en va ; la tentative va à son terme et
+                # arme elle-même `_credentials_refused`. Un appel suivant qui la
+                # trouve encore en vol l'attend au lieu d'en ouvrir une seconde.
+                if self._auth_en_vol is None or self._auth_en_vol.done():
+                    self._auth_en_vol = asyncio.ensure_future(self._authenticate())
+                    # Une issue que plus personne n'attend ne doit pas finir en
+                    # « Task exception was never retrieved » : on la consomme.
+                    self._auth_en_vol.add_done_callback(
+                        lambda t: t.cancelled() or t.exception()
+                    )
+                await asyncio.shield(self._auth_en_vol)
             return self._auth_generation
 
     async def _authenticate(self) -> None:
