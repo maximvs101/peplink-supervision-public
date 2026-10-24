@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // jsdom n'implémente pas `ResizeObserver`, dont dépend `useElementSize`. Le
@@ -66,8 +67,11 @@ beforeEach(() => {
   vi.mocked(fetchSessionSummary).mockResolvedValue(fiche())
 })
 
+// Sous un routeur : grandeur, fenêtre et session se lisent dans l'adresse.
 const chart = (props: Partial<Parameters<typeof HistoryChart>[0]> = {}) => (
-  <HistoryChart routerId="mbx" wanId="4" wanName="SIM 4" kind="cellular" hasTunnel {...props} />
+  <MemoryRouter>
+    <HistoryChart routerId="mbx" wanId="4" wanName="SIM 4" kind="cellular" hasTunnel {...props} />
+  </MemoryRouter>
 )
 
 describe('cadre vertical', () => {
