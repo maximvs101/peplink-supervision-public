@@ -498,8 +498,12 @@ export function HistoryChart({
                     fontFamily: 'Barlow Semi Condensed, system-ui, sans-serif',
                   }}
                   labelFormatter={(t) => fmtTime(Number(t))}
-                  formatter={(value: number) => [
-                    `${decimal(value, divide > 1 ? 2 : 1)} ${current.unit}`,
+                  // recharts 3 type la valeur `ValueType | undefined` : une
+                  // valeur qui n'est pas un nombre est une absence, pas un zéro.
+                  formatter={(value) => [
+                    typeof value === 'number'
+                      ? `${decimal(value, divide > 1 ? 2 : 1)} ${current.unit}`
+                      : '—',
                     current.label,
                   ]}
                 />
