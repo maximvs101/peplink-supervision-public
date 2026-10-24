@@ -20,6 +20,8 @@ import { bondRole, roleRetenu, type BondRole } from '../lib/bondRole'
 import { paquetsParSecondeRecents } from '../lib/redundancy'
 import { linkVerdict, type LinkVerdict } from '../lib/verdict'
 import { RESUME_MS, debutObserve, libelleFenetre } from '../lib/session'
+import { type Fraicheur as EtatFraicheur, aSignaler, duree, fraicheurNeuve } from '../lib/fraicheur'
+import { Fraicheur } from '../components/Fraicheur'
 
 export interface DeviceContext {
   routerId: string
@@ -75,7 +77,14 @@ export interface DeviceContext {
    *  bandeau le lisse, le tableau de bord en tire les griefs du bond et de la
    *  radio. Chacun le recalculait — `Overview` sans mémo, à chaque trame. */
   verdict: LinkVerdict
+  /** La fraîcheur de chaque partie relue séparément : quand elle a répondu
+   *  pour la dernière fois, et si sa dernière relecture a échoué. Chaque
+   *  écran pose la mention sous la partie qu'elle concerne. */
+  fraicheur: Record<PartieRelue, EtatFraicheur>
 }
+
+/** Les parties de l'écran relues chacune de leur côté. */
+export type PartieRelue = 'etat' | 'sessions' | 'bande' | 'journal' | 'fiche'
 
 export const useDevice = () => useOutletContext<DeviceContext>()
 
@@ -86,6 +95,19 @@ const REFRESH_MS = 10_000
  *  couvre des heures, une tranche vaut plusieurs dizaines de secondes, et la
  *  rejouer à chaque cycle coûterait une agrégation SQL pour un pixel. */
 const BAND_MS = 30_000
+
+/** Chaque partie avec SA période : c'est elle qui dit quand une donnée cesse
+ *  d'être fraîche. La fiche n'est relue que toutes les cinq minutes ; la juger
+ *  à la cadence de la bande la déclarerait ancienne en permanence. */
+const fraicheursNeuves = (): Record<PartieRelue, EtatFraicheur> => ({
+  etat: fraicheurNeuve(REFRESH_MS),
+  sessions: fraicheurNeuve(BAND_MS),
+  bande: fraicheurNeuve(BAND_MS),
+  journal: fraicheurNeuve(BAND_MS),
+  fiche: fraicheurNeuve(RESUME_MS),
+})
+
+const messageDe = (err: unknown): string => (err instanceof Error ? err.message : 'Erreur inconnue')
 
 /** Dernier résumé RÉELLEMENT obtenu du serveur, et l'instant de sa réception.
  *
@@ -141,6 +163,26 @@ export function DeviceShell() {
   const [timeline, setTimeline] = useState<Timeline | null>(null)
   const [events, setEvents] = useState<EventLog | null>(null)
   const [resume, setResume] = useState<SessionSummary | null>(null)
+  const [fraicheur, setFraicheur] = useState(fraicheursNeuves)
+  /** Une réponse aboutie (`echec` nul) ou un échec, pour une partie. Un échec
+   *  ne touche pas à `lueA` : la donnée affichée date toujours de là. */
+  const noter = useCallback((partie: PartieRelue, echec: string | null) => {
+    setFraicheur((prev) => ({
+      ...prev,
+      [partie]: echec === null
+        ? { ...prev[partie], lueA: performance.now(), echec: null }
+        : { ...prev[partie], echec },
+    }))
+  }, [])
+  /** « Réessayer maintenant » sur l'état de l'équipement : posé par l'effet du
+   *  flux principal, qui seul connaît le jeton de séquence et la minuterie. */
+  const reessayerEtat = useRef<(() => void) | null>(null)
+  /** La relance MANUELLE est en vol : le bouton le dit et ne la double pas. */
+  const [relanceEnVol, setRelanceEnVol] = useState(false)
+  /** Chaque « Réessayer » du flux temps réel le rouvre : la fermeture était
+   *  définitive, et seul un geste de l'exploitant la lève — jamais une boucle,
+   *  qui redemanderait toutes les deux secondes ce que le serveur refuse. */
+  const [essaiFlux, setEssaiFlux] = useState(0)
 
   const onStatus = useCallback((connected: boolean) => setLive(connected), [])
   const onClosed = useCallback((closure: LiveClosure) => {
@@ -171,8 +213,9 @@ export function DeviceShell() {
     setSamples({})
     setFatal(null)
     setRefreshError(null)
-    setLiveClosure(null)
     setClock(performance.now())
+    setFraicheur(fraicheursNeuves())
+    setRelanceEnVol(false)
 
     const store = (summary: RouterSummary) => {
       // Le même instant pour les deux : l'âge affiché part alors exactement de
@@ -181,6 +224,7 @@ export function DeviceShell() {
       setSnapshot({ summary, receivedAt: at })
       setClock(at)
       setRefreshError(null)
+      noter('etat', null)
       // Un résumé reçu dément tout échec de chargement antérieur. Le premier
       // échec non-404 posait `fatal`, le rafraîchissement continuait, mais rien
       // ne le levait : l'écran restait sur « Impossible de charger
@@ -238,43 +282,27 @@ export function DeviceShell() {
         )
         return
       }
-      const message = err instanceof Error ? err.message : 'Erreur inconnue'
+      const message = messageDe(err)
+      noter('etat', message)
       if (initial) setFatal(`Impossible de charger l’équipement : ${message}`)
       else setRefreshError(message)
     }
 
-    // La requête de montage porte le même jeton que les suivantes : elle peut
-    // être doublée comme n'importe quelle autre, et c'est même le cas le plus
-    // courant — elle part sur un serveur qui vient de démarrer.
-    const premier = ++rang
-    fetchRouter(routerId)
-      .then((summary) => {
-        if (cancelled || premier < dernierRendu) return
-        dernierRendu = premier
-        store(summary)
-      })
-      .catch((err) => {
-        if (!cancelled && premier >= dernierRendu) fail(err, true)
-      })
-
-    const close = openLiveSocket(
-      routerId,
-      (sample) => setSamples((prev) => ({ ...prev, [sample.wan.wan_id]: sample })),
-      onStatus,
-      onClosed,
-    )
-    // Le flux WebSocket porte les relevés, pas l'état de l'équipement : sans ce
-    // rafraîchissement, un routeur qui tombe laisserait l'écran sur son dernier
-    // état connu — « connecté » — indéfiniment.
-    const refresh = window.setInterval(() => {
-      if (cancelled || stopped) return
-      // L'horloge avance AVANT la requête, et non à sa résolution : une requête
-      // qui n'aboutit jamais — le serveur accepte la connexion puis ne répond
-      // plus — ne rejette pas, et gelait l'âge avec elle.
-      setClock(performance.now())
+    // Une lecture de l'état, quelle qu'en soit l'origine — montage, période,
+    // relance manuelle. Toutes portent le même jeton : n'importe laquelle peut
+    // être doublée par une autre, et c'est même le cas le plus courant au
+    // montage, sur un serveur qui vient de démarrer. Rend la promesse de SA
+    // réponse, pour que la relance manuelle sache quand elle est retombée.
+    // L'instant de départ de la plus récente, tant qu'elle n'a pas répondu.
+    let enVolDepuis: number | null = null
+    const lire = (initial: boolean): Promise<void> => {
       const mien = ++rang
-      fetchRouter(routerId)
+      const depart = performance.now()
+      enVolDepuis = depart
+      const retombee = () => { if (enVolDepuis === depart) enVolDepuis = null }
+      return fetchRouter(routerId)
         .then((summary) => {
+          retombee()
           // Une réponse dépassée est jetée : elle décrit un instant que l'écran
           // a déjà dépassé, et l'accepter ferait reculer le temps.
           if (cancelled || mien < dernierRendu) return
@@ -282,16 +310,61 @@ export function DeviceShell() {
           store(summary)
         })
         .catch((err) => {
-          if (!cancelled && mien >= dernierRendu) fail(err, false)
+          retombee()
+          if (!cancelled && mien >= dernierRendu) fail(err, initial)
         })
-    }, REFRESH_MS)
+    }
+
+    lire(true)
+
+    // Le flux WebSocket porte les relevés, pas l'état de l'équipement : sans ce
+    // rafraîchissement, un routeur qui tombe laisserait l'écran sur son dernier
+    // état connu — « connecté » — indéfiniment.
+    const periodique = () => {
+      if (cancelled || stopped) return
+      // L'horloge avance AVANT la requête, et non à sa résolution : une requête
+      // qui n'aboutit jamais — le serveur accepte la connexion puis ne répond
+      // plus — ne rejette pas, et gelait l'âge avec elle.
+      setClock(performance.now())
+      void lire(false)
+    }
+    let refresh = window.setInterval(periodique, REFRESH_MS)
+
+    // « Réessayer maintenant » : la lecture part aussitôt, et la minuterie
+    // repart d'une période entière derrière elle. Sans cela l'échéance
+    // périodique pouvait tomber une seconde après la relance — deux requêtes
+    // dos à dos pour une même question. Une lecture déjà en vol depuis moins
+    // d'une période n'est pas doublée : sa réponse est celle qu'on attend.
+    // Au-delà, elle est réputée pendue (le serveur a accepté la connexion et
+    // ne répond plus) et ne doit pas confisquer le bouton.
+    reessayerEtat.current = () => {
+      if (cancelled || stopped) return
+      if (enVolDepuis !== null && performance.now() - enVolDepuis < REFRESH_MS) return
+      window.clearInterval(refresh)
+      refresh = window.setInterval(periodique, REFRESH_MS)
+      setClock(performance.now())
+      setRelanceEnVol(true)
+      lire(false).finally(() => { if (!cancelled) setRelanceEnVol(false) })
+    }
 
     return () => {
       cancelled = true
+      reessayerEtat.current = null
       window.clearInterval(refresh)
-      close()
     }
-  }, [routerId, onStatus, onClosed])
+  }, [routerId, noter])
+
+  // Le flux temps réel, dans son propre effet : « Réessayer maintenant » le
+  // rouvre sans relancer la lecture de l'état ni remettre l'écran à zéro.
+  useEffect(() => {
+    setLiveClosure(null)
+    return openLiveSocket(
+      routerId,
+      (sample) => setSamples((prev) => ({ ...prev, [sample.wan.wan_id]: sample })),
+      onStatus,
+      onClosed,
+    )
+  }, [routerId, onStatus, onClosed, essaiFlux])
 
   // La fenêtre naturelle de relecture est le stationnement en cours — pas une
   // fenêtre glissante. L'équipement n'est alimenté que véhicule à l'arrêt :
@@ -320,19 +393,29 @@ export function DeviceShell() {
     let connues: Session[] | null = null
     let resumeDe: number | null = null
     let resumeLu = 0
+    // La fenêtre que décrivent la bande et le journal AFFICHÉS. Un échec garde
+    // la dernière donnée valide — l'effacer faisait disparaître la bande au
+    // premier hoquet, sans un mot —, mais seulement pour la MÊME fenêtre : la
+    // bande de la session précédente, posée sous le libellé de la nouvelle,
+    // mentirait sur ce qu'elle couvre.
+    let bandeDe: string | null = null
+    let journalDe: string | null = null
 
     const relire = async () => {
       if (retire.current) return
       const mien = (rang += 1)
       const depasse = () => cancelled || mien < dernierRendu
+      let echecSessions: string | null = null
       try {
         connues = await fetchSessions(routerId)
-      } catch {
+      } catch (err) {
         // Une session illisible n'empêche pas de relire les trois dernières
         // heures : on perd la borne, pas la bande — et on garde la dernière
         // liste connue.
+        echecSessions = messageDe(err)
       }
       if (depasse()) return
+      noter('sessions', echecSessions)
       dernierRendu = mien
       const toutes = connues ?? []
       const courante = toutes[0] ?? null
@@ -342,17 +425,32 @@ export function DeviceShell() {
       // a rien à dessiner, et l'axe donnait quarante pour cent de sa largeur à
       // ce vide sur le MAX HD2 (allumé à 08:35, supervisé à partir de 10:53).
       const fenetre = courante ? { since: debutObserve(courante) } : { minutes: 180 }
+      const cleFenetre = JSON.stringify(fenetre)
       try {
         const bande = await fetchTimeline(routerId, fenetre)
-        if (!depasse()) setTimeline(bande)
-      } catch {
-        if (!depasse()) setTimeline(null)
+        if (!depasse()) {
+          setTimeline(bande)
+          bandeDe = cleFenetre
+          noter('bande', null)
+        }
+      } catch (err) {
+        if (!depasse()) {
+          if (bandeDe !== cleFenetre) setTimeline(null)
+          noter('bande', messageDe(err))
+        }
       }
       try {
         const journal = await fetchEvents(routerId, fenetre)
-        if (!depasse()) setEvents(journal)
-      } catch {
-        if (!depasse()) setEvents(null)
+        if (!depasse()) {
+          setEvents(journal)
+          journalDe = cleFenetre
+          noter('journal', null)
+        }
+      } catch (err) {
+        if (!depasse()) {
+          if (journalDe !== cleFenetre) setEvents(null)
+          noter('journal', messageDe(err))
+        }
       }
       // Toutes les cinq minutes, pas à chaque relecture : la fiche relit toute
       // la session (24 h au plus), pour deux chiffres qui bougent peu — à la
@@ -366,9 +464,15 @@ export function DeviceShell() {
             setResume(fiche)
             resumeDe = courante?.id ?? null
             resumeLu = maintenant
+            noter('fiche', null)
           }
-        } catch {
-          if (!depasse()) setResume(null)
+        } catch (err) {
+          // La fiche de CETTE session reste, marquée ancienne ; celle d'une
+          // autre session ne décrit pas ce stationnement et s'efface.
+          if (!depasse()) {
+            if (resumeDe !== (courante?.id ?? null)) setResume(null)
+            noter('fiche', messageDe(err))
+          }
         }
       }
     }
@@ -388,7 +492,7 @@ export function DeviceShell() {
       window.clearInterval(t)
       document.removeEventListener('visibilitychange', auRetour)
     }
-  }, [routerId])
+  }, [routerId, noter])
 
   // Reconstruit à chaque rendu, ce tableau était une nouvelle valeur à chaque
   // fois : le bandeau ne pouvait plus s'y fier comme dépendance et bricolait une
@@ -532,7 +636,20 @@ export function DeviceShell() {
     resume,
     health,
     verdict,
+    fraicheur,
   }
+
+  // Le bouton des bandeaux de l'état : une relance à la fois, et dit comme telle.
+  const boutonEtat = (
+    <button
+      type="button"
+      className="is-quiet reessayer"
+      disabled={relanceEnVol}
+      onClick={() => reessayerEtat.current?.()}
+    >
+      {relanceEnVol ? 'Lecture en cours…' : 'Réessayer maintenant'}
+    </button>
+  )
 
   // Le bandeau de tête reste en place même quand il n'y a plus rien à montrer :
   // il porte le verdict, et « cet équipement n'est plus supervisé » EST un
@@ -562,28 +679,49 @@ export function DeviceShell() {
       <>
         {mast}
         <div className="page">
-          <div className="notice is-error" role="alert">{fatal}</div>
+          <div className="notice is-error" role="alert">
+            {fatal}
+            {/* Un 404 est définitif — identifiant inconnu ou équipement retiré :
+                redemander ne changerait rien, et le bouton le laisserait croire. */}
+            {!retire.current && <> {boutonEtat}</>}
+          </div>
         </div>
       </>
     )
   }
 
+  // L'état de l'équipement ne répond plus SANS échec déclaré — une requête
+  // pendue ne rejette pas : seule l'horloge peut le dire. Sur un échec, c'est
+  // le bandeau « non rafraîchi » qui porte l'âge.
+  const etatAncien = refreshError === null && aSignaler(fraicheur.etat, clock)
+  const ageEtat = fraicheur.etat.lueA !== null
+    ? ` Dernière réponse il y a ${duree(clock - fraicheur.etat.lueA)}.`
+    : ''
+
   return (
     <>
       {mast}
-      {(refreshError || liveClosure) && (
+      {(refreshError || liveClosure || etatAncien) && (
         <div className="page" style={{ paddingBottom: 0 }}>
           {refreshError && (
             <div className="notice is-warn" role="alert">
-              <strong>État de l’équipement non rafraîchi.</strong> {refreshError}. Ce qui
-              est à l’écran date du dernier échange abouti et vieillit : le bandeau le
-              déclarera périmé.
+              <strong>État de l’équipement non rafraîchi.</strong> {refreshError}.{ageEtat} Ce
+              qui est à l’écran date du dernier échange abouti et vieillit : le bandeau le
+              déclarera périmé. {boutonEtat}
             </div>
           )}
+          {etatAncien && <Fraicheur nom="État de l’équipement" etat={fraicheur.etat} />}
           {liveClosure && (
             <div className="notice is-error" role="alert">
               Flux temps réel refermé par le serveur : {liveClosure}. Aucune reconnexion
-              ne sera tentée.
+              automatique ne sera tentée.{' '}
+              <button
+                type="button"
+                className="is-quiet reessayer"
+                onClick={() => { setLiveClosure(null); setEssaiFlux((n) => n + 1) }}
+              >
+                Réessayer maintenant
+              </button>
             </div>
           )}
         </div>
