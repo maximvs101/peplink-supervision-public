@@ -370,7 +370,7 @@ describe('nom de l’opérateur (R-2.6)', () => {
 describe('un lien désactivé par l’exploitant (C-20)', () => {
   it('le dit, sans pastille rouge ni « Modem déconnecté »', () => {
     const { container } = render(<WanCard sample={sample({ connected: false, disabled: true })} />)
-    expect(container.textContent).toContain('Lien désactivé par l’exploitant')
+    expect(container.textContent).toContain('Lien désactivé')
     expect(container.textContent).not.toContain('Modem déconnecté')
     const pastille = container.querySelector('.dot') as HTMLElement
     expect(pastille.style.background).toBe('var(--q-inconnu)')

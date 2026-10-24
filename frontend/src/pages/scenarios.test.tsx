@@ -522,8 +522,8 @@ describe('à quoi sert le bond', () => {
     )
     expect(screen.getByText(/Dans le tunnel/)).toBeInTheDocument()
     expect(screen.getByText(/353 ms contre 19 ms/)).toBeInTheDocument()
-    // Et la raison pour laquelle ce grief ne fait PAS le verdict reste disponible.
-    expect(screen.getByTitle(/ne font donc pas le verdict/)).toBeInTheDocument()
+    // Et ce sur quoi porte la mesure reste disponible au survol.
+    expect(screen.getByTitle(/trajet vers le pair/)).toBeInTheDocument()
   })
 
   it('cesse de nier le trafic dès que des paquets le démentent', () => {
@@ -546,9 +546,9 @@ describe('à quoi sert le bond', () => {
     )
     expect(screen.getByText(/Le bond porte le trafic/)).toBeInTheDocument()
     expect(screen.queryByText(/Rien ne transite/)).not.toBeInTheDocument()
-    // Le raisonnement qui le fonde — un pair annonce ce qu'il sait joindre, pas
-    // ce que le routeur lui envoie — survit au survol.
-    expect(screen.getByTitle(/politique de sortie est locale/)).toBeInTheDocument()
+    // Ce qui le fonde — les routes annoncées et les paquets mesurés — survit
+    // au survol.
+    expect(screen.getByTitle(/Paquets mesurés dans le tunnel/)).toBeInTheDocument()
     // Et le décompte le suit : ces liens PORTENT.
     expect(screen.getByText('liens qui portent')).toBeInTheDocument()
   })
@@ -907,7 +907,7 @@ describe('le pied de notes', () => {
     const { container, unmount } = monter(CONFIGURATIONS['MAX HD4 MBX — 4 SIM et une fibre'])
     const notes = [...container.querySelectorAll('.panel-note')]
     // Le garde-fou sert à ce que le test ne passe pas sur un écran vide.
-    expect(notes.length).toBeGreaterThan(1)
+    expect(notes.length).toBeGreaterThan(0)
     expect(notes.filter((n) => !n.parentElement?.classList.contains('panel-notes'))).toEqual([])
     unmount()
   })

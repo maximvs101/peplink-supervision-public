@@ -225,8 +225,8 @@ export function BondPlan({
           {!figures.hasTunnel
             ? ' · aucun tunnel configuré'
             : porte
-              ? ' · réunis en une liaison · épaisseur = débit porté'
-              : ' · le tunnel n’achemine que ce qui lui est routé'}
+              ? ' · épaisseur = débit porté'
+              : ' · tunnel : routes dédiées'}
         </span>
       </div>
 
@@ -262,9 +262,7 @@ export function BondPlan({
                   prétendre qu'ils fusionnent, et sans rien recouvrir. */}
               {/* `<title>` en PREMIER : c'est ce que la spécification SVG
                   demande, et l'infobulle d'un groupe s'y attache. */}
-              <title>
-                Ces liens partagent une cellule : ils n’offrent aucune diversité de trajet.
-              </title>
+              <title>Même cellule</title>
               {/* Une piste transparente, comme pour les rails : l'accolade est
                   un trait d'une unité et demie, soit moins d'un pixel rendu —
                   son infobulle était inatteignable à la souris. */}
@@ -544,17 +542,13 @@ export function BondPlan({
 {(role.kind === 'routes' || role.kind === 'porte') && (
         <Note pourquoi={
           role.kind === 'routes'
-            ? "Le pair annonce " + role.routes.join(', ') + " et la route par défaut n'y "
-              + "figure pas ; moins de mille paquets ont traversé le tunnel sur la fenêtre "
-              + "relue — un keepalive. Les débits, latences et pertes du bond ne décrivent "
-              + "donc que ces routes-là, pas votre trafic."
-            : "Le pair annonce " + role.routes.join(', ') + " sans la route par défaut, "
-              + "mais des paquets traversent bel et bien le tunnel : ce qu'un pair annonce "
-              + "dit ce qu'il sait joindre, pas ce que le routeur décide de lui envoyer — "
-              + "la politique de sortie est locale."
+            ? "Routes annoncées par le pair : " + role.routes.join(', ')
+              + " (sans route par défaut). Moins de 1 000 paquets dans le tunnel sur la fenêtre."
+            : "Routes annoncées par le pair : " + role.routes.join(', ')
+              + " (sans route par défaut). Paquets mesurés dans le tunnel."
         }>
           {role.kind === 'routes'
-            ? <><b>Rien ne transite par le bond.</b> Les grandeurs ci-dessous ne décrivent pas votre trafic.</>
+            ? <><b>Rien ne transite par le bond.</b></>
             : <><b>Le bond porte le trafic.</b></>}
         </Note>
       )}
@@ -571,17 +565,12 @@ export function BondPlan({
           s'affiche que s'il existe ET qu'un tunnel est monté : hors de ce cas,
           il ne décrit rien. */}
       {figures.hasTunnel && throughputLimitMbps !== null && (
-        <Note pourquoi="Plafond imposé par la licence de l'équipement, quelle que soit la capacité des liens agrégés.">
-          Tunnel plafonné à <b>{fmtNumber(throughputLimitMbps, 0)} Mbit/s</b>.
+        <Note>
+          Tunnel plafonné à <b>{fmtNumber(throughputLimitMbps, 0)} Mbit/s</b> (licence).
         </Note>
       )}
       {grievances.length > 0 && (
-        <Note pourquoi={
-          "Ces mesures portent sur le trajet vers le pair — elles ne décrivent ni votre "
-          + "trafic, qui sort par les interfaces, ni l'état des liens eux-mêmes, qui est "
-          + "dans la table. Elles ne font donc pas le verdict de la liaison ; elles disent "
-          + "ce que subissent les routes desservies par le bond."
-        }>
+        <Note pourquoi="Mesures sur le trajet vers le pair.">
           <b>Dans le tunnel :</b> {grievances.join(', ')}.
         </Note>
       )}
@@ -591,27 +580,16 @@ export function BondPlan({
       {figures.hasTunnel && redundancy.state !== 'unknown' && (
         redundancy.state === 'off' ? (
           <Note pourquoi={
-            fmtInt(redundancy.packets) + " paquets montants ont traversé le tunnel sans "
-            + "qu'un seul ne soit émis en correction ni reconstitué à l'arrivée. "
-            + (porte
-                ? "Chaque paquet perdu sur un lien est donc perdu pour le flux. "
-                : "Sans conséquence pour votre trafic, qui n'emprunte pas le tunnel — mais "
-                  + "ce qui y est routé n'a aucune protection. ")
-            + "Les activer se règle depuis l'administration du routeur, et se paie en "
-            + "capacité montante : 13 à 27 % pour la correction d'erreur, le double ou le "
-            + "triple du trafic pour le lissage."
+            fmtInt(redundancy.packets) + " paquets montants, 0 en correction ou duplication."
           }>
             <b>Aucune redondance sur ce bond.</b>
           </Note>
         ) : (
           <Note pourquoi={
-            fmtInt(redundancy.repair) + " paquets émis en correction ou en duplication pour "
-            + fmtInt(redundancy.packets) + " transportés. C'est le prix payé pour que la "
-            + "perte d'un lien ne se voie pas dans le flux — et il monte AVANT que la perte "
-            + "n'apparaisse."
+            fmtInt(redundancy.repair) + " paquets en correction ou duplication pour "
+            + fmtInt(redundancy.packets) + " transportés."
           }>
-            <b>{fmtNumber(redundancy.share * 100, 1)} % de la capacité montante</b> part en
-            redondance.
+            Redondance : <b>{fmtNumber(redundancy.share * 100, 1)} % de la capacité montante</b>.
           </Note>
         )
       )}
