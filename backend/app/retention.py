@@ -90,6 +90,9 @@ class Retention:
         self._seuil_rtt = seuil_rtt
         # Entre deux lots, la main à la scrutation et aux routes.
         self._pause_s = pause_s
+        # Les sessions dont la fiche n'a pas pu être figée, et pourquoi :
+        # publiées par `/api/health`, dites une fois au journal.
+        self.echecs: dict[int, str] = {}
 
     async def figer(self, lignes: dict) -> None:
         """Fige la fiche et le journal d'une session, sur ses relevés bruts."""
@@ -113,7 +116,23 @@ class Retention:
         limite = (maintenant or utcnow()) - timedelta(days=self._jours)
         figees = 0
         for lignes in await self._repo.sessions_a_figer(limite):
-            await self.figer(lignes)
+            # Une fiche qui échoue arrêtait TOUTE la passe, avant le
+            # regroupement, et cela chaque heure. Les autres sessions
+            # continuent ; celle-ci reste brute — le regroupement s'arrête au
+            # début de toute session close non figée — et sera retentée.
+            try:
+                await self.figer(lignes)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                cause = f"{type(exc).__name__}: {exc}"
+                if self.echecs.get(lignes["id"]) != cause:
+                    logger.warning(
+                        "Rétention : fiche de la session %s impossible à figer (%s) ; "
+                        "ses relevés restent bruts", lignes["id"], cause)
+                self.echecs[lignes["id"]] = cause
+                continue
+            self.echecs.pop(lignes["id"], None)
             figees += 1
             await asyncio.sleep(self._pause_s)
 

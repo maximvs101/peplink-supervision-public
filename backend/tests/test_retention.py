@@ -541,3 +541,42 @@ async def test_une_base_neuve_ou_peu_liberee_n_est_pas_convertie(tmp_path):
         assert await _auto_vacuum(repo) == 0
     finally:
         await repo.close()
+
+
+async def test_une_fiche_qui_echoue_n_arrete_pas_la_passe(base, monkeypatch, caplog):
+    """Une session dont la fiche ne se calcule pas arrêtait TOUTE la passe,
+    avant le regroupement, et cela chaque heure. Les autres continuent ; elle
+    n'est jamais purgée tant qu'elle n'est pas figée, et son échec se voit."""
+    from app import retention as module
+
+    repo = base.repo
+    # Un second équipement, une vieille session close, qui se fige sans peine.
+    autre = await repo.open_session("r2", VIEILLE - timedelta(minutes=1))
+    await _ecrire(repo, [("r2", *_releve("1", VIEILLE + timedelta(seconds=5 * i), i)[1:])
+                         for i in range(50)])
+    await repo.touch_session(autre, VIEILLE + timedelta(seconds=245), 50)
+    vieille = base.ids["vieille"]
+    bruts_r1 = await _compte(repo, "SELECT COUNT(*) FROM samples WHERE router_id = 'r1'")
+    calculer = module.calculer_fiche
+
+    async def capricieuse(depot, lignes):
+        if lignes["id"] == vieille:
+            raise ValueError("fiche incalculable")
+        return await calculer(depot, lignes)
+
+    monkeypatch.setattr(module, "calculer_fiche", capricieuse)
+    retention = _retention(repo)
+    with caplog.at_level("WARNING"):
+        bilan = await retention.passe(MAINTENANT)
+        await retention.passe(MAINTENANT)
+    assert bilan["sessions_figees"] == 1 and bilan["lots"] > 0
+    assert await _compte(repo, "SELECT COUNT(*) FROM samples WHERE router_id = 'r2'") == 0
+    # La session en échec n'a rien perdu de ses relevés bruts.
+    assert await _compte(repo, "SELECT COUNT(*) FROM samples WHERE router_id = 'r1'") == bruts_r1
+    assert retention.echecs == {vieille: "ValueError: fiche incalculable"}
+    # Dit une fois, pas à chaque passe.
+    assert caplog.text.count("fiche incalculable") == 1
+    # Réparée, elle se fige et sort des échecs.
+    monkeypatch.setattr(module, "calculer_fiche", calculer)
+    await retention.passe(MAINTENANT)
+    assert retention.echecs == {}

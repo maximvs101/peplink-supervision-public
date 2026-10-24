@@ -79,3 +79,25 @@ async def test_la_conversion_de_la_base_precede_la_scrutation(tmp_path, monkeypa
     async with main.lifespan(FastAPI()):
         pass
     assert ordre == ["conversion", "scrutation"]
+
+
+async def test_la_sante_publie_les_sessions_que_la_retention_n_a_pas_pu_figer(tmp_path, monkeypatch):
+    import httpx
+
+    from app import main
+    from app.api import routes
+    from app.config import Settings
+
+    reglages = Settings(
+        peplink_mode="mock", database_path=str(tmp_path / "s.db"),
+        routers_config=str(tmp_path / "absent.yaml"), poll_interval_seconds=0.2,
+    )
+    monkeypatch.setattr(main, "get_settings", lambda: reglages)
+    app = FastAPI()
+    app.include_router(routes.router)
+    async with main.lifespan(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            assert (await client.get("/api/health")).json()["retention_sessions_en_echec"] == []
+            app.state.retention.echecs[12] = "ValueError: x"
+            assert (await client.get("/api/health")).json()["retention_sessions_en_echec"] == [12]

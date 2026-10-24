@@ -260,6 +260,10 @@ async def health(request: Request) -> dict:
         # où seule la période était mesurée et où une dérive ne pouvait se
         # constater qu'après coup, sans cause.
         "cycle_seconds": state.poller.cycle_seconds,
+        # Les sessions closes dont la rétention n'a pas pu figer la fiche : elles
+        # restent brutes, et le regroupement s'arrête avant elles.
+        "retention_sessions_en_echec": sorted(
+            getattr(getattr(state, "retention", None), "echecs", None) or {}),
         # Pas de compte de relevés : `SELECT COUNT(*)` parcourt un index entier
         # — 1,6 ms sur 72 k lignes, et linéaire — toutes les quinze secondes,
         # pour un chiffre qu'aucun écran ne lisait. Un état de santé dit si

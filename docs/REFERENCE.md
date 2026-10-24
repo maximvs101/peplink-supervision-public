@@ -291,7 +291,10 @@ avant la borne que les épisodes figés des sessions (`grouped_before`). Le trav
 par lots d'une heure d'un équipement — une transaction de quelques dizaines de
 millisecondes, sous le verrou d'écriture ; un arrêt au milieu n'annule que le lot en cours.
 La toute première purge est précédée d'une copie `samples.db.avant-retention.bak`, jamais
-élaguée.
+élaguée, écrite sous un nom temporaire et renommée une fois complète. Une session dont la
+fiche ne peut pas être figée n'arrête pas la passe : elle reste brute (le regroupement
+s'arrête avant elle), est dite une fois au journal et publiée par `/api/health`
+(`retention_sessions_en_echec`).
 
 ### Brancher de vrais routeurs
 
@@ -558,7 +561,7 @@ refusée à tout client qui n'est pas la machine elle-même, et à une page d'un
 
 | Méthode | Route | Rôle |
 |---|---|---|
-| `GET` | `/api/health` | État, mode, nombre d'équipements, période de scrutation |
+| `GET` | `/api/health` | État, mode, nombre d'équipements, période de scrutation, sessions que la rétention n'a pas pu figer |
 | `GET` | `/api/discover` | Équipements Peplink détectés sur le réseau (poste local) |
 | `GET` | `/api/devices` | État de chaque équipement supervisé (en attente, connecté, identifiants refusés, injoignable…) |
 | `POST` | `/api/devices/pair` | Met un équipement en supervision (poste local) |

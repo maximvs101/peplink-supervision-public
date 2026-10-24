@@ -93,9 +93,8 @@ async def lifespan(app: FastAPI):
     )
     # La rétention, en tâche de fond et par petits lots : jamais une
     # transaction qui gèle la scrutation (`app/retention.py`).
-    retention = asyncio.create_task(
-        Retention(repo, settings.retention_jours, routes._SEUIL_EPISODE_MS).boucle()
-    )
+    app.state.retention = Retention(repo, settings.retention_jours, routes._SEUIL_EPISODE_MS)
+    retention = asyncio.create_task(app.state.retention.boucle())
 
     app.state.settings = settings
     app.state.repo = repo

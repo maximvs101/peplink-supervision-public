@@ -644,6 +644,10 @@ export interface Health {
   /** Ce que COÛTE une scrutation, hors pause. La période vaut
    *  `cycle + consigne` : publier les deux rend leur écart explicable. */
   cycle_seconds: number | null
+  /** Sessions closes dont la rétention n'a pas pu figer la fiche : elles
+   *  restent brutes, et le regroupement s'arrête avant elles. Absent d'un
+   *  serveur antérieur. */
+  retention_sessions_en_echec?: number[]
 }
 
 /** Équipement repéré sur le réseau, avant tout appairage. Ces informations sont
