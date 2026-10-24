@@ -104,4 +104,15 @@ describe('modificateurs des avis', () => {
       .map(([chemin]) => chemin)
     expect(fautifs).toEqual([])
   })
+
+  it('un avis d’erreur est annoncé (role="alert")', () => {
+    // Aucun avis n'avait de rôle : « Impossible de charger l'équipement »,
+    // « Flux temps réel refermé » apparaissaient sans qu'un lecteur d'écran
+    // en dise rien. Un avis d'erreur est un événement, il s'annonce.
+    const muets = Object.entries(sources).flatMap(([chemin, texte]) =>
+      texte.split('\n')
+        .filter((ligne) => /className=.*notice[^"`]*is-error/.test(ligne) && !/role=/.test(ligne))
+        .map((ligne) => `${chemin} : ${ligne.trim()}`))
+    expect(muets).toEqual([])
+  })
 })

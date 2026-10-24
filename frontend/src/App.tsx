@@ -112,7 +112,7 @@ function Entree({ routers, panne }: { routers: RouterSummary[] | null; panne: st
         <Panne panne={panne} premiere />
         {panne === null && (
           <div className="page is-narrow">
-            <div className="notice">Chargement de la flotte…</div>
+            <div className="notice" role="status">Chargement de la flotte…</div>
           </div>
         )}
       </>

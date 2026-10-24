@@ -143,7 +143,7 @@ export function EventLog({ log, windowLabel, complet = false }: Props) {
       <section className="panel">
         <div className="panel-head"><h2>Journal</h2></div>
         <div className="panel-body">
-          <div className="notice">Relecture de la fenêtre en cours…</div>
+          <div className="notice" role="status">Relecture de la fenêtre en cours…</div>
         </div>
       </section>
     )

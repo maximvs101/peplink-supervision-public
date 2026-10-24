@@ -73,7 +73,7 @@ export function WanDetail() {
           <section className="panel">
             <div className="panel-head"><h2>Historique</h2></div>
             <div className="panel-body">
-              <div className="notice">Ouverture du tracé…</div>
+              <div className="notice" role="status">Ouverture du tracé…</div>
             </div>
           </section>
         }

@@ -222,7 +222,7 @@ describe('fiche de session', () => {
     // ne disaient rien et serraient le reste.
     expect(entetes).not.toContain('Bond médian')
     expect([valeur('Lien médian'), valeur('Lien p90'), valeur('Lien max')])
-      .toEqual(['28 sur 179', '33', '61'])
+      .toEqual(['28 ms sur 179', '33 ms', '61 ms'])
   })
 
   it('dit ce que la médiane de RSRP doit à l’historique du routeur (R-3.1)', async () => {

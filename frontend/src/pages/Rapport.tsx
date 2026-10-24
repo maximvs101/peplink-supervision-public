@@ -90,7 +90,7 @@ export function Rapport() {
     }
   }, [journal, complet])
 
-  if (erreur) return <div className="rapport"><p className="notice is-error">{erreur}</p></div>
+  if (erreur) return <div className="rapport"><p className="notice is-error" role="alert">{erreur}</p></div>
   if (fiche === null) return <div className="rapport"><p className="disclaimer">Lecture de la session…</p></div>
 
   const s = fiche.session

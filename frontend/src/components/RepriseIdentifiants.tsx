@@ -56,7 +56,7 @@ export function RepriseIdentifiants({ routerId, status }: { routerId: string; st
   const enCours = tentative.etat === 'envoi' || tentative.etat === 'attendue'
 
   return (
-    <div className="notice is-error">
+    <div className="notice is-error" role="alert">
       <strong>Supervision arrêtée sur cet équipement.</strong> Aucune nouvelle
       tentative n’est faite d’elle-même : cinq échecs de connexion suspendent
       l’accès au routeur pendant cinq minutes, y compris depuis son interface web.

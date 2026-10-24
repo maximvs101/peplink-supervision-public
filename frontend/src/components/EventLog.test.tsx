@@ -266,7 +266,7 @@ describe('un brassage de stations inconnu', () => {
     // `station_changes: null` : station non identifiable. Zéro se lirait
     // comme une stabilité.
     render(<EventLog log={journal([], { churn: [{
-      wan_id: '4', link_kind: 'cellular', has_cells: true, cell_changes: 3, station_changes: null,
+      wan_id: '4', link_kind: 'cellular', has_cells: true, cell_changes: 3, station_changes: null, outages: 0,
     }] })} windowLabel="Depuis la mise sous tension" />)
     expect(screen.getByText(/Brassage/).closest('p, div')?.textContent).toMatch(/—\s*\/\s*3/)
   })

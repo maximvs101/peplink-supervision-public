@@ -185,7 +185,7 @@ export function Discovery() {
                   affirmait « Aucun équipement en supervision » et proposait
                   d'appairer des équipements que le serveur venait de marquer
                   comme déjà supervisés. */}
-              <div className="notice is-error">
+              <div className="notice is-error" role="alert">
                 <strong>La liste des équipements supervisés n’a pas pu être lue.</strong>{' '}
                 {supervisedError}. Ce qui suit ne dit donc pas ce qui est déjà en service :
                 appairer un équipement déjà supervisé le remplacerait.
@@ -321,11 +321,11 @@ export function Discovery() {
 
           {error ? (
             <div className="panel-body">
-              <div className="notice is-error">{error}</div>
+              <div className="notice is-error" role="alert">{error}</div>
             </div>
           ) : devices === null ? (
             <div className="panel-body">
-              <div className="notice">Sondage du réseau…</div>
+              <div className="notice" role="status">Sondage du réseau…</div>
             </div>
           ) : devices.length === 0 ? (
             <div className="panel-body">
@@ -465,7 +465,7 @@ export function Discovery() {
           <section className="panel">
             <div className="panel-head"><h2>Déjà vus depuis ce poste</h2></div>
             <div className="panel-body">
-              <div className="notice is-error">
+              <div className="notice is-error" role="alert">
                 Historique des équipements illisible : {connusError}.
               </div>
             </div>
