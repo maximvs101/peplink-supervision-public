@@ -301,7 +301,7 @@ export function SessionSheet({
           fiche complète — or volumes, coupures et barycentre sont tous des
           totaux. Une session de trois semaines ne se relit pas en entier. */}
       {fiche.partial && fiche.window_start && (
-        <div className="notice warn">
+        <div className="notice is-warn">
           Session trop longue pour être relue en entier : cette fiche ne porte que
           sur la fenêtre du {new Date(fiche.window_start).toLocaleString('fr-FR')} au{' '}
           {new Date(fiche.window_end ?? fiche.session.last_seen).toLocaleString('fr-FR')}.

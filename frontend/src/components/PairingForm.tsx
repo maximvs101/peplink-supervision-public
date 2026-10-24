@@ -194,7 +194,7 @@ export function PairingForm({ host, onPaired, onCancel }: Props) {
       </label>
 
       {error && (
-        <div className={`notice ${error.credentials ? 'error' : 'warn'}`}>
+        <div className={`notice ${error.credentials ? 'is-error' : 'is-warn'}`} role="alert">
           {error.message}
         </div>
       )}

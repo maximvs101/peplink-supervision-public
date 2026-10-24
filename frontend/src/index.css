@@ -815,9 +815,6 @@ a { color: var(--ink); }
 .notice strong { color: var(--ink); font-weight: 600; }
 .notice.is-warn { border-left-color: var(--q-moyen); }
 .notice.is-error { border-left-color: var(--q-faible); }
-/* Noms hérités des écrans non encore repris. */
-.notice.warn { border-left-color: var(--q-moyen); }
-.notice.error { border-left-color: var(--q-faible); }
 
 code {
   font-family: var(--mono);

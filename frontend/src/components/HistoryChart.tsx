@@ -331,7 +331,7 @@ export function HistoryChart({
 
       <div className="card-body">
         {error ? (
-          <div className="notice error">Historique indisponible : {error}</div>
+          <div className="notice is-error">Historique indisponible : {error}</div>
         ) : data.length === 0 ? (
           <div className="notice">
             {passee
