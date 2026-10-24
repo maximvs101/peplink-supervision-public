@@ -12,6 +12,7 @@ import { useElementSize } from '../lib/useElementSize'
 import { LOSS_MIN_PACKETS } from '../lib/verdict'
 import { RESUME_MS, debutObserve } from '../lib/session'
 import { SessionSheet } from './SessionSheet'
+import { courbeCsv, nomFichierCourbe, telecharger } from '../lib/exportCourbe'
 
 /** Fenêtres d'historique proposées. Le maximum suit le plafond de la route.
  *  Une session de stationnement dure couramment trois heures et plus — c'est la
@@ -47,13 +48,16 @@ interface Props {
   sessions?: Session[]
   /** Après un renommage, demande à `DeviceShell` de relire la liste. */
   onRafraichirSessions?: () => Promise<void>
+  /** Le NOM de l'équipement, pour nommer le fichier exporté — jamais son
+   *  identifiant opaque, qui ne dit rien à qui ouvre le fichier. */
+  equipement?: string | null
 }
 
 /** Historique glissant d'une métrique, rafraîchi périodiquement. */
 
 export function HistoryChart({
   routerId, wanId, wanName, kind, hasTunnel = false, periodSeconds = null,
-  sessions: sessionsProp, onRafraichirSessions, episodes = [],
+  sessions: sessionsProp, onRafraichirSessions, episodes = [], equipement = null,
 }: Props) {
   // Les grandeurs du tunnel étaient offertes sur tous les liens de tous les
   // équipements. Sur un boîtier sans SpeedFusion, cela faisait deux boutons de
@@ -310,6 +314,40 @@ export function HistoryChart({
   const desactivations = reperes.filter((r) => r.genre === 'désactivation')
   const trous = enveloppe ? [] : trousLisibles(trousDeSupervision(points), desactivations)
   const transitions = reperes.filter((r) => r.genre !== 'désactivation')
+
+  // La fenêtre en clair, une fois pour le pied et pour l'export. Une session
+  // choisie que la liste ne porte plus — relue entre deux lectures — n'a pas de
+  // date à inventer : `new Date('')` écrivait « Invalid Date ».
+  const libelleFenetre = sessionId !== null
+    ? (sessionChoisie
+        ? `session du ${new Date(sessionChoisie.started_at).toLocaleString('fr-FR')}`
+        : 'session choisie')
+    : (FENETRES.find((f) => f.minutes === minutes)?.label ?? `${minutes} min`)
+
+  // Exactement ce qui est tracé : les relevés de `data` — sans les points
+  // fictifs que `withGaps` insère pour couper le trait —, dans l'unité de
+  // l'axe, un taux retiré laissé vide avec sa raison.
+  const exporterCsv = () => {
+    const courbe = {
+      equipement: equipement ?? 'équipement',
+      lien: wanName,
+      grandeur: { key: current.key, label: current.label, unit: current.unit },
+      fenetre: {
+        libelle: libelleFenetre,
+        jeton: sessionId !== null ? `session-${sessionId}` : libelleFenetre.replace(/\s+/g, ''),
+      },
+      enveloppe,
+      disponibles: available,
+      seuilPaquets: LOSS_MIN_PACKETS,
+      lignes: data.map((p, i) => ({
+        t: bruts[i].t,
+        value: bruts[i].value,
+        comble: bruts[i].comble,
+        retire: p.value !== null && !publiable(p),
+      })),
+    }
+    telecharger(nomFichierCourbe(courbe), courbeCsv(courbe))
+  }
 
   return (
     <section className="card">
@@ -608,15 +646,20 @@ export function HistoryChart({
           </div>
         )}
 
+        {/* Emporter la courbe AFFICHÉE — pas la session entière, que le
+            rapport exporte déjà : seulement quand une courbe est tracée. */}
+        {!error && mesures > 0 && (
+          <p className="disclaimer">
+            <button type="button" className="is-quiet" onClick={exporterCsv}>
+              Exporter en CSV
+            </button>{' '}
+            la courbe affichée : cette grandeur, cette fenêtre
+            {enveloppe ? ', en enveloppe (dit en tête du fichier)' : ''}.
+          </p>
+        )}
+
         <p className="disclaimer">
-          {sessionId !== null
-            // Une session choisie que la liste ne porte plus — relue entre
-            // deux lectures — n'a pas de date à inventer : `new Date('')`
-            // écrivait « Invalid Date », un mot que l'écran s'interdit.
-            ? (sessionChoisie
-                ? `session du ${new Date(sessionChoisie.started_at).toLocaleString('fr-FR')}`
-                : 'session choisie')
-            : (FENETRES.find((f) => f.minutes === minutes)?.label ?? `${minutes} min`)}{' '}
+          {libelleFenetre}{' '}
           ·{' '}
           {enveloppe
             ? `${available} mesures, tracées en enveloppe — ${data.length} points, `

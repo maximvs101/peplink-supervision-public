@@ -29,7 +29,7 @@ export function WanDetail() {
   const { wanId = '' } = useParams()
   const {
     routerId, samples, showThroughput, hasTunnel, periodSeconds, events, windowLabel,
-    sessions, rafraichirSessions, status, fraicheur,
+    sessions, rafraichirSessions, status, fraicheur, router,
   } = useDevice()
   const sample = samples.find((s) => s.wan.wan_id === wanId)
 
@@ -93,6 +93,7 @@ export function WanDetail() {
           kind={sample.wan.kind}
           hasTunnel={hasTunnel}
           episodes={events?.episodes ?? []}
+          equipement={router?.name ?? null}
         />
       </Suspense>
       </ChartBoundary>

@@ -18,6 +18,7 @@ Correctifs pas encore étiquetés ; la section prendra le numéro de la prochain
   le bandeau ne dit plus « identité en cours de lecture » d'une fiche lue dont la série est tue ;
   un refus des anciens identifiants, arrivé après leur correction, ne bloque plus les nouveaux.
 - **Fraîcheur par partie d'écran** : état, sessions, bande, journal et fiche gardent leur dernière donnée valide sur un échec et disent « dernière réponse il y a N s » quand elle date ; « Réessayer maintenant » sur les bandeaux d'erreur.
+- **Export CSV de la courbe affichée** depuis la fiche d'un lien : même grandeur, même fenêtre, enveloppe dite en tête, fichier nommé par l'équipement, la grandeur et la fenêtre, fabriqué dans le navigateur.
 - **Une grandeur absente reste une absence** (« — », « inconnu »), plus jamais un zéro :
   manœuvres quand le journal du routeur n'a pas été lu, stations en 5G SA, latence d'un lien
   sorti du relevé.
