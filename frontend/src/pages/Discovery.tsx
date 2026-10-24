@@ -130,7 +130,7 @@ export function Discovery() {
     if (reconnexion !== null) return
     setReconnexion(d.serial)
     setReconnexionEchec(null)
-    reconnectKnownDevice(d.serial)
+    reconnectKnownDevice(d.device_id)
       .then((paire) => {
         refresh()
         navigate(`/e/${encodeURIComponent(paire.id)}`)

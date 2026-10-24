@@ -349,8 +349,9 @@ def main() -> None:
         host=decision["hote"],
         port=int(decision["port"]),
         log_level="info",
-        # Le journal d'accès écrirait chaque adresse demandée, dont celles qui
-        # portent une série (`/api/devices/known/<série>/reconnect`).
+        # Le journal d'accès écrirait chaque adresse demandée. Celle de la
+        # reconnexion portait la série (`/api/devices/known/<série>/reconnect`) ;
+        # elle porte désormais l'identifiant opaque, mais le journal reste coupé.
         access_log=False,
         ws_per_message_deflate=True,
     )

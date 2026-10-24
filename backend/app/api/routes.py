@@ -1063,21 +1063,28 @@ def _statut(record) -> DeviceStatus:
 
 
 @router.post(
-    "/devices/known/{serial}/reconnect",
+    "/devices/known/{device_id}/reconnect",
     response_model=DeviceStatus,
     dependencies=[Depends(require_loopback)],
 )
-async def reconnect_known_device(serial: str, request: Request) -> DeviceStatus:
+async def reconnect_known_device(device_id: str, request: Request) -> DeviceStatus:
     """Réappaire un équipement déjà vu avec les identifiants du trousseau.
 
     Une tentative, comme l'appairage : 401 pour un refus, 502 pour un
     équipement injoignable, 409 quand rien n'est retenu — l'interface ouvre
     alors le formulaire.
+
+    Désigné par son identifiant OPAQUE (`device_id` de `/devices/known`), et
+    non plus par sa série : celle-ci passait dans l'adresse, donc dans tout
+    journal d'accès, historique de navigateur ou trace réseau qui la voyait.
     """
     state = request.app.state
-    connu = next((c for c in await state.repo.known_devices() if c["serial"] == serial), None)
+    connu = next(
+        (c for c in await state.repo.known_devices() if c.get("device_id") == device_id), None,
+    )
     if connu is None or not connu.get("host"):
         raise HTTPException(status_code=404, detail="Équipement inconnu de ce poste.")
+    serial = connu["serial"]
     if coffre.lire(serial) is None:
         raise HTTPException(status_code=409, detail="Aucun identifiant retenu pour cet équipement.")
     try:

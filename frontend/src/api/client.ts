@@ -115,9 +115,11 @@ export const fetchKnownDevices = () =>
   getJson<KnownDevice[]>('/api/devices/known')
 
 /** Reconnecte un équipement déjà vu avec les identifiants du trousseau. Une
- *  tentative, comme l'appairage ; l'erreur porte `credentials` pour un refus. */
-export async function reconnectKnownDevice(serial: string): Promise<DeviceStatus> {
-  const response = await fetch(`/api/devices/known/${encodeURIComponent(serial)}/reconnect`, {
+ *  tentative, comme l'appairage ; l'erreur porte `credentials` pour un refus.
+ *  Désigné par son identifiant OPAQUE (`KnownDevice.device_id`) : la série
+ *  passait dans l'adresse, donc dans tout journal ou historique qui la voyait. */
+export async function reconnectKnownDevice(deviceId: string): Promise<DeviceStatus> {
+  const response = await fetch(`/api/devices/known/${encodeURIComponent(deviceId)}/reconnect`, {
     method: 'POST',
   })
   if (!response.ok) throw await erreurAppairage(response)

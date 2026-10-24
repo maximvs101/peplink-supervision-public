@@ -105,7 +105,7 @@ describe('reconnecter un équipement déjà vu', () => {
     vi.mocked(fetchDevices).mockResolvedValue([])
     vi.mocked(fetchDiscovery).mockResolvedValue([detecte({ host: 'http://10.10.1.1', already_configured: false })])
     vi.mocked(fetchKnownDevices).mockResolvedValue([{
-      serial: '0000-0000-0063', device_id: '0000-0000-0063', name: 'EQUIPEMENT-DEMO', host: '10.10.1.1',
+      serial: '0000-0000-0063', device_id: 'eq-000000000063', name: 'EQUIPEMENT-DEMO', host: '10.10.1.1',
       model: 'MAX HD2', firmware: '8.5.4', first_seen: '2026-09-19T10:00:00Z', last_seen: '2026-09-19T12:00:00Z',
       credentials_stored: false,
     }])
@@ -118,7 +118,7 @@ describe('reconnecter un équipement déjà vu', () => {
 
 describe('reconnecter avec les identifiants retenus', () => {
   const connu = {
-    serial: '0000-0000-0063', device_id: '0000-0000-0063', name: 'EQUIPEMENT-DEMO', host: '10.10.1.1',
+    serial: '0000-0000-0063', device_id: 'eq-000000000063', name: 'EQUIPEMENT-DEMO', host: '10.10.1.1',
     model: 'MAX HD2', firmware: '8.5.4', first_seen: '2026-09-19T10:00:00Z',
     last_seen: '2026-09-19T12:00:00Z', credentials_stored: true,
   }
@@ -133,7 +133,8 @@ describe('reconnecter avec les identifiants retenus', () => {
     ;(await screen.findByRole('button', { name: 'Reconnecter' })).click()
     await waitFor(() => expect(screen.getByText('tableau de bord')).toBeInTheDocument())
     expect(reconnectKnownDevice).toHaveBeenCalledTimes(1)
-    expect(reconnectKnownDevice).toHaveBeenCalledWith('0000-0000-0063')
+    // L'identifiant opaque, jamais la série : celle-ci passait dans l'adresse.
+    expect(reconnectKnownDevice).toHaveBeenCalledWith('eq-000000000063')
   })
 
   it('dit un refus, et propose alors de ressaisir', async () => {

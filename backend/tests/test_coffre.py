@@ -115,7 +115,7 @@ def _web(depot, registry):
     return TestClient(app, base_url="http://localhost:8000", client=("127.0.0.1", 5000))
 
 
-CONNU = {"serial": "0000-0000-0042", "device_id": "0000-0000-0042", "name": "HD2-ESSAI",
+CONNU = {"serial": "0000-0000-0042", "device_id": "eq-00000000002a", "name": "HD2-ESSAI",
          "host": "http://192.0.2.7", "model": "Pepwave MAX HD2", "firmware": "8.5.4",
          "last_seen": "2026-10-17T10:00:00+00:00"}
 
@@ -157,7 +157,7 @@ async def test_reconnecter_avec_les_identifiants_retenus(trousseau):
     registry = DeviceRegistry(default_mode="mock")
     web = _web(depot, registry)
     with _identify(INFO) as identify:
-        r = web.post("/api/devices/known/0000-0000-0042/reconnect")
+        r = web.post("/api/devices/known/eq-00000000002a/reconnect")
     assert r.status_code == 200, r.text
     assert identify.await_count == 1, "une seule tentative"
     assert registry.find_by_serial("0000-0000-0042").config.host == "http://192.0.2.7"
@@ -169,8 +169,11 @@ async def test_reconnecter_avec_les_identifiants_retenus(trousseau):
 async def test_reconnecter_sans_identifiants_retenus_ne_tente_rien(trousseau):
     web = _web(_Depot([CONNU]), DeviceRegistry())
     with _identify(INFO) as identify:
-        assert web.post("/api/devices/known/0000-0000-0042/reconnect").status_code == 409
+        assert web.post("/api/devices/known/eq-00000000002a/reconnect").status_code == 409
         assert web.post("/api/devices/known/inconnu/reconnect").status_code == 404
+        # La série n'est plus une adresse : elle passait dans l'URL, donc
+        # dans tout journal d'accès ou historique qui la voyait.
+        assert web.post("/api/devices/known/0000-0000-0042/reconnect").status_code == 404
     assert identify.await_count == 0
 
 
@@ -182,7 +185,7 @@ async def test_un_refus_le_dit_et_garde_l_entree(trousseau):
     coffre.retenir("0000-0000-0042", coffre.Identifiants("admin", "ancien"))
     web = _web(_Depot([CONNU]), DeviceRegistry())
     with _identify(error=AuthenticationError("refusé")) as identify:
-        r = web.post("/api/devices/known/0000-0000-0042/reconnect")
+        r = web.post("/api/devices/known/eq-00000000002a/reconnect")
     assert r.status_code == 401 and identify.await_count == 1
     assert coffre.lire("0000-0000-0042") is not None
 
@@ -193,7 +196,7 @@ async def test_retirer_un_equipement_efface_son_entree(trousseau):
     depot = _Depot([CONNU])
     web = _web(depot, registry)
     with _identify(INFO):
-        web.post("/api/devices/known/0000-0000-0042/reconnect")
+        web.post("/api/devices/known/eq-00000000002a/reconnect")
     ident = registry.find_by_serial("0000-0000-0042").id
     assert web.delete(f"/api/devices/{ident}").status_code == 200
     assert coffre.lire("0000-0000-0042") is None

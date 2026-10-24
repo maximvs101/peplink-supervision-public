@@ -13,6 +13,10 @@ Correctifs pas encore étiquetés ; la section prendra le numéro de la prochain
   Au premier lancement, la base est migrée en une transaction, après une copie
   `samples.db.avant-identifiants-opaques.bak` ; les liens `#/e/…` d'avant ne mènent plus à
   l'équipement. Plus aucune série dans les journaux.
+- **Plus de série dans les adresses ni d'identifiant opaque à l'écran** : la reconnexion d'un
+  équipement connu se fait par son identifiant ; la Découverte montre le modèle sous le nom ;
+  le bandeau ne dit plus « identité en cours de lecture » d'une fiche lue dont la série est tue ;
+  un refus des anciens identifiants, arrivé après leur correction, ne bloque plus les nouveaux.
 - **Une grandeur absente reste une absence** (« — », « inconnu »), plus jamais un zéro :
   manœuvres quand le journal du routeur n'a pas été lu, stations en 5G SA, latence d'un lien
   sorti du relevé.

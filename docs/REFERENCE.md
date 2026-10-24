@@ -513,7 +513,7 @@ refusée à tout client qui n'est pas la machine elle-même, et à une page d'un
 | `GET` | `/api/devices` | État de chaque équipement supervisé (en attente, connecté, identifiants refusés, injoignable…) |
 | `POST` | `/api/devices/pair` | Met un équipement en supervision (poste local) |
 | `GET` | `/api/devices/known` | Équipements déjà appairés depuis ce poste, et si le trousseau garde leurs identifiants — un booléen, jamais leur contenu (poste local) |
-| `POST` | `/api/devices/known/{id}/reconnect` | Réappaire un équipement connu avec les identifiants du trousseau, en une tentative : 401 refus, 502 injoignable, 409 rien de retenu (poste local) |
+| `POST` | `/api/devices/known/{id}/reconnect` | Réappaire un équipement connu avec les identifiants du trousseau, en une tentative : 401 refus, 502 injoignable, 409 rien de retenu. `{id}` est son `device_id` opaque tel que `/api/devices/known` le rend, jamais sa série (poste local) |
 | `POST` | `/api/devices/{id}/reauth` | Autorise une nouvelle tentative après un refus d'identifiants — rien ne retente sans cette action (poste local) |
 | `DELETE` | `/api/devices/{id}` | Retire un équipement de la supervision ; les mesures enregistrées restent (poste local) |
 | `GET` | `/api/devices/{id}/capture/{endpoint}` | Réponse BRUTE d'un endpoint de la liste de capture, pour archiver une fixture — non anonymisée (poste local) |
