@@ -4,15 +4,20 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# Données locales (mesures, exports ANFR volumineux)
+# Données locales (mesures) — sous backend/ comme à la racine, d'où l'on
+# lance parfois l'outil ou l'exécutable.
 backend/data/
 backend/*.db
-backend/anfr_*.geojson
-backend/anfr_*.csv
+/data/
+/*.db
 
-# Configuration locale (contient les secrets des routeurs)
-backend/.env
-backend/routers.yaml
+# Configuration locale (contient les secrets des routeurs) — où qu'elle soit,
+# variantes comprises (`.env.local`, `.env.terrain`…). Seuls les exemples
+# restent suivis.
+.env
+.env.*
+!.env.example
+routers.yaml
 
 # Captures terrain (IMEI / ICCID / GPS / jetons)
 capture-peplink/
@@ -35,3 +40,5 @@ Thumbs.db
 # Exécutable unique (tools/construire_executable.py) : produit par système, jamais versionné
 backend/dist/
 backend/build/
+/dist/
+/build/
