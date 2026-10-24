@@ -2114,10 +2114,15 @@ def parse_system_info(payload: dict) -> DeviceInfo | None:
             if value is not None:
                 watts = (watts or 0.0) + value
 
+    # Une entrée sans `connect` n'est PAS listée : `bool(e.get("connect"))` la
+    # déclarait débranchée, et l'écran signalait une alimentation perdue dont
+    # le firmware ne disait rien. Le modèle ne connaît que branchée/débranchée ;
+    # une source d'état inconnu n'y a pas sa place — la taire vaut mieux que
+    # l'affirmer coupée.
     sources = [
-        PowerSource(name=_texte(e.get("name")) or "?", connected=bool(e.get("connect")))
+        PowerSource(name=_texte(e.get("name")) or "?", connected=bool(e["connect"]))
         for e in _liste(corps, "powerState")
-        if isinstance(e, dict)
+        if isinstance(e, dict) and "connect" in e
     ]
 
     # Le premier capteur thermique. Absent du Dome Pro Duo : `None` y vaut
@@ -2160,7 +2165,9 @@ def parse_system_info(payload: dict) -> DeviceInfo | None:
         care_plan_active=_drapeau(plan, "active"),
         pepvpn_version=_texte(device.get("pepvpnVersion")),
         timezone=_texte(horaire.get("timezone")),
-        config_activating=bool(activation.get("activating")),
+        # Bloc ou clé absents : on ne sait pas. `False` affirmait qu'aucune
+        # configuration ne s'appliquait, sur un firmware qui n'en dit rien.
+        config_activating=_drapeau(activation, "activating"),
         remote_assistance=_drapeau(assistance, "enable"),
         name=_texte(device.get("name")),
         uptime_s=depuis,
@@ -2184,9 +2191,12 @@ def _parse_allowance(bloc: object) -> BandwidthAllowance | None:
     un plafond non configuré rend `None` partout, jamais `0`. Et le bloc entier
     peut manquer — il manque sur le port basculé en LAN du matériel de référence.
     """
-    if not isinstance(bloc, dict):
+    if not isinstance(bloc, dict) or "enable" not in bloc:
+        # Sans `enable`, le bloc ne dit pas si un plafond s'applique : c'est
+        # un plafond INCONNU, pas un plafond désactivé. `bool(bloc.get(…))`
+        # rendait `enabled=False`, et l'écran taisait un plafond peut-être actif.
         return None
-    actif = bool(bloc.get("enable"))
+    actif = bool(bloc["enable"])
     plafond = bloc.get("monthlyAllowance")
     valeur = None
     if actif and isinstance(plafond, dict):
