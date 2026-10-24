@@ -160,8 +160,41 @@ def test_le_lancement_manuel_choisit_le_produit():
         elif "construire_executable.py" in run or "verifier_executable.py" in run:
             assert etape["if"] == "env.SUPERVISEUR == 'true'", nom
         elif str(etape.get("uses", "")).startswith("actions/upload-artifact"):
+            if etape["with"]["name"] == "LICENCES-TIERCES.txt":
+                continue  # test_les_licences_tierces_partent_une_fois
             produit = "TEMOIN" if "temoin" in etape["with"]["name"] else "SUPERVISEUR"
             assert etape["if"] == f"env.{produit} == 'true'"
+
+
+# --- Licences tierces ----------------------------------------------------------
+# Les exécutables embarquent du code sous MIT, BSD, Apache, PSF, OFL, MPL :
+# `construire_executable.py` écrit LICENCES-TIERCES.txt, chaque exécutable
+# l'emporte, et la Release le publie — une fois, et non une par système : celui
+# du superviseur Windows, dont les composants couvrent ceux de macOS (même
+# requirements.txt, même verrou npm ; pywin32-ctypes en plus) et ceux du témoin.
+
+def test_les_licences_tierces_partent_une_fois():
+    job = _flux()["jobs"]["construire"]
+    envois = [e for e in job["steps"] if str(e.get("uses", "")).startswith("actions/upload-artifact")
+              and e["with"]["name"] == "LICENCES-TIERCES.txt"]
+    assert len(envois) == 1
+    envoi = envois[0]
+    assert envoi["with"]["path"] == "backend/dist/LICENCES-TIERCES.txt"
+    assert envoi["with"]["if-no-files-found"] == "error"
+    # Écrit par la construction du SUPERVISEUR, sur la seule machine Windows.
+    assert envoi["if"] == "matrix.licences && env.SUPERVISEUR == 'true'"
+    porteuses = [m for m in job["strategy"]["matrix"]["include"] if m.get("licences")]
+    assert [m["os"] for m in porteuses] == ["windows-latest"]
+    # Après la vérification de l'exécutable, qui en lit la copie embarquée.
+    rang = {id(e): i for i, e in enumerate(job["steps"])}
+    verification = next(e for e in job["steps"]
+                        if "verifier_executable.py ${{ matrix.produit }}" in e.get("run", ""))
+    assert rang[id(verification)] < rang[id(envoi)]
+
+
+def test_le_readme_annonce_les_licences_tierces():
+    readme = (RACINE / "README.md").read_text(encoding="utf-8")
+    assert "LICENCES-TIERCES.txt" in readme
 
 
 def test_la_route_de_sante_n_est_pas_convertie_en_chemin_sous_windows():
@@ -380,11 +413,11 @@ def test_l_etape_de_garde_jouee_telle_quelle(tmp_path):
 
 
 # --- Empreintes SHA-256 de la Release ------------------------------------------
-# Les six fichiers partent avec `SHA256SUMS`, au format de `sha256sum`
+# Les sept fichiers (six exécutables, LICENCES-TIERCES.txt) partent avec `SHA256SUMS`, au format de `sha256sum`
 # (`<hex>  <nom>`) : `shasum -a 256 -c SHA256SUMS` sur Mac, `Get-FileHash`
 # sous Windows, vérifient un téléchargement.
 
-def test_publier_joint_les_empreintes_sha256_des_six_fichiers():
+def test_publier_joint_les_empreintes_sha256_des_sept_fichiers():
     etapes = _flux()["jobs"]["publier"]["steps"]
     rang = dict(enumerate(etapes))
     telechargement = next(i for i, e in rang.items()
@@ -395,8 +428,10 @@ def test_publier_joint_les_empreintes_sha256_des_six_fichiers():
     assert len(empreintes) == 1
     assert telechargement < empreintes[0] < envoi
     run = etapes[empreintes[0]]["run"]
-    assert "SHA256SUMS" in run and "-eq 6" in run, "six fichiers, ni plus ni moins"
-    # Le fichier part avec les six autres.
+    # Six exécutables et LICENCES-TIERCES.txt : sept fichiers, ni plus ni moins,
+    # tous couverts par les empreintes.
+    assert "SHA256SUMS" in run and "-eq 7" in run, "sept fichiers, ni plus ni moins"
+    # Le fichier part avec les sept autres.
     fichiers = etapes[envoi]["with"]["files"]
     assert "SHA256SUMS" in fichiers or fichiers.strip() == "fichiers/*"
     assert (etapes[empreintes[0]].get("working-directory") == "fichiers"
@@ -414,7 +449,8 @@ def test_l_etape_d_empreintes_jouee_telle_quelle(tmp_path):
     import hashlib
     noms = ["superviseur-windows-x64.exe", "superviseur-macos-x64.tar.gz",
             "superviseur-macos-arm64.tar.gz", "temoin-ethernet-windows-x64.exe",
-            "temoin-ethernet-macos-x64.tar.gz", "temoin-ethernet-macos-arm64.tar.gz"]
+            "temoin-ethernet-macos-x64.tar.gz", "temoin-ethernet-macos-arm64.tar.gz",
+            "LICENCES-TIERCES.txt"]
     for n, nom in enumerate(noms):
         (dossier / nom).write_bytes(bytes([n]) * (n + 1) * 1000)
     env = dict(os.environ)
@@ -433,7 +469,7 @@ def test_l_etape_d_empreintes_jouee_telle_quelle(tmp_path):
     attendues = sorted(f"{hashlib.sha256((dossier / nom).read_bytes()).hexdigest()}  {nom}"
                        for nom in noms)
     assert sorted(lignes) == attendues
-    # Un septième fichier (ou un manquant) arrête la publication.
+    # Un huitième fichier (ou un manquant) arrête la publication.
     (dossier / "SHA256SUMS").unlink()
     (dossier / "intrus.txt").write_text("x")
     fait = subprocess.run(["bash", "-eo", "pipefail", "-c", etape["run"]], cwd=cwd, env=env,

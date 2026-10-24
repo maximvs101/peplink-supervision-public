@@ -293,10 +293,83 @@ def test_le_fichier_reel_couvre_requirements_et_le_package_json():
     # aussi tiré par la production, `npm ls --omit=dev` le liste — lui aussi.
     # Un même nom peut y être deux fois, à deux versions (react-is) : la paire compte.
     verrou = json.loads((FRONTEND / "package-lock.json").read_text(encoding="utf-8"))
-    paires = {(c.rsplit("node_modules/", 1)[-1], e.get("version")): bool(e.get("dev"))
-              for c, e in verrou["packages"].items() if c}
-    production = {p for p, dev in paires.items() if not dev}
-    for (nom, version), dev in paires.items():
+    paires = [((c.rsplit("node_modules/", 1)[-1], e.get("version")), bool(e.get("dev")))
+              for c, e in verrou["packages"].items() if c]
+    production = {p for p, dev in paires if not dev}
+    for (nom, version), dev in paires:
         if dev and (nom, version) not in production and nom not in lt._INLINES:
             assert f"\n  {nom} {version} —" not in resume, nom
     assert "PSF" in contenu and "CPython" in resume and "PyInstaller" in resume
+
+
+# --- Construction : le fichier voyage avec chaque exécutable ----------------
+
+import construire_executable as ce
+
+
+def _add_data(commande: list[str]) -> list[str]:
+    return [commande[i + 1] for i, a in enumerate(commande) if a == "--add-data"]
+
+
+def test_le_superviseur_embarque_le_fichier_a_la_racine_de_l_interface(tmp_path, monkeypatch):
+    """Servi par l'exécutable sous /LICENCES-TIERCES.txt, à côté d'index.html."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    monkeypatch.setattr(ce, "DIST", dist)
+    fichier = tmp_path / lt.NOM
+    assert f"{fichier}{ce.SEPARATEUR}frontend/dist" in _add_data(ce.superviseur(fichier))
+
+
+def test_le_temoin_embarque_le_fichier_avec_son_ecran(tmp_path):
+    """Servi par le témoin sous /LICENCES-TIERCES.txt : son écran est monté à la racine."""
+    fichier = tmp_path / lt.NOM
+    assert f"{fichier}{ce.SEPARATEUR}temoin/ecran" in _add_data(ce.temoin(fichier))
+
+
+def _sans_pyinstaller(monkeypatch, tmp_path) -> dict:
+    """La construction jusqu'à PyInstaller, exclu : ce qui existe quand il serait lancé."""
+    vu: dict = {}
+    monkeypatch.setattr(ce, "RACINE", tmp_path)
+    dist = tmp_path / "frontend-dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    monkeypatch.setattr(ce, "DIST", dist)
+
+    def appel(commande, cwd=None):
+        licences = [Path(d.rsplit(ce.SEPARATEUR, 1)[0]) for d in _add_data(commande) if lt.NOM in d]
+        vu["contenu"] = licences[0].read_text(encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(ce.subprocess, "call", appel)
+    return vu
+
+
+def test_construire_genere_le_fichier_avant_pyinstaller_et_le_pose_dans_dist(tmp_path, monkeypatch):
+    if not (FRONTEND / "node_modules").is_dir():
+        pytest.skip("frontend/node_modules absent (`npm ci`)")
+    vu = _sans_pyinstaller(monkeypatch, tmp_path)
+    assert ce.main([]) == 0
+    assert "Produit : superviseur" in vu["contenu"] and "\n  react " in vu["contenu"]
+    # La Release le prend là, à côté de l'exécutable.
+    assert (tmp_path / "dist" / lt.NOM).read_text(encoding="utf-8") == vu["contenu"]
+
+
+def test_le_temoin_n_annonce_pas_l_interface_qu_il_n_embarque_pas(tmp_path, monkeypatch):
+    vu = _sans_pyinstaller(monkeypatch, tmp_path)
+    assert ce.main(["--produit", "temoin"]) == 0
+    assert "Produit : témoin Ethernet" in vu["contenu"]
+    assert "Interface web" not in vu["contenu"] and "\n  fastapi " in vu["contenu"]
+    # Le fichier de dist/ reste celui du superviseur, qui couvre les deux.
+    assert not (tmp_path / "dist" / lt.NOM).exists()
+
+
+def test_une_licence_refusee_arrete_la_construction_avant_pyinstaller(tmp_path, monkeypatch):
+    _sans_pyinstaller(monkeypatch, tmp_path)
+
+    def refus(*a, **kw):
+        raise lt.LicencesRefusees("copyleft 1.0 : GPL-3.0-only hors liste blanche")
+
+    monkeypatch.setattr(lt, "generer", refus)
+    monkeypatch.setattr(ce.subprocess, "call", lambda *a, **kw: pytest.fail("PyInstaller lancé"))
+    assert ce.main(["--produit", "temoin"]) == 1

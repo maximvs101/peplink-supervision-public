@@ -106,13 +106,17 @@ def main(chemin: str, sante_url: str = "/api/health") -> int:
             code, page = lire(f"http://127.0.0.1:{port}/")
             if code != 200 or b"<script" not in page:
                 fautes.append(f"l'interface n'est pas servie : HTTP {code}, {len(page)} o")
+            # Les mentions des composants tiers, embarquées par la construction.
+            code, licences = lire(f"http://127.0.0.1:{port}/LICENCES-TIERCES.txt")
+            if code != 200 or not licences.startswith(b"Composants tiers"):
+                fautes.append(f"/LICENCES-TIERCES.txt non servi : HTTP {code}, {len(licences)} o")
             code, _ = lire(f"http://127.0.0.1:{port}{lecture}")
             if code != 200:
                 fautes.append(f"{lecture} : HTTP {code}")
             if not (dossier / "data" / base).exists():
                 fautes.append(f"data/{base} n'a pas été créée à côté de l'exécutable")
             print(f"prêt en {pret:.1f} s · {executable.stat().st_size / 1048576:.1f} Mo · interface servie · base créée"
-                  f" · trousseau : {sante.get('coffre') or 'aucun'}")
+                  f" · licences tierces servies · trousseau : {sante.get('coffre') or 'aucun'}")
     finally:
         # Un exécutable « un fichier » est une amorce PLUS un processus enfant :
         # sous Windows, TerminateProcess ne se propage pas et le serveur
