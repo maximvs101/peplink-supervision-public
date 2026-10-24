@@ -589,7 +589,13 @@ export function DeviceShell() {
     mesure, dernierMesure.current?.routerId === routerId ? dernierMesure.current.role : null,
   )
 
-  const statut = inconnu ? 'inconnu' : (router?.status ?? 'en attente')
+  // « Connecté » sans liste de liens ni relevé daté : le serveur a joint
+  // l'équipement mais n'a pas fini son premier cycle. Le flux livre alors les
+  // liens un par un, et un verdict tiré du premier arrivé est faux (« Liaison
+  // rompue » sur un WAN sans câble, la SIM qui porte pas encore reçue).
+  const premierCycle = router?.status === 'connecté'
+    && router.wans.length === 0 && router.age_seconds === null
+  const statut = inconnu ? 'inconnu' : premierCycle ? 'en attente' : (router?.status ?? 'en attente')
   const periode = router?.period_seconds ?? health?.cycle_period_seconds ?? null
   const tunnelCause = router
     ? causeDuTunnel(router.bond_profiles ?? [], router.capabilities, Date.now())

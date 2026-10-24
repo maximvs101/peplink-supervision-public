@@ -95,6 +95,28 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('premier cycle', () => {
+  it('ne conclut pas sur un relevé partiel avant que le serveur ait publié les liens', async () => {
+    // Vu sur un HD2 au redémarrage du serveur : « connecté », liste de liens
+    // encore vide, puis le flux livre le WAN 1 seul (sans câble) — l'écran
+    // titrait « Liaison rompue » alors que la SIM 5 portait le trafic.
+    let pousser: ((s: RadioSample) => void) | undefined
+    vi.mocked(openLiveSocket).mockImplementation((_id, onSample) => {
+      pousser = onSample as (s: RadioSample) => void
+      return () => {}
+    })
+    vi.useFakeTimers()
+    vi.mocked(fetchRouter).mockResolvedValue(summary([], { age_seconds: null }))
+    monter()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => {
+      pousser!(sample('1', 0, { kind: 'ethernet', connected: false, status_message: 'No Cable Detected' }))
+    })
+    expect(screen.queryByText(/Liaison rompue/)).toBeNull()
+    expect(screen.getByText('En attente du premier relevé')).toBeTruthy()
+  })
+})
+
 describe('liste des liens', () => {
   it('oublie un WAN que le serveur ne liste plus', async () => {
     // Le serveur fait ce qu'il faut : `_prune_absent_wans` retire le WAN de son
