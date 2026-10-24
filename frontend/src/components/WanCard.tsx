@@ -80,10 +80,14 @@ function Detail(
  *  jamais affichés) : la ligne y répétait « 1 » indéfiniment. Elle ne devient une
  *  information que sur un équipement qui hiérarchise vraiment ses liens — sur le
  *  Dome Pro Duo le WAN filaire est à 1 et les deux SIM à 2, et l'exploitant doit
- *  alors savoir que ce lien ne portera rien tant que le principal tient. */
-function OutboundPriority({ priority }: { priority: number | null }) {
+ *  alors savoir que ce lien ne portera rien tant que le principal tient.
+ *
+ *  « secours » seulement si le lien attend effectivement (`lib/secours`) : sur
+ *  un HD2 réel, la SIM 5 de priorité 2 portait tout le trafic, le WAN 1 de
+ *  priorité 1 n'ayant pas de câble. */
+function OutboundPriority({ priority, enAttente }: { priority: number | null; enAttente: boolean }) {
   if (priority === null || priority <= 1) return null
-  return <Detail label="Priorité sortante" value={`${priority} — secours`} />
+  return <Detail label="Priorité sortante" value={enAttente ? `${priority} — secours` : `${priority}`} />
 }
 
 interface WanCardProps {
@@ -98,6 +102,8 @@ interface WanCardProps {
   churn?: LinkChurn | null
   /** Ce que la fenêtre couvre, pour que le compte porte sa base de temps. */
   windowLabel?: string
+  /** Le lien attend-il derrière un autre (`lib/secours.enAttente`) ? */
+  enAttente?: boolean
 }
 
 /** Carte d'un WAN radio : cellulaire (qualité, porteuses, cellule) ou lien Wi-Fi amont. */
@@ -181,7 +187,7 @@ function SimSlots({ slots }: { slots: SimSlot[] | undefined }) {
   )
 }
 
-export function WanCard({ sample, showThroughput = true, churn, windowLabel }: WanCardProps) {
+export function WanCard({ sample, showThroughput = true, churn, windowLabel, enAttente = false }: WanCardProps) {
   // Les coupures et les sauts de cellule se comptent SUR LA FENÊTRE, comme dans
   // la table des liens. La fiche lisait `sample.disconnects` et
   // `sample.cell_changes`, cumulés depuis le démarrage du serveur — une base de
@@ -309,7 +315,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
             <span className="section-label">Le lien</span>
             <div className="details">
               <Detail label="Adresse" value={wan.ip ?? '—'} />
-              <OutboundPriority priority={wan.priority} />
+              <OutboundPriority priority={wan.priority} enAttente={enAttente} />
               <Detail label="Coupures" value={coupures === null ? null : fmtInt(coupures)} />
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
               <Detail label="État" value={wan.status_message ?? '—'} />
@@ -429,7 +435,7 @@ export function WanCard({ sample, showThroughput = true, churn, windowLabel }: W
               {showThroughput && (
                 <Detail label="Débit montant" value={fmtThroughput(wan.tx_kbps)} />
               )}
-              <OutboundPriority priority={wan.priority} />
+              <OutboundPriority priority={wan.priority} enAttente={enAttente} />
               <Detail label="Coupures" value={coupures === null ? null : fmtInt(coupures)} />
               <Detail label="Connecté depuis" value={fmtUptime(wan.uptime_s)} />
               <Detail label="État" value={wan.status_message ?? '—'} />

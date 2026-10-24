@@ -12,6 +12,7 @@ import { QUALITY_COLOR, QUALITY_THRESHOLDS, couleurDuLien, rsrpQuality, rsrqQual
 import { fmtNumber, fmtUptime, etiquetteSupport } from '../lib/format'
 import { lienWan } from '../lib/routes'
 import { ecarteDuBond } from '../lib/verdict'
+import { etiquettePriorite } from '../lib/secours'
 
 /** L'heure d'un fléchissement, À LA MINUTE.
  *
@@ -199,6 +200,7 @@ export function LinkTable({
                 seuilMs={seuilMs}
                 churn={parChurn.get(s.wan.wan_id) ?? null}
                 jamais={neverConnected.includes(s.wan.wan_id) && !s.wan.connected}
+                priorite={etiquettePriorite(s.wan, samples.map((x) => x.wan))}
               />
             ))}
           </tbody>
@@ -316,9 +318,12 @@ export function LinkTable({
 
 function Row({
   routerId, sample, showThroughput, hasTunnel, cellulaire, wifi, cellules, shares,
-  slices, tranches, latences, latencesLien, churn, seuilMs, jamais,
+  slices, tranches, latences, latencesLien, churn, seuilMs, jamais, priorite,
 }: {
   jamais: boolean
+  /** « secours · P2 » si le lien attend derrière un autre, « P2 » sinon,
+   *  `null` en priorité 1 (voir `lib/secours`). */
+  priorite: string | null
   routerId: string
   sample: RadioSample
   showThroughput: boolean
@@ -387,12 +392,10 @@ function Row({
             {wan.rat && <span className="tag">{wan.rat}</span>}{' '}
             {wan.band && <span className="tag is-mono">{wan.band}</span>}{' '}
             {isWired && !wan.rat && <span className="tag">Établi</span>}
-            {/* Un WAN de priorité supérieure à 1 ne porte rien tant qu'un lien
-                de priorité 1 tient : le dire évite de chercher pourquoi il est
-                à zéro. */}
-            {wan.priority !== null && wan.priority > 1 && (
-              <> <span className="tag">secours · P{wan.priority}</span></>
-            )}
+            {/* « secours » seulement si le lien attend effectivement : la
+                priorité seule ne le dit pas (HD2 réel : la SIM 5 de priorité 2
+                portait tout, le WAN 1 de priorité 1 sans câble). */}
+            {priorite !== null && <> <span className="tag">{priorite}</span></>}
             {ecarte && <> <span className="tag is-off">hors du bond</span></>}
             {/* Le routeur arrête le trafic sur un lien qui dépasse de plus de
                 `cutoff_ms` la latence du plus rapide — et son état reste

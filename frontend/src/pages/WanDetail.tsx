@@ -17,6 +17,7 @@ import { Fraicheur } from '../components/Fraicheur'
 import { useDevice } from './DeviceShell'
 import { SansMesure } from '../components/SansMesure'
 import { etiquetteSupport } from '../lib/format'
+import { enAttente } from '../lib/secours'
 
 /**
  * Second niveau : tout le détail d'un lien.
@@ -65,6 +66,7 @@ export function WanDetail() {
         showThroughput={showThroughput}
         churn={events?.churn?.find((c) => c.wan_id === sample.wan.wan_id) ?? null}
         windowLabel={windowLabel}
+        enAttente={enAttente(sample.wan, samples.map((s) => s.wan))}
       />
       {/* Le sélecteur de sessions et les repères du journal posés sur la
           courbe viennent des relectures de l'enveloppe : leur âge se dit ici. */}
