@@ -1056,3 +1056,26 @@ CRLF dans un test, et le bash de Git qui changeait `/api/sante` en chemin
 Restent : la séance de capture (règles du journal marquées HYPOTHÈSE), le comblement des
 trous par l'historique de latence (reporté), et la Release qui embarquera le témoin.
 
+
+### 2026-10-24 — Revue complète, rétention de la base, v0.2.1
+
+Revue du superviseur en quatre volets (client API, collecte et stockage, interface,
+outillage), puis correctifs en parallèle et une revue finale de l'ensemble. Le plus sérieux :
+la série servait d'identifiant d'équipement et passait dans les journaux, les adresses et
+l'API — remplacée par une empreinte opaque, migration de la base en une transaction, répétée
+sur une copie de la vraie base. Ensuite : un refus passager du routeur éteignait une fonction
+jusqu'au redémarrage, trois zéros qui étaient des absences, des écritures concurrentes sans
+verrou, un écran bloqué après un échec de chargement.
+
+Puis la rétention (sessions closes figées, relevés regroupés à la minute au-delà de 30
+jours, compactage), la fraîcheur par partie d'écran, l'export CSV de la courbe, les réglages
+dans l'adresse, les règles de coupure écrites une seule fois, et la CI : garde de version en
+tête, `SHA256SUMS`, audits, Dependabot, licence MIT. La revue finale a encore trouvé une copie
+de sauvegarde tenue pour bonne après un arrêt brutal, et un compactage qui faisait passer la
+flotte pour injoignable : corrigés.
+
+Leçon : lancer l'application sur une copie de la base reconnecte les équipements appairés
+qu'elle contient, même en mode simulateur. Les répétitions se font désormais hors application.
+
+Restent : la séance de capture du témoin, son premier lancement sur un vrai PC Windows, et un
+fichier de mentions des licences tierces à joindre aux exécutables.

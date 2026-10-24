@@ -4,51 +4,73 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
-## À venir
+## v0.2.1 — Revue complète et rétention de la base
 
-Correctifs pas encore étiquetés ; la section prendra le numéro de la prochaine version.
+Une revue de tout le superviseur, ses correctifs, et une base qui ne grossit plus sans fin.
+Le témoin Ethernet ne change pas, il suit le numéro.
 
-- **Identifiant d'équipement opaque** dans l'API, et **série masquée** pour tout client qui
-  n'est pas le poste local.
-  Au premier lancement, la base est migrée en une transaction, après une copie
-  `samples.db.avant-identifiants-opaques.bak` ; les liens `#/e/…` d'avant ne mènent plus à
-  l'équipement. Plus aucune série dans les journaux.
-- **Plus de série dans les adresses ni d'identifiant opaque à l'écran** : la reconnexion d'un
-  équipement connu se fait par son identifiant ; la Découverte montre le modèle sous le nom ;
-  le bandeau ne dit plus « identité en cours de lecture » d'une fiche lue dont la série est tue ;
-  un refus des anciens identifiants, arrivé après leur correction, ne bloque plus les nouveaux.
-- **Fraîcheur par partie d'écran** : état, sessions, bande, journal et fiche gardent leur dernière donnée valide sur un échec et disent « dernière réponse il y a N s » quand elle date ; « Réessayer maintenant » sur les bandeaux d'erreur.
-- **Export CSV de la courbe affichée** depuis la fiche d'un lien : même grandeur, même fenêtre, enveloppe dite en tête, fichier nommé par l'équipement, la grandeur et la fenêtre, fabriqué dans le navigateur ; les minutes regroupées par la rétention sont marquées `minute`, et l'en-tête le dit.
-- **Une lecture sans réponse est abandonnée après 20 s** : « Réessayer maintenant » ne reste plus bloqué sur « Lecture en cours… », et un clic pendant une lecture déjà partie dit « Lecture déjà en cours… ».
-- **Réglages de l'historique dans l'adresse** (`#/e/…/wan/…?grandeur=rsrp&fenetre=180&session=12`) : un lien rouvre la même courbe, « Précédent » rend le réglage d'avant, une valeur inconnue retombe sur le défaut.
+**À la mise à jour.** Le premier lancement migre la base, une seule fois et avant toute
+mesure : identifiants d'équipement rendus opaques, puis conversion pour le compactage si le
+disque a la place (sinon au lancement suivant, avec un avertissement). Deux copies sont
+laissées dans `data/` : `samples.db.avant-identifiants-opaques.bak` et, avant la première
+purge, `samples.db.avant-retention.bak`. Les favoris `#/e/…` d'avant ne mènent plus à
+l'équipement.
+
+### Nouveau
+
+- **Rétention de la base** (`RETENTION_JOURS`, 30 par défaut, 0 garde tout) : au-delà, les
+  sessions closes sont figées (fiche et journal inchangés), puis les relevés regroupés à la
+  minute et le fichier compacté, en tâche de fond. Les courbes, la bande et l'export anciens
+  passent à la minute, et le disent.
+- **Fraîcheur par partie d'écran** : état, sessions, bande, journal et fiche gardent leur
+  dernière donnée valide sur un échec et disent « dernière réponse il y a N s » quand elle
+  date ; « Réessayer maintenant » sur les bandeaux d'erreur. Une lecture sans réponse est
+  abandonnée après 20 s.
+- **Export CSV de la courbe affichée**, depuis la fiche d'un lien : même grandeur, même
+  fenêtre, enveloppe ou minutes regroupées dites en tête, fichier nommé par l'équipement.
+- **Réglages de l'historique dans l'adresse** (`#/e/…/wan/…?grandeur=rsrp&fenetre=180`) : un
+  lien rouvre la même courbe, « Précédent » rend le réglage d'avant.
+
+### Confidentialité
+
+- **Identifiant d'équipement opaque** : la série ne sert plus d'identifiant, n'apparaît plus
+  dans les journaux ni dans aucune adresse, et n'est plus envoyée à un poste qui n'est pas le
+  poste local.
+
+### Mesure
+
 - **Une grandeur absente reste une absence** (« — », « inconnu »), plus jamais un zéro :
   manœuvres quand le journal du routeur n'a pas été lu, stations en 5G SA, latence d'un lien
-  sorti du relevé.
+  sorti du relevé, configuration en cours inconnue.
+- **Un trou de plus de 60 s sans relevé n'est plus compté comme une coupure** dans la fiche
+  de session : c'est une absence de mesure. Les règles de coupure, de secours et de voisinage
+  sont écrites une seule fois, pour le calcul en direct comme pour la base.
+
+### Robustesse
+
 - **Un refus passager du routeur n'éteint plus une fonction** jusqu'au redémarrage : il est
-  redemandé, seul un endpoint inconnu du firmware est mis de côté, une heure.
-- **Écritures en base sous verrou**, annulées proprement en cas d'échec ; appairage et
-  reconnexion automatique ne se chevauchent plus sur un même routeur.
-- **Interface** : un équipement qui n'a pas pu être chargé se rétablit seul, la découverte
-  n'affirme plus « aucun équipement » avant d'avoir lu, la fiche de la session en cours se
-  relit, avis d'erreur annoncés aux lecteurs d'écran.
-- **Robustesse face aux firmwares** : réponses incomplètes ou inattendues tolérées.
-- **Rétention de la base** (`RETENTION_JOURS`, 30 par défaut) : au-delà, les sessions closes
-  sont figées (fiche et journal inchangés), puis les relevés regroupés à la minute et le
-  fichier compacté, en tâche de fond ; copie `samples.db.avant-retention.bak` avant la
-  première purge. Les courbes, la bande et l'export anciens passent à la minute, et le disent.
-  Une base d'avant cette version est convertie une fois, au démarrage suivant et avant la
-  scrutation, si le disque a la place (sinon différée, avec un avertissement) ; une attente
-  de la base ne fait plus passer un équipement « injoignable ».
-- **Garde de version à la publication** : l'étiquette, la section du CHANGELOG, les deux
-  paquets Python et l'interface doivent dire le même numéro, sinon rien n'est publié.
-- **Dépendances épinglées** : versions Python exactes, outils de test à part
-  (`requirements-test.txt`, `requirements-audit.txt`, réunis dans `requirements-dev.txt`),
-  actions GitHub par empreinte de commit.
-- **Vite à jour** (8, un seul dans le verrou), `npm audit` sans faille.
-- **Garde de version avant toute construction** : une étiquette fautive arrête la CI en quelques secondes ; en lancement manuel, les numéros du code doivent concorder.
+  redemandé ; seul un endpoint inconnu du firmware est mis de côté, une heure.
+- **Réponses incomplètes ou de forme inattendue tolérées** : un bloc d'un autre type ne fait
+  plus perdre tout le relevé ni passer l'équipement « injoignable ».
+- **Écritures en base sous verrou**, annulées proprement en cas d'échec ; une attente de la
+  base n'est plus imputée à l'équipement.
+- **Identifiants** : appairage et reconnexion automatique ne se chevauchent plus sur un même
+  routeur ; un refus des anciens identifiants, arrivé après leur correction, ne bloque plus
+  les nouveaux ; la reconnexion ne rejoue jamais un refus.
+- **Interface** : un équipement qui n'a pas pu être chargé se rétablit seul ; la découverte
+  n'affirme plus « aucun équipement » avant d'avoir lu ; la fiche de la session en cours se
+  relit ; avis d'erreur annoncés aux lecteurs d'écran.
+
+### Distribution
+
+- **`SHA256SUMS` dans chaque Release**, pour vérifier un téléchargement.
 - **Licence MIT** (`LICENSE`).
-- **`SHA256SUMS` dans chaque Release** : les empreintes des six fichiers, pour vérifier un téléchargement.
-- **Dependabot, audits et couverture** : montées mensuelles regroupées ; `pip-audit` et `npm audit` bloquent la Release sur une faille d'exécution (certifi monté à 2026.10.19), une panne réseau est retentée puis dite comme telle ; couverture affichée, sans seuil.
+- **Garde de version avant toute construction** : l'étiquette, cette section, les deux
+  paquets Python et l'interface doivent dire le même numéro, sinon rien n'est construit.
+- **Dépendances épinglées et auditées** : versions Python exactes, actions GitHub par
+  empreinte de commit, Vite 8 ; `pip-audit` et `npm audit` bloquent la Release sur une faille
+  d'exécution (certifi monté à 2026.10.19) ; Dependabot mensuel ; couverture des tests
+  affichée.
 
 ## v0.2.0 — Témoin de lien Ethernet
 
