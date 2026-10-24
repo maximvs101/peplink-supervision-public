@@ -316,6 +316,16 @@ def test_aucune_dependance_propre_a_un_systeme_sans_marqueur():
                 assert "sys_platform" in ligne, f"{nom} : {ligne}"
 
 
+def test_un_seul_vite_dans_le_verrou():
+    """Vite 5 compilait l'interface, vite 8 servait vitest : deux outils, deux
+    comportements, et vite 5 en fin de vie. Un seul, celui de la compilation."""
+    verrou = json.loads((RACINE / "frontend" / "package-lock.json").read_text(encoding="utf-8"))
+    vites = [chemin for chemin in verrou["packages"]
+             if chemin == "node_modules/vite" or chemin.endswith("/node_modules/vite")]
+    assert vites == ["node_modules/vite"]
+    assert int(verrou["packages"]["node_modules/vite"]["version"].split(".")[0]) >= 8
+
+
 def test_la_ci_installe_les_outils_de_test():
     etapes = _flux()["jobs"]["construire"]["steps"]
     installs = [e["run"] for e in etapes if "pip install" in e.get("run", "")]
