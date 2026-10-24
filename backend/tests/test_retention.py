@@ -463,3 +463,39 @@ async def test_le_fichier_retrecit_apres_compactage(tmp_path, existante):
         assert points
     finally:
         await repo.close()
+
+
+def test_la_copie_n_est_jamais_ecrite_sous_son_nom_final(tmp_path, monkeypatch):
+    """Tué pendant la copie, le processus ne passe par aucun `except` : le
+    fichier entamé restait sous son nom final et passait, au lancement suivant,
+    pour la copie déjà faite — la purge tournait sans copie valable."""
+    source = tmp_path / "s.db"
+    with sqlite3.connect(source) as c:
+        c.execute("CREATE TABLE t (x)")
+        c.execute("INSERT INTO t VALUES (1)")
+    c.close()
+    cible = tmp_path / "s.db.avant-retention.bak"
+    ouverts: list[str] = []
+    connecter = sqlite3.connect
+
+    def espion(chemin, *a, **k):
+        ouverts.append(str(chemin))
+        return connecter(chemin, *a, **k)
+
+    monkeypatch.setattr(stockage.sqlite3, "connect", espion)
+    stockage._copier_base(source, cible)
+    assert str(cible) not in ouverts
+    lu = connecter(cible)
+    try:
+        assert lu.execute("SELECT x FROM t").fetchone()[0] == 1
+    finally:
+        lu.close()
+    assert not cible.with_name(cible.name + ".partiel").exists()
+
+
+async def test_un_temporaire_orphelin_est_efface_au_demarrage(tmp_path):
+    orphelin = tmp_path / "samples.db.avant-retention.bak.partiel"
+    orphelin.write_bytes(b"entame")
+    async with SampleRepository(str(tmp_path / "samples.db")):
+        pass
+    assert not orphelin.exists()

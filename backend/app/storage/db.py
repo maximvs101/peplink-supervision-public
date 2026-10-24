@@ -666,24 +666,44 @@ def _instant(episode: dict) -> str:
     return str(episode.get("ts") or episode.get("debut") or "")
 
 
+# Les copies dédiées, faites une fois chacune à côté de la base : hors du motif
+# que le lanceur élague (`samples.*.db.bak`).
+_COPIES_DEDIEES = (".avant-retention.bak", ".avant-identifiants-opaques.bak")
+
+
+def _temporaire(cible: Path) -> Path:
+    """Le nom sous lequel une copie s'écrit tant qu'elle n'est pas complète.
+
+    Même dossier que la cible : `os.replace` y est un renommage atomique. Une
+    copie ne porte son nom final qu'ENTIÈRE — un processus tué pendant qu'elle
+    s'écrit (Ctrl+C, fenêtre fermée) ne passe par aucun `except`, et le fichier
+    entamé, laissé sous le nom final, était tenu pour la copie déjà faite au
+    lancement suivant : la purge, ou la migration, tournait sans copie valable.
+    """
+    return cible.with_name(cible.name + ".partiel")
+
+
 def _copier_base(source: Path, cible: Path) -> None:
     """Copie la base par l'API de sauvegarde, en un pas ; rien si elle échoue.
 
     En un pas : par petits pas, chaque écriture de la scrutation ferait
-    recommencer la copie depuis le début. Un fichier entamé (disque plein…)
-    passerait au lancement suivant pour la copie déjà faite : il est effacé.
+    recommencer la copie depuis le début. Écrite sous un nom temporaire, puis
+    renommée d'un coup (`_temporaire`) ; un temporaire entamé est effacé ici
+    s'il échoue, au démarrage suivant si le processus a été tué.
     """
+    partiel = _temporaire(cible)
     origine = sqlite3.connect(source)
-    copie = sqlite3.connect(cible)
+    copie = sqlite3.connect(partiel)
     try:
         origine.backup(copie)
     except BaseException:
         copie.close()
         origine.close()
-        cible.unlink(missing_ok=True)
+        partiel.unlink(missing_ok=True)
         raise
     copie.close()
     origine.close()
+    os.replace(partiel, cible)
 
 
 def _fusion(colonne: str, operation: str) -> str:
@@ -823,6 +843,12 @@ class SampleRepository:
     async def connect(self) -> None:
         directory = os.path.dirname(os.path.abspath(self._path))
         os.makedirs(directory, exist_ok=True)
+        if self._path != ":memory:":
+            # Une copie dédiée interrompue par un processus tué : son
+            # temporaire n'a jamais porté le nom final, elle sera refaite.
+            base = Path(os.path.abspath(self._path))
+            for suffixe in _COPIES_DEDIEES:
+                _temporaire(base.with_name(base.name + suffixe)).unlink(missing_ok=True)
         self._conn = await aiosqlite.connect(self._path)
         self._conn.row_factory = aiosqlite.Row
         # Avant toute table : une base NEUVE naît en vidage incrémental, et la
@@ -983,16 +1009,19 @@ class SampleRepository:
         cible = cible.with_name(cible.name + ".avant-identifiants-opaques.bak")
         if cible.exists():
             return
-        copie = sqlite3.connect(cible)
+        # Sous un nom temporaire, renommé une fois complète (`_temporaire`).
+        partiel = _temporaire(cible)
+        copie = sqlite3.connect(partiel)
         try:
             await self._conn.backup(copie)
         except BaseException:
-            # Un fichier entamé (disque plein…) passerait au lancement suivant
-            # pour la copie déjà faite, et la migration tournerait sans elle.
+            # Un fichier entamé (disque plein…) est effacé ; tué net, le
+            # processus le laisse, et `connect()` l'efface au lancement suivant.
             copie.close()
-            cible.unlink(missing_ok=True)
+            partiel.unlink(missing_ok=True)
             raise
         copie.close()
+        os.replace(partiel, cible)
 
     async def commit(self) -> None:
         """Valide ce que `insert(..., commit=False)` a écrit HORS de

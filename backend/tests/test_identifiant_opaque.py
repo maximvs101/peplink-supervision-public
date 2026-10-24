@@ -329,3 +329,30 @@ async def test_une_copie_ratee_ne_passe_pas_pour_bonne(tmp_path):
     assert not copie.exists()
     for table in _TABLES:
         assert ANCIEN in _ids(chemin, table), table
+
+
+async def test_la_copie_n_est_jamais_ecrite_sous_son_nom_final(tmp_path, monkeypatch):
+    """Un processus tué PENDANT la copie (Ctrl+C, fenêtre fermée) ne passe par
+    aucun `except` : le fichier entamé restait sous son nom final, tenu pour la
+    copie déjà faite au lancement suivant. Elle s'écrit sous un nom temporaire,
+    renommé d'un coup une fois complète ; un temporaire orphelin est effacé."""
+    from app.storage import db as stockage
+
+    chemin = tmp_path / "samples.db"
+    await _base_d_avant(chemin)
+    copie = tmp_path / "samples.db.avant-identifiants-opaques.bak"
+    orphelin = tmp_path / "samples.db.avant-identifiants-opaques.bak.partiel"
+    orphelin.write_bytes(b"entame")
+    ouverts: list[str] = []
+    connecter = sqlite3.connect
+
+    def espion(cible, *a, **k):
+        ouverts.append(str(cible))
+        return connecter(cible, *a, **k)
+
+    monkeypatch.setattr(stockage.sqlite3, "connect", espion)
+    async with SampleRepository(str(chemin)):
+        pass
+    assert str(copie) not in ouverts
+    assert copie.exists() and not orphelin.exists()
+    assert ANCIEN in _ids(copie, "samples")
