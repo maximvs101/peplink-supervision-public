@@ -3,8 +3,8 @@
 Comme `test_lancer.py` pour le superviseur : ce qui se teste ici est ce que le
 lanceur décide avant de servir — où vit la base, où est l'écran, sur quelle
 adresse et quel port il écoute. La construction elle-même (PyInstaller) ne se
-teste pas ici : `tools/construire_executable.py --produit temoin`, puis
-`tools/verifier_executable.py dist/temoin-ethernet --sante /api/sante`.
+teste pas ici : `tools/construire_executable.py`, puis
+`tools/verifier_executable.py dist/peplink` (l'exécutable unique).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def test_la_base_vit_a_cote_de_l_executable(monkeypatch, tmp_path):
     # l'exploitant a mis le fichier. La base va À CÔTÉ du fichier.
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "_MEI"), raising=False)
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "cle" / "temoin-ethernet"))
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "cle" / "peplink"))
     base, _ = lanceur.chemins()
     assert base == tmp_path / "cle" / "data" / "temoin.db"
 
@@ -143,3 +143,22 @@ def test_un_seul_temoin_par_base(monkeypatch, tmp_path, capsys):
     suivant = lanceur.verrouiller(base)
     assert suivant is not None
     suivant.close()
+
+
+def test_ctrl_c_arrete_sans_trace(monkeypatch, tmp_path):
+    # uvicorn, arrêté par Ctrl+C, relève le signal une fois arrêté : sans
+    # parade, KeyboardInterrupt sortait en trace (« Failed to execute script »
+    # dans l'exécutable), alors que la base était déjà fermée.
+    async def servir(*a, **kw):
+        raise KeyboardInterrupt
+
+    base = tmp_path / "data" / "temoin.db"
+    monkeypatch.setattr(lanceur, "chemins", lambda: (base, tmp_path))
+    monkeypatch.setattr(lanceur, "servir", servir)
+    monkeypatch.setattr(lanceur, "port_disponible", lambda hote, port: True)
+    monkeypatch.setenv("OUVRIR_NAVIGATEUR", "0")
+    monkeypatch.delenv("PORT", raising=False)
+    assert lanceur.main() == 0
+    verrou = lanceur.verrouiller(base)
+    assert verrou is not None, "le verrou est relâché"
+    verrou.close()

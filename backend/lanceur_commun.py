@@ -111,7 +111,13 @@ async def servir_les_deux(appli, hote: str, port_superviseur: int, base_temoin: 
             asyncio.create_task(superviseur.serve()),
             asyncio.create_task(temoin_lanceur.servir(base_temoin, ecran, port_temoin,
                                                       superviseur=adresse_superviseur,
-                                                      fabrique=fabrique)),
+                                                      fabrique=fabrique,
+                                                      # Le journal d'accès d'uvicorn est
+                                                      # un seul journal par processus : le
+                                                      # témoin le rallumait pour le
+                                                      # superviseur (vu à l'essai de
+                                                      # l'exécutable).
+                                                      journal_acces=False)),
         ]
         await asyncio.wait(taches, return_when=asyncio.FIRST_COMPLETED)
         for serveur in serveurs:

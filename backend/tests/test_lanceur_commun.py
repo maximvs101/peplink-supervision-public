@@ -287,6 +287,10 @@ async def test_ctrl_c_arrete_les_deux_serveurs_et_ferme_les_bases(monkeypatch, t
     await appui
     assert [s.config.port for s in _FauxServeur.vus] == [8000, 8010]
     assert all(s.should_exit for s in _FauxServeur.vus)
+    # Le journal d'accès d'uvicorn est UN journal pour le processus : la
+    # configuration du témoin le rallumait pour le superviseur, dont les
+    # adresses ne doivent pas passer à la console. Coupé pour les deux.
+    assert [s.config.access_log for s in _FauxServeur.vus] == [False, False]
     # Les deux arrêts ont lieu ; leur ordre relatif dépend de la boucle.
     assert sorted(journal) == sorted(["superviseur démarré", "superviseur arrêté",
                                       "base du témoin fermée"])
