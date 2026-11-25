@@ -4,11 +4,18 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
-## À venir
+## v0.3.0 — Un seul fichier pour les deux outils
+
+Le superviseur et le témoin Ethernet sont livrés dans un seul exécutable par système. Les
+données restent dans `data/` à côté du fichier, sans migration.
+
+**À la mise à jour** : remplacer `superviseur-*` et `temoin-ethernet-*` par le fichier
+`peplink-*` dans le même dossier, à côté de `data/`.
 
 - **Un seul fichier pour les deux outils** : un double-clic démarre le superviseur (8000) et
   le témoin Ethernet (8010) ; `--superviseur` ou `--temoin` n'en lance qu'un. Ports :
-  `PORT_SUPERVISEUR`, `PORT_TEMOIN`.
+  `PORT_SUPERVISEUR`, `PORT_TEMOIN`. Un second lancement rouvre le navigateur sur l'instance
+  en cours.
 - **Fichiers** : `peplink-windows-x64.exe`, `peplink-macos-x64.tar.gz`,
   `peplink-macos-arm64.tar.gz` remplacent les six `superviseur-*` et `temoin-ethernet-*`.
 - **Liens** « Témoin Ethernet » et « Superviseur » dans les en-têtes, quand l'autre tourne.
