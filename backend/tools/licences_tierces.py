@@ -2,11 +2,11 @@
 exécutables embarquent.
 
     .venv/bin/python tools/licences_tierces.py                      # dist/LICENCES-TIERCES.txt
-    .venv/bin/python tools/licences_tierces.py --sans-interface     # témoin : serveur seul
+    .venv/bin/python tools/licences_tierces.py --sans-interface     # serveurs seuls, sans l'interface web
     .venv/bin/python tools/licences_tierces.py --sortie autre/chemin.txt
 
-Le superviseur et le témoin sont sous licence MIT, mais leurs exécutables
-embarquent du code d'autrui — FastAPI, pydantic, React, recharts, les polices
+Le superviseur et le témoin sont sous licence MIT, mais leur exécutable commun
+embarque du code d'autrui — FastAPI, pydantic, React, recharts, les polices
 @fontsource, l'interpréteur Python… — sous MIT, BSD, Apache, PSF, OFL, MPL, dont
 la plupart demandent que leur texte accompagne toute distribution binaire.
 `construire_executable.py` appelle ce module avant PyInstaller et embarque le
@@ -628,13 +628,13 @@ def _bloc(c: Composant) -> list[str]:
 def rendre(python: list[Composant], natifs: list[Composant], interface: list[Composant] | None,
            produit: str) -> str:
     entete = [
-        "Composants tiers des exécutables — superviseur et témoin Ethernet Peplink",
+        "Composants tiers de l'exécutable — superviseur et témoin Ethernet Peplink",
         _TRAIT,
         "",
         "Le superviseur et le témoin Ethernet sont publiés sous licence MIT (fichier LICENSE",
-        "du dépôt). Leurs exécutables embarquent aussi du code d'autres auteurs : l'interpréteur",
-        "Python, des bibliothèques Python et, pour le superviseur, l'interface web compilée et",
-        "ses polices. Ce fichier reproduit, pour chacun, son nom, sa version, sa licence, sa",
+        "du dépôt). Leur exécutable commun embarque aussi du code d'autres auteurs : l'interpréteur",
+        "Python, des bibliothèques Python, l'interface web compilée du superviseur et ses",
+        "polices. Ce fichier reproduit, pour chacun, son nom, sa version, sa licence, sa",
         "source, et le texte complet de sa licence et de sa notice tels que le composant les",
         "distribue. Un texte que le composant ne distribue pas est repris de sa source",
         "officielle, citée avec son étiquette en tête de ce texte ; à défaut, il est signalé.",
@@ -677,8 +677,8 @@ def generer(interface: bool = True, frontend: Path = FRONTEND,
     ecran = composants_interface(frontend) if interface else None
     tous = [*python, *natifs, *(ecran or [])]
     verifier(tous)
-    produit = ("superviseur (serveur et interface web)" if interface
-               else "témoin Ethernet (serveur et écran statique ; sans l'interface web du superviseur)")
+    produit = ("superviseur et témoin Ethernet (serveurs, interface web et écran du témoin)" if interface
+               else "serveurs seuls (sans l'interface web du superviseur)")
     return rendre(python, natifs, ecran, produit), manquants(tous)
 
 
@@ -697,7 +697,7 @@ def main(argv: list[str] | None = None) -> int:
     lecteur = argparse.ArgumentParser(description="Écrit LICENCES-TIERCES.txt.")
     lecteur.add_argument("--sortie", type=Path, default=RACINE / "dist" / NOM)
     lecteur.add_argument("--sans-interface", action="store_true",
-                         help="le témoin : sans les dépendances de l'interface web")
+                         help="sans les dépendances de l'interface web")
     args = lecteur.parse_args(argv)
     try:
         sans_texte = ecrire(args.sortie, interface=not args.sans_interface)

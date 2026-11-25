@@ -1,29 +1,28 @@
-# L'exécutable unique, construit pour chaque système par GitHub — celui du
-# superviseur, et celui du témoin de lien Ethernet (`temoin-ethernet-*`), deux
-# fichiers par système, construits et vérifiés dans le même job.
+# L'exécutable unique, construit pour chaque système par GitHub — un seul
+# fichier par système (`peplink-*`), qui réunit le superviseur et le témoin de
+# lien Ethernet : un double-clic démarre les deux serveurs.
 #
 # PyInstaller ne compile pas en croisé : un fichier par système, construit sur
 # ce système. Ici, trois machines de GitHub s'en chargent — Windows, macOS à
 # puce Apple, macOS Intel — et déposent les fichiers en téléchargement :
 #
 #   - à chaque exécution manuelle (onglet Actions › « Exécutable » › Run
-#     workflow), en « artefacts » du run, gardés quatorze jours — avec le
-#     choix du produit : les deux, le superviseur seul, ou le témoin seul ;
+#     workflow), en « artefacts » du run, gardés quatorze jours ;
 #   - à chaque étiquette `v*` poussée (`git tag v1.0.0 && git push --tags`),
-#     en fichiers d'une Release du dépôt, pour de bon — toujours les deux
-#     produits : une Release ne sort jamais à moitié.
+#     en fichiers d'une Release du dépôt, pour de bon.
 #
 # Aucun fichier n'est produit tant que les suites de tests ne sont pas vertes,
-# et chaque exécutable est LANCÉ après construction : serveur, interface, base à
-# côté — la vérification qui a manqué au premier essai du 19 septembre.
+# et chaque exécutable est LANCÉ après construction : les deux serveurs, leurs
+# interfaces, leurs bases à côté — la vérification qui a manqué au premier
+# essai du 19 septembre.
 #
 # Avant toute construction, le job `garde` vérifie les numéros de version
 # (secondes, sur une machine Linux, sans rien installer) ; en parallèle, le job
 # `audits` cherche les failles connues des dépendances d'exécution. Une Release
 # attend les deux. Elle porte aussi `LICENCES-TIERCES.txt`, les mentions des
 # composants tiers que les exécutables embarquent (chacun en a aussi sa copie,
-# servie sous /LICENCES-TIERCES.txt), et `SHA256SUMS`, les empreintes des sept
-# fichiers.
+# servie sous /LICENCES-TIERCES.txt par ses deux serveurs), et `SHA256SUMS`,
+# les empreintes des quatre fichiers.
 #
 # Les fichiers ne sont pas signés : un avertissement au premier lancement
 # (Gatekeeper, SmartScreen), qui se lève sans droits d'administrateur.
@@ -44,12 +43,6 @@ name: Exécutable
 
 on:
   workflow_dispatch:
-    inputs:
-      produit:
-        description: "Que construire"
-        type: choice
-        options: [les deux, superviseur, témoin]
-        default: les deux
   push:
     tags: ["v*"]
 
@@ -126,43 +119,27 @@ jobs:
       matrix:
         include:
           # `licences` : cette machine seule envoie LICENCES-TIERCES.txt à la
-          # Release — une fois, et non une par système. Celui du superviseur
-          # Windows couvre les deux autres (même requirements.txt, même verrou
-          # npm ; pywin32-ctypes de keyring en plus) et le témoin (son serveur).
+          # Release — une fois, et non une par système. Celui de Windows
+          # couvre les deux autres (même requirements.txt, même verrou npm ;
+          # pywin32-ctypes de keyring en plus).
           - os: windows-latest
             licences: true
-            nom: superviseur-windows-x64.exe
-            produit: dist/superviseur.exe
-            livraison: superviseur-windows-x64.exe
-            temoin_nom: temoin-ethernet-windows-x64.exe
-            temoin_produit: dist/temoin-ethernet.exe
-            temoin_livraison: temoin-ethernet-windows-x64.exe
+            produit: dist/peplink.exe
+            livraison: peplink-windows-x64.exe
           # La couverture des tests, sur cette machine seule (la plus rapide) :
           # affichée dans le journal et le résumé du run, sans seuil.
           - os: macos-latest
             couverture: true
-            nom: superviseur-macos-arm64
-            produit: dist/superviseur
-            livraison: superviseur-macos-arm64.tar.gz
-            temoin_nom: temoin-ethernet-macos-arm64
-            temoin_produit: dist/temoin-ethernet
-            temoin_livraison: temoin-ethernet-macos-arm64.tar.gz
+            produit: dist/peplink
+            livraison: peplink-macos-arm64.tar.gz
           # Le Mac de terrain est un Intel (i7, macOS 13) : le fichier arm64 n'y
           # tourne pas. GitHub retire ses machines Intel par étapes ; si cette
           # étiquette disparaît, prendre celle qu'il propose alors — ou construire
           # sur le Mac lui-même avec tools/construire_executable.py.
           - os: macos-15-intel
-            nom: superviseur-macos-x64
-            produit: dist/superviseur
-            livraison: superviseur-macos-x64.tar.gz
-            temoin_nom: temoin-ethernet-macos-x64
-            temoin_produit: dist/temoin-ethernet
-            temoin_livraison: temoin-ethernet-macos-x64.tar.gz
+            produit: dist/peplink
+            livraison: peplink-macos-x64.tar.gz
     runs-on: ${{ matrix.os }}
-    # Sur une étiquette, `inputs.produit` est vide : les deux produits.
-    env:
-      SUPERVISEUR: ${{ inputs.produit != 'témoin' }}
-      TEMOIN: ${{ inputs.produit != 'superviseur' }}
     defaults:
       run:
         shell: bash
@@ -176,10 +153,7 @@ jobs:
       # tient pour cohérent un verrou que le npm 10 de Node 22 refuse
       # (« Missing: esbuild@0.28.2 from lock file » — premier run, 19 septembre),
       # alors que `npm ci` passe en local depuis une copie vierge.
-      # L'interface compilée ne sert que le superviseur : le témoin a un
-      # écran statique.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        if: env.SUPERVISEUR == 'true'
         with:
           node-version: "24"
           cache: npm
@@ -195,7 +169,6 @@ jobs:
             backend/requirements-build.txt
 
       - name: Interface — dépendances, types, tests, compilation
-        if: env.SUPERVISEUR == 'true'
         working-directory: frontend
         run: |
           node --version && npm --version
@@ -256,80 +229,45 @@ jobs:
           PY
 
       - name: Construire l'exécutable
-        if: env.SUPERVISEUR == 'true'
         working-directory: backend
         env:
           PYTHONUTF8: "1"
         run: python tools/construire_executable.py
 
-      - name: Le lancer, et vérifier qu'il répond — serveur, interface, base
-        if: env.SUPERVISEUR == 'true'
+      # Les deux serveurs, leurs interfaces et leurs bases, les liens croisés,
+      # le second lancement — sans variable d'environnement qui ne sera pas
+      # sur le terrain.
+      - name: Le lancer, et vérifier qu'il répond — deux serveurs, interfaces, bases
         working-directory: backend
         run: python tools/verifier_executable.py ${{ matrix.produit }}
-
-      # Le témoin de lien Ethernet : son écran est statique, rien à compiler
-      # côté interface ; sa santé se lit sur /api/sante, sa base est temoin.db.
-      - name: Construire le témoin Ethernet
-        if: env.TEMOIN == 'true'
-        working-directory: backend
-        env:
-          PYTHONUTF8: "1"
-        run: python tools/construire_executable.py --produit temoin
-
-      - name: Lancer le témoin, et vérifier qu'il répond — serveur, écran, base
-        if: env.TEMOIN == 'true'
-        working-directory: backend
-        # Sous Windows, le bash de Git convertit tout argument qui ressemble à
-        # un chemin absolu : `/api/sante` arrivait en
-        # `C:/Program Files/Git/api/sante` (run #19).
-        env:
-          MSYS_NO_PATHCONV: "1"
-        run: python tools/verifier_executable.py ${{ matrix.temoin_produit }} --sante /api/sante
 
       # Sur macOS, une archive tar.gz et non le fichier nu : l'emballage des
       # artefacts et des Releases perd les permissions Unix, et le fichier
       # arrivait sans droit d'exécution — « le build mac ne fonctionne pas »,
       # vérifié sur un Mac Intel le 19 septembre : `-rw-r--r--`, et il
       # tournait dès `chmod +x`. Un tar.gz conserve le droit ; Finder le
-      # décompresse d'un double-clic. Windows n'a pas de bit d'exécution.
+      # décompresse d'un double-clic. Le binaire garde son nom, `peplink`.
+      # Windows n'a pas de bit d'exécution : le fichier est renommé.
       - name: Nommer, et emballer pour livrer le droit d'exécution
         working-directory: backend
         run: |
-          if [ "$SUPERVISEUR" = true ]; then
-            mv "${{ matrix.produit }}" "dist/${{ matrix.nom }}"
-            case "${{ matrix.livraison }}" in
-              *.tar.gz) tar -czf "dist/${{ matrix.livraison }}" -C dist "${{ matrix.nom }}" ;;
-            esac
-          fi
-          if [ "$TEMOIN" = true ]; then
-            mv "${{ matrix.temoin_produit }}" "dist/${{ matrix.temoin_nom }}"
-            case "${{ matrix.temoin_livraison }}" in
-              *.tar.gz) tar -czf "dist/${{ matrix.temoin_livraison }}" -C dist "${{ matrix.temoin_nom }}" ;;
-            esac
-          fi
+          case "${{ matrix.livraison }}" in
+            *.tar.gz) tar -czf "dist/${{ matrix.livraison }}" -C dist peplink ;;
+            *) mv "${{ matrix.produit }}" "dist/${{ matrix.livraison }}" ;;
+          esac
           ls -la dist
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: env.SUPERVISEUR == 'true'
         with:
           name: ${{ matrix.livraison }}
           path: backend/dist/${{ matrix.livraison }}
           retention-days: 14
           if-no-files-found: error
 
+      # Écrit par la construction (tools/licences_tierces.py), à côté de
+      # l'exécutable ; sa copie embarquée a été lue par la vérification.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: env.TEMOIN == 'true'
-        with:
-          name: ${{ matrix.temoin_livraison }}
-          path: backend/dist/${{ matrix.temoin_livraison }}
-          retention-days: 14
-          if-no-files-found: error
-
-      # Écrit par la construction du superviseur (tools/licences_tierces.py),
-      # à côté de l'exécutable ; sa copie embarquée a été lue par la
-      # vérification.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: matrix.licences && env.SUPERVISEUR == 'true'
+        if: matrix.licences
         with:
           name: LICENCES-TIERCES.txt
           path: backend/dist/LICENCES-TIERCES.txt
@@ -364,16 +302,16 @@ jobs:
         with:
           path: fichiers
           merge-multiple: true
-      # Les empreintes des sept fichiers — six exécutables et
+      # Les empreintes des quatre fichiers — trois exécutables et
       # LICENCES-TIERCES.txt, publié avec eux et couvert comme eux —, au format
       # de `sha256sum` (`<hex>  <nom>`) : `shasum -a 256 -c SHA256SUMS` sur
-      # Mac, `Get-FileHash` sous Windows. Sept fichiers, ni plus ni moins : un
-      # produit manquant arrête la publication ici.
+      # Mac, `Get-FileHash` sous Windows. Quatre fichiers, ni plus ni moins : un
+      # système manquant arrête la publication ici.
       - name: Empreintes SHA-256 — SHA256SUMS
         working-directory: fichiers
         run: |
           set -- *
-          test "$#" -eq 7
+          test "$#" -eq 4
           sha256sum -- "$@" > ../SHA256SUMS
           mv ../SHA256SUMS SHA256SUMS
           cat SHA256SUMS

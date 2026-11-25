@@ -1,9 +1,11 @@
 """Le superviseur en un fichier : double-clic, et le tableau de bord s'ouvre.
 
-Point d'entrée de l'exécutable construit par `tools/construire_executable.py`
-(PyInstaller). Tout ce qui, dans le dépôt, suppose une arborescence — l'interface
-dans `../frontend/dist`, la base dans `./data` — est posé ici, une fois, avant
-que l'application ne se charge :
+Avec le témoin, il forme l'exécutable unique `peplink` construit par
+`tools/construire_executable.py` (PyInstaller ; point d'entrée
+`lanceur_commun.py`, qui le lance seul avec `--superviseur`). Tout ce qui, dans
+le dépôt, suppose une arborescence — l'interface dans `../frontend/dist`, la
+base dans `./data` — est posé ici, une fois, avant que l'application ne se
+charge :
 
   - l'interface est EMBARQUÉE dans l'exécutable, et servie depuis son dossier
     de décompression ;

@@ -132,46 +132,43 @@ def test_aucune_action_ne_tourne_encore_sous_node_20():
     assert vues == set(_NODE24_DES)
 
 
-def test_l_action_construit_aussi_le_temoin():
+# Un seul fichier par système réunit le superviseur et le témoin Ethernet : il
+# remplace les six d'avant (`superviseur-*`, `temoin-ethernet-*`).
+LIVRAISONS = ["peplink-windows-x64.exe", "peplink-macos-arm64.tar.gz", "peplink-macos-x64.tar.gz"]
+
+
+def test_l_action_construit_un_seul_executable_par_systeme():
+    job = _flux()["jobs"]["construire"]
+    assert [m["livraison"] for m in job["strategy"]["matrix"]["include"]] == LIVRAISONS
     texte = WORKFLOW.read_text(encoding="utf-8")
-    for livre in ("temoin-ethernet-windows-x64.exe", "temoin-ethernet-macos-x64.tar.gz",
-                  "temoin-ethernet-macos-arm64.tar.gz"):
-        assert livre in texte, livre
-    etapes = [e.get("run", "") for e in _flux()["jobs"]["construire"]["steps"]]
-    assert any("construire_executable.py --produit temoin" in r for r in etapes)
-    assert any("verifier_executable.py" in r and "--sante /api/sante" in r for r in etapes)
+    assert "temoin-ethernet" not in texte and "superviseur-" not in texte
+    runs = [e.get("run", "") for e in job["steps"]]
+    assert sum("construire_executable.py" in r for r in runs) == 1
+    assert any(r.strip() == "python tools/construire_executable.py" for r in runs)
+    assert any("verifier_executable.py ${{ matrix.produit }}" in r for r in runs)
+    assert "--produit" not in texte and "--sante" not in texte
+    # Sur macOS, l'archive garde le nom du binaire : `peplink`.
+    emballage = next(r for r in runs if "tar -czf" in r)
+    assert "-C dist peplink" in emballage
 
 
-def test_le_lancement_manuel_choisit_le_produit():
+def test_le_lancement_manuel_construit_tout():
     flux = _flux()
-    # PyYAML lit la clé `on` comme le booléen True.
-    choix = flux[True]["workflow_dispatch"]["inputs"]["produit"]
-    assert choix["type"] == "choice"
-    assert choix["options"] == ["les deux", "superviseur", "témoin"]
-    assert choix["default"] == "les deux"
+    # PyYAML lit la clé `on` comme le booléen True. Plus de choix de produit :
+    # il n'y en a qu'un.
+    assert not (flux[True]["workflow_dispatch"] or {}).get("inputs")
     job = flux["jobs"]["construire"]
-    # Sur une étiquette, l'entrée est vide : les deux produits, toujours.
-    assert job["env"] == {"SUPERVISEUR": "${{ inputs.produit != 'témoin' }}",
-                          "TEMOIN": "${{ inputs.produit != 'superviseur' }}"}
+    assert "env" not in job
     for etape in job["steps"]:
-        run, nom = etape.get("run", ""), etape.get("name", "")
-        if "--produit temoin" in run or "--sante /api/sante" in run:
-            assert etape["if"] == "env.TEMOIN == 'true'", nom
-        elif "construire_executable.py" in run or "verifier_executable.py" in run:
-            assert etape["if"] == "env.SUPERVISEUR == 'true'", nom
-        elif str(etape.get("uses", "")).startswith("actions/upload-artifact"):
-            if etape["with"]["name"] == "LICENCES-TIERCES.txt":
-                continue  # test_les_licences_tierces_partent_une_fois
-            produit = "TEMOIN" if "temoin" in etape["with"]["name"] else "SUPERVISEUR"
-            assert etape["if"] == f"env.{produit} == 'true'"
+        assert "env." not in str(etape.get("if", "")), etape.get("name")
 
 
 # --- Licences tierces ----------------------------------------------------------
 # Les exécutables embarquent du code sous MIT, BSD, Apache, PSF, OFL, MPL :
 # `construire_executable.py` écrit LICENCES-TIERCES.txt, chaque exécutable
 # l'emporte, et la Release le publie — une fois, et non une par système : celui
-# du superviseur Windows, dont les composants couvrent ceux de macOS (même
-# requirements.txt, même verrou npm ; pywin32-ctypes en plus) et ceux du témoin.
+# de Windows, dont les composants couvrent ceux de macOS (même
+# requirements.txt, même verrou npm ; pywin32-ctypes en plus).
 
 def test_les_licences_tierces_partent_une_fois():
     job = _flux()["jobs"]["construire"]
@@ -181,8 +178,8 @@ def test_les_licences_tierces_partent_une_fois():
     envoi = envois[0]
     assert envoi["with"]["path"] == "backend/dist/LICENCES-TIERCES.txt"
     assert envoi["with"]["if-no-files-found"] == "error"
-    # Écrit par la construction du SUPERVISEUR, sur la seule machine Windows.
-    assert envoi["if"] == "matrix.licences && env.SUPERVISEUR == 'true'"
+    # Écrit par la construction, sur la seule machine Windows.
+    assert envoi["if"] == "matrix.licences"
     porteuses = [m for m in job["strategy"]["matrix"]["include"] if m.get("licences")]
     assert [m["os"] for m in porteuses] == ["windows-latest"]
     # Après la vérification de l'exécutable, qui en lit la copie embarquée.
@@ -195,12 +192,6 @@ def test_les_licences_tierces_partent_une_fois():
 def test_le_readme_annonce_les_licences_tierces():
     readme = (RACINE / "README.md").read_text(encoding="utf-8")
     assert "LICENCES-TIERCES.txt" in readme
-
-
-def test_la_route_de_sante_n_est_pas_convertie_en_chemin_sous_windows():
-    for etape in _flux()["jobs"]["construire"]["steps"]:
-        if "--sante /api/sante" in etape.get("run", ""):
-            assert (etape.get("env") or {}).get("MSYS_NO_PATHCONV") == "1"
 
 
 # --- Garde de version à la publication -------------------------------------
@@ -413,11 +404,11 @@ def test_l_etape_de_garde_jouee_telle_quelle(tmp_path):
 
 
 # --- Empreintes SHA-256 de la Release ------------------------------------------
-# Les sept fichiers (six exécutables, LICENCES-TIERCES.txt) partent avec `SHA256SUMS`, au format de `sha256sum`
+# Les quatre fichiers (trois exécutables, LICENCES-TIERCES.txt) partent avec `SHA256SUMS`, au format de `sha256sum`
 # (`<hex>  <nom>`) : `shasum -a 256 -c SHA256SUMS` sur Mac, `Get-FileHash`
 # sous Windows, vérifient un téléchargement.
 
-def test_publier_joint_les_empreintes_sha256_des_sept_fichiers():
+def test_publier_joint_les_empreintes_sha256_des_quatre_fichiers():
     etapes = _flux()["jobs"]["publier"]["steps"]
     rang = dict(enumerate(etapes))
     telechargement = next(i for i, e in rang.items()
@@ -428,10 +419,10 @@ def test_publier_joint_les_empreintes_sha256_des_sept_fichiers():
     assert len(empreintes) == 1
     assert telechargement < empreintes[0] < envoi
     run = etapes[empreintes[0]]["run"]
-    # Six exécutables et LICENCES-TIERCES.txt : sept fichiers, ni plus ni moins,
-    # tous couverts par les empreintes.
-    assert "SHA256SUMS" in run and "-eq 7" in run, "sept fichiers, ni plus ni moins"
-    # Le fichier part avec les sept autres.
+    # Trois exécutables et LICENCES-TIERCES.txt : quatre fichiers, ni plus ni
+    # moins, tous couverts par les empreintes.
+    assert "SHA256SUMS" in run and "-eq 4" in run, "quatre fichiers, ni plus ni moins"
+    # Le fichier part avec les quatre autres.
     fichiers = etapes[envoi]["with"]["files"]
     assert "SHA256SUMS" in fichiers or fichiers.strip() == "fichiers/*"
     assert (etapes[empreintes[0]].get("working-directory") == "fichiers"
@@ -447,10 +438,7 @@ def test_l_etape_d_empreintes_jouee_telle_quelle(tmp_path):
     dossier = tmp_path / "fichiers"
     dossier.mkdir()
     import hashlib
-    noms = ["superviseur-windows-x64.exe", "superviseur-macos-x64.tar.gz",
-            "superviseur-macos-arm64.tar.gz", "temoin-ethernet-windows-x64.exe",
-            "temoin-ethernet-macos-x64.tar.gz", "temoin-ethernet-macos-arm64.tar.gz",
-            "LICENCES-TIERCES.txt"]
+    noms = [*LIVRAISONS, "LICENCES-TIERCES.txt"]
     for n, nom in enumerate(noms):
         (dossier / nom).write_bytes(bytes([n]) * (n + 1) * 1000)
     env = dict(os.environ)
@@ -469,7 +457,7 @@ def test_l_etape_d_empreintes_jouee_telle_quelle(tmp_path):
     attendues = sorted(f"{hashlib.sha256((dossier / nom).read_bytes()).hexdigest()}  {nom}"
                        for nom in noms)
     assert sorted(lignes) == attendues
-    # Un huitième fichier (ou un manquant) arrête la publication.
+    # Un cinquième fichier (ou un manquant) arrête la publication.
     (dossier / "SHA256SUMS").unlink()
     (dossier / "intrus.txt").write_text("x")
     fait = subprocess.run(["bash", "-eo", "pipefail", "-c", etape["run"]], cwd=cwd, env=env,

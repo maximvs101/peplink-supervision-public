@@ -390,20 +390,25 @@ def _add_data(commande: list[str]) -> list[str]:
     return [commande[i + 1] for i, a in enumerate(commande) if a == "--add-data"]
 
 
-def test_le_superviseur_embarque_le_fichier_a_la_racine_de_l_interface(tmp_path, monkeypatch):
-    """Servi par l'exécutable sous /LICENCES-TIERCES.txt, à côté d'index.html."""
+def test_l_executable_embarque_le_fichier_a_la_racine_des_deux_interfaces(tmp_path, monkeypatch):
+    """Servi sous /LICENCES-TIERCES.txt par le superviseur (à côté d'index.html)
+    et par le témoin (son écran est monté à la racine)."""
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
     monkeypatch.setattr(ce, "DIST", dist)
     fichier = tmp_path / lt.NOM
-    assert f"{fichier}{ce.SEPARATEUR}frontend/dist" in _add_data(ce.superviseur(fichier))
+    donnees = _add_data(ce.commande(fichier))
+    assert f"{fichier}{ce.SEPARATEUR}frontend/dist" in donnees
+    assert f"{fichier}{ce.SEPARATEUR}temoin/ecran" in donnees
 
 
-def test_le_temoin_embarque_le_fichier_avec_son_ecran(tmp_path):
-    """Servi par le témoin sous /LICENCES-TIERCES.txt : son écran est monté à la racine."""
-    fichier = tmp_path / lt.NOM
-    assert f"{fichier}{ce.SEPARATEUR}temoin/ecran" in _add_data(ce.temoin(fichier))
+def test_un_seul_executable_pour_les_deux_outils(tmp_path):
+    c = ce.commande(tmp_path / lt.NOM)
+    assert c[c.index("--name") + 1] == "peplink"
+    assert c[-1].endswith("lanceur_commun.py")
+    collectes = [c[i + 1] for i, a in enumerate(c) if a == "--collect-all"]
+    assert collectes == ["app", "temoin"]
 
 
 def _sans_pyinstaller(monkeypatch, tmp_path) -> dict:
@@ -429,18 +434,10 @@ def test_construire_genere_le_fichier_avant_pyinstaller_et_le_pose_dans_dist(tmp
         pytest.skip("frontend/node_modules absent (`npm ci`)")
     vu = _sans_pyinstaller(monkeypatch, tmp_path)
     assert ce.main([]) == 0
-    assert "Produit : superviseur" in vu["contenu"] and "\n  react " in vu["contenu"]
+    assert "Produit : superviseur et témoin Ethernet" in vu["contenu"]
+    assert "\n  react " in vu["contenu"] and "\n  fastapi " in vu["contenu"]
     # La Release le prend là, à côté de l'exécutable.
     assert (tmp_path / "dist" / lt.NOM).read_text(encoding="utf-8") == vu["contenu"]
-
-
-def test_le_temoin_n_annonce_pas_l_interface_qu_il_n_embarque_pas(tmp_path, monkeypatch):
-    vu = _sans_pyinstaller(monkeypatch, tmp_path)
-    assert ce.main(["--produit", "temoin"]) == 0
-    assert "Produit : témoin Ethernet" in vu["contenu"]
-    assert "Interface web" not in vu["contenu"] and "\n  fastapi " in vu["contenu"]
-    # Le fichier de dist/ reste celui du superviseur, qui couvre les deux.
-    assert not (tmp_path / "dist" / lt.NOM).exists()
 
 
 def test_une_licence_refusee_arrete_la_construction_avant_pyinstaller(tmp_path, monkeypatch):
@@ -451,4 +448,4 @@ def test_une_licence_refusee_arrete_la_construction_avant_pyinstaller(tmp_path, 
 
     monkeypatch.setattr(lt, "generer", refus)
     monkeypatch.setattr(ce.subprocess, "call", lambda *a, **kw: pytest.fail("PyInstaller lancé"))
-    assert ce.main(["--produit", "temoin"]) == 1
+    assert ce.main([]) == 1
