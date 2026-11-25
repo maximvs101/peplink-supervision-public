@@ -369,8 +369,13 @@ def creer_app(
     horloge=utcnow,
     fabrique_collecte=None,
     sommeil=asyncio.sleep,
+    superviseur: str | None = None,
 ) -> FastAPI:
-    """L'application. `depot` est déjà connecté ; l'appelant le fermera."""
+    """L'application. `depot` est déjà connecté ; l'appelant le fermera.
+
+    `superviseur` : l'adresse du superviseur lancé dans le même processus
+    (exécutable unique), publiée par `/api/sante` pour le lien de l'écran ;
+    None quand le témoin est lancé seul."""
     if fabrique_collecte is None:
         def fabrique_collecte(client, depot_, observation, wan_id):
             return Collecte(client, depot_, observation, wan_id, horloge=horloge)
@@ -398,7 +403,8 @@ def creer_app(
 
     @app.get("/api/sante")
     async def sante() -> dict:
-        return {"status": "ok", "version": __version__, "coffre": coffre.nom_du_trousseau()}
+        return {"status": "ok", "version": __version__, "coffre": coffre.nom_du_trousseau(),
+                "superviseur": superviseur}
 
     @app.get("/api/etat")
     async def etat() -> dict:

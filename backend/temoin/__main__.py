@@ -81,8 +81,13 @@ def choisir_port(depart: int) -> int | None:
     return None
 
 
-async def servir(base: Path, ecran: Path, port: int) -> None:
-    """Le dépôt appartient au lanceur : ouvert avant de servir, fermé après."""
+async def servir(base: Path, ecran: Path, port: int, *, superviseur: str | None = None,
+                 fabrique=None) -> None:
+    """Le dépôt appartient au lanceur : ouvert avant de servir, fermé après.
+
+    `superviseur` et `fabrique` servent l'exécutable unique (`lanceur_commun`) :
+    l'adresse du superviseur lancé à côté, et la classe de serveur qui laisse
+    les signaux au lanceur commun."""
     import uvicorn
 
     from temoin.api import creer_app
@@ -91,7 +96,7 @@ async def servir(base: Path, ecran: Path, port: int) -> None:
     depot = Depot(str(base))
     await depot.connect()
     try:
-        app = creer_app(depot, interface=ecran)
+        app = creer_app(depot, interface=ecran, superviseur=superviseur)
         # Fermé à l'arrêt de l'APPLICATION, après le sien (collecte annulée) :
         # uvicorn, arrêté par un signal, le relève une fois arrêté, et le
         # processus meurt sans repasser par le `finally` ci-dessous : la base
@@ -107,7 +112,7 @@ async def servir(base: Path, ecran: Path, port: int) -> None:
 
         app.router.lifespan_context = cycle
         config = uvicorn.Config(app, host=HOTE, port=port, log_level="info")
-        await uvicorn.Server(config).serve()
+        await (fabrique or uvicorn.Server)(config).serve()
     finally:
         await depot.close()
 
