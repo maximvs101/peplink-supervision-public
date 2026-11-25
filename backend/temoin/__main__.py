@@ -2,8 +2,9 @@
 
     python -m temoin            (depuis backend/, pour l'essayer)
 
-Point d'entrée de l'exécutable `temoin-ethernet` construit par
-`tools/construire_executable.py --produit temoin`. Les règles du superviseur
+Avec le superviseur, il forme l'exécutable unique `peplink` construit par
+`tools/construire_executable.py` (point d'entrée `lanceur_commun.py`, qui le
+lance seul avec `--temoin`). Les règles du superviseur
 (`lancer.py`), dont ce lanceur reprend les outils plutôt que de les recopier :
 
   - l'écran (`temoin/ecran`) est servi depuis le paquet — embarqué, une fois
@@ -81,8 +82,14 @@ def choisir_port(depart: int) -> int | None:
     return None
 
 
-async def servir(base: Path, ecran: Path, port: int) -> None:
-    """Le dépôt appartient au lanceur : ouvert avant de servir, fermé après."""
+async def servir(base: Path, ecran: Path, port: int, *, superviseur: str | None = None,
+                 fabrique=None, journal_acces: bool = True) -> None:
+    """Le dépôt appartient au lanceur : ouvert avant de servir, fermé après.
+
+    `superviseur`, `fabrique` et `journal_acces` servent l'exécutable unique
+    (`lanceur_commun`) : l'adresse du superviseur lancé à côté, la classe de
+    serveur qui laisse les signaux au lanceur commun, et le journal d'accès —
+    un seul pour tout le processus, coupé pour le superviseur."""
     import uvicorn
 
     from temoin.api import creer_app
@@ -91,7 +98,7 @@ async def servir(base: Path, ecran: Path, port: int) -> None:
     depot = Depot(str(base))
     await depot.connect()
     try:
-        app = creer_app(depot, interface=ecran)
+        app = creer_app(depot, interface=ecran, superviseur=superviseur)
         # Fermé à l'arrêt de l'APPLICATION, après le sien (collecte annulée) :
         # uvicorn, arrêté par un signal, le relève une fois arrêté, et le
         # processus meurt sans repasser par le `finally` ci-dessous : la base
@@ -106,8 +113,8 @@ async def servir(base: Path, ecran: Path, port: int) -> None:
             await depot.close()
 
         app.router.lifespan_context = cycle
-        config = uvicorn.Config(app, host=HOTE, port=port, log_level="info")
-        await uvicorn.Server(config).serve()
+        config = uvicorn.Config(app, host=HOTE, port=port, log_level="info", access_log=journal_acces)
+        await (fabrique or uvicorn.Server)(config).serve()
     finally:
         await depot.close()
 
@@ -178,6 +185,10 @@ def main() -> int:
         print(f"  sauvegarde {copie}", flush=True)
     try:
         asyncio.run(servir(base, ecran, port))
+    except KeyboardInterrupt:
+        # uvicorn relève le Ctrl+C une fois arrêté, base déjà fermée : un
+        # arrêt demandé, pas une panne à dire en trace (comme `uvicorn.run`).
+        pass
     finally:
         verrou.close()
     return 0

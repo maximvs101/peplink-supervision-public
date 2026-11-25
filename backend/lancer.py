@@ -1,9 +1,11 @@
 """Le superviseur en un fichier : double-clic, et le tableau de bord s'ouvre.
 
-Point d'entrée de l'exécutable construit par `tools/construire_executable.py`
-(PyInstaller). Tout ce qui, dans le dépôt, suppose une arborescence — l'interface
-dans `../frontend/dist`, la base dans `./data` — est posé ici, une fois, avant
-que l'application ne se charge :
+Avec le témoin, il forme l'exécutable unique `peplink` construit par
+`tools/construire_executable.py` (PyInstaller ; point d'entrée
+`lanceur_commun.py`, qui le lance seul avec `--superviseur`). Tout ce qui, dans
+le dépôt, suppose une arborescence — l'interface dans `../frontend/dist`, la
+base dans `./data` — est posé ici, une fois, avant que l'application ne se
+charge :
 
   - l'interface est EMBARQUÉE dans l'exécutable, et servie depuis son dossier
     de décompression ;
@@ -273,6 +275,70 @@ def preparer(sauvegarde: bool = True) -> dict[str, str]:
     }
 
 
+def adresse_ouverte(hote: str, port: str | int) -> str:
+    """L'adresse à ouvrir dans le navigateur pour un serveur qui écoute sur `hote`.
+
+    L'adresse qu'uvicorn écoute, et non 127.0.0.1 d'office : avec HOST sur une
+    adresse précise, le navigateur s'ouvrait là où rien n'écoutait. Le joker
+    (0.0.0.0, ::) s'ouvre sur la boucle locale (C-47).
+    """
+    if hote in ("", "0.0.0.0", "::"):
+        hote = "127.0.0.1"
+    elif ":" in hote:
+        hote = f"[{hote}]"
+    return f"http://{hote}:{port}"
+
+
+def dire_port_pris(hote: str, port: str | int, adresse: str, variable: str = "PORT") -> None:
+    """Le port du superviseur est pris : le dire, et ouvrir l'instance qui tourne."""
+    # Pas de « relancer avec PORT=8001 » : deux instances dans le même
+    # dossier écriraient la même base et superviseraient la même flotte
+    # deux fois. Un second superviseur, c'est une seconde copie de l'outil
+    # dans un autre dossier.
+    print(
+        f"Le port {port} est déjà pris sur {hote} : un superviseur "
+        "tourne sans doute déjà dans ce dossier — c'est lui qu'il faut ouvrir, à l'adresse "
+        "ci-dessous. Pour en lancer un second, copier l'outil dans un autre dossier et "
+        f"lui donner un autre {variable}.",
+        flush=True,
+    )
+    print(f"  {adresse}", flush=True)
+    # Le second double-clic était muet : on ouvre l'instance qui tourne
+    # (C-47).
+    if os.environ.get("OUVRIR_NAVIGATEUR", "1") == "1":
+        webbrowser.open(adresse)
+
+
+def dire_base_illisible(base: Path, exc: Exception) -> None:
+    """Une base illisible — une clé arrachée pendant une écriture — plantait
+    sur une trace, et la console de Windows se refermait (C-47)."""
+    copies = sorted(base.parent.glob(f"{base.stem}.*{base.suffix}.bak"))
+    print(f"La base {base} est illisible ({exc}).", flush=True)
+    if copies:
+        print("Copies de sauvegarde disponibles, de la plus récente à la plus ancienne :", flush=True)
+        for c in reversed(copies):
+            print(f"  {c}", flush=True)
+        print("Pour repartir de l'une d'elles : fermer cette fenêtre, mettre la base "
+              "illisible de côté, et renommer la copie choisie en "
+              f"{base.name}.", flush=True)
+    else:
+        print("Aucune copie de sauvegarde n'existe à côté d'elle.", flush=True)
+    if getattr(sys, "frozen", False):
+        input("Appuyer sur Entrée pour fermer.")
+
+
+def options_uvicorn() -> dict:
+    """Les réglages d'uvicorn du superviseur, lancé seul ou avec le témoin."""
+    return {
+        "log_level": "info",
+        # Le journal d'accès écrirait chaque adresse demandée. Celle de la
+        # reconnexion portait la série (`/api/devices/known/<série>/reconnect`) ;
+        # elle porte désormais l'identifiant opaque, mais le journal reste coupé.
+        "access_log": False,
+        "ws_per_message_deflate": True,
+    }
+
+
 def main() -> None:
     # La console de Windows encode en cp1252 : un nom de WAN, un message du
     # routeur ou un tiret cadratin hors de cette page ferait lever le premier
@@ -288,52 +354,15 @@ def main() -> None:
     decision = preparer(sauvegarde=False)
     import uvicorn
 
-    # L'adresse qu'uvicorn écoute, et non 127.0.0.1 d'office : avec HOST sur
-    # une adresse précise, le navigateur s'ouvrait là où rien n'écoutait. Le
-    # joker (0.0.0.0, ::) s'ouvre sur la boucle locale (C-47).
-    hote = decision["hote"]
-    if hote in ("", "0.0.0.0", "::"):
-        hote = "127.0.0.1"
-    elif ":" in hote:
-        hote = f"[{hote}]"
-    adresse = f"http://{hote}:{decision['port']}"
+    adresse = adresse_ouverte(decision["hote"], decision["port"])
     if not port_disponible(decision["hote"], int(decision["port"])):
-        # Pas de « relancer avec PORT=8001 » : deux instances dans le même
-        # dossier écriraient la même base et superviseraient la même flotte
-        # deux fois. Un second superviseur, c'est une seconde copie de l'outil
-        # dans un autre dossier.
-        print(
-            f"Le port {decision['port']} est déjà pris sur {decision['hote']} : un superviseur "
-            "tourne sans doute déjà dans ce dossier — c'est lui qu'il faut ouvrir, à l'adresse "
-            "ci-dessous. Pour en lancer un second, copier l'outil dans un autre dossier et "
-            "lui donner un autre PORT.",
-            flush=True,
-        )
-        print(f"  {adresse}", flush=True)
-        # Le second double-clic était muet : on ouvre l'instance qui tourne
-        # (C-47).
-        if os.environ.get("OUVRIR_NAVIGATEUR", "1") == "1":
-            webbrowser.open(adresse)
+        dire_port_pris(decision["hote"], decision["port"], adresse)
         sys.exit(2)
     base = Path(os.environ["DATABASE_PATH"])
     try:
         copie = sauvegarder(base)
     except sqlite3.DatabaseError as exc:
-        # Une base illisible — une clé arrachée pendant une écriture — plantait
-        # sur une trace, et la console de Windows se refermait (C-47).
-        copies = sorted(base.parent.glob(f"{base.stem}.*{base.suffix}.bak"))
-        print(f"La base {base} est illisible ({exc}).", flush=True)
-        if copies:
-            print("Copies de sauvegarde disponibles, de la plus récente à la plus ancienne :", flush=True)
-            for c in reversed(copies):
-                print(f"  {c}", flush=True)
-            print("Pour repartir de l'une d'elles : fermer cette fenêtre, mettre la base "
-                  "illisible de côté, et renommer la copie choisie en "
-                  f"{base.name}.", flush=True)
-        else:
-            print("Aucune copie de sauvegarde n'existe à côté d'elle.", flush=True)
-        if getattr(sys, "frozen", False):
-            input("Appuyer sur Entrée pour fermer.")
+        dire_base_illisible(base, exc)
         sys.exit(3)
     decision["sauvegarde"] = str(copie) if copie else ""
     if os.environ.get("OUVRIR_NAVIGATEUR", "1") == "1":
@@ -344,17 +373,7 @@ def main() -> None:
         print(f"  sauvegarde {decision['sauvegarde']}", flush=True)
     if decision["env"]:
         print(f"  .env       {decision['env']}", flush=True)
-    uvicorn.run(
-        "app.main:app",
-        host=decision["hote"],
-        port=int(decision["port"]),
-        log_level="info",
-        # Le journal d'accès écrirait chaque adresse demandée. Celle de la
-        # reconnexion portait la série (`/api/devices/known/<série>/reconnect`) ;
-        # elle porte désormais l'identifiant opaque, mais le journal reste coupé.
-        access_log=False,
-        ws_per_message_deflate=True,
-    )
+    uvicorn.run("app.main:app", host=decision["hote"], port=int(decision["port"]), **options_uvicorn())
 
 
 if __name__ == "__main__":

@@ -14,25 +14,28 @@ Validés sur un MAX HD4 MBX, un Dome Pro Duo et deux MAX HD2, en firmware 8.5.
 
 ## Les utiliser
 
-Un fichier par système dans les [Releases](../../releases), rien à installer, aucun droit
-d'administrateur :
+Un seul fichier par système dans les [Releases](../../releases), pour les deux outils ; rien à
+installer, aucun droit d'administrateur :
 
-| | Windows | Mac Intel | Mac Apple silicon |
-|---|---|---|---|
-| Superviseur | `superviseur-windows-x64.exe` | `superviseur-macos-x64.tar.gz` | `superviseur-macos-arm64.tar.gz` |
-| Témoin Ethernet | `temoin-ethernet-windows-x64.exe` | `temoin-ethernet-macos-x64.tar.gz` | `temoin-ethernet-macos-arm64.tar.gz` |
+| Windows 8.1 à 11 | Mac Intel | Mac Apple silicon |
+|---|---|---|
+| `peplink-windows-x64.exe` | `peplink-macos-x64.tar.gz` | `peplink-macos-arm64.tar.gz` |
 
-Double-clic : le navigateur s'ouvre, le Peplink est trouvé sur le réseau, une saisie
-d'identifiants la première fois. Les fichiers ne sont pas signés : au premier lancement,
+Double-clic : les deux serveurs démarrent, le navigateur s'ouvre sur le superviseur, le
+Peplink est trouvé sur le réseau, une saisie d'identifiants la première fois. Chaque
+interface porte un lien vers l'autre (« Témoin Ethernet », « Superviseur »). Les fichiers ne sont pas signés : au premier lancement,
 Windows demande « Informations complémentaires › Exécuter quand même », macOS un clic droit
 › Ouvrir (décompresser d'abord l'archive sur Mac).
 
 Vérifier un téléchargement : la Release porte `SHA256SUMS`. Sur Mac, dans le dossier des
 fichiers, `shasum -a 256 -c SHA256SUMS --ignore-missing` ; sous Windows (PowerShell),
-`Get-FileHash .\superviseur-windows-x64.exe` donne l'empreinte à comparer à sa ligne.
+`Get-FileHash .\peplink-windows-x64.exe` donne l'empreinte à comparer à sa ligne.
 
-- Le superviseur écoute sur `http://127.0.0.1:8000`, le témoin sur `:8010` : les deux
-  tournent ensemble.
+- Le superviseur écoute sur `http://127.0.0.1:8000`, le témoin sur `:8010` (le port
+  suivant libre s'il est pris), dans le même processus. Ctrl+C ou la fermeture de la
+  console arrête les deux. Un second double-clic dans le même dossier rouvre l'instance
+  qui tourne.
+- `peplink --superviseur` ou `peplink --temoin` n'en lance qu'un.
 - Les données vivent dans `data/`, **à côté du fichier**, avec une copie de sauvegarde à
   chaque lancement. Les relevés de plus de 30 jours sont regroupés à la minute
   (`RETENTION_JOURS`, voir la [référence](docs/REFERENCE.md#rétention-de-la-base)).
@@ -43,8 +46,9 @@ fichiers, `shasum -a 256 -c SHA256SUMS --ignore-missing` ; sous Windows (PowerSh
   [référence](docs/REFERENCE.md#client-api-en-lecture-seule--recommandé). Un routeur en HTTP
   est accepté, mais les identifiants passent alors en clair sur le LAN.
 
-Variables utiles : `PORT`, `OUVRIR_NAVIGATEUR=0`, et pour le superviseur `HOST=0.0.0.0`
-(consulter depuis un téléphone du réseau).
+Variables utiles : `PORT_SUPERVISEUR` (8000), `PORT_TEMOIN` (8010), `OUVRIR_NAVIGATEUR=0`,
+et pour le superviseur `HOST=0.0.0.0` (consulter depuis un téléphone du réseau ; le témoin
+reste sur 127.0.0.1). Depuis les sources, chaque outil lancé seul lit `PORT`.
 
 > **Témoin — hypothèse en cours.** Les causes tirées du journal du routeur (câble, test de
 > santé, désactivation, redémarrage) reposent sur des formats pas encore observés sur une
@@ -60,6 +64,7 @@ cd ../backend && python -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python lancer.py          # le superviseur
 .venv/bin/python -m temoin          # le témoin
+.venv/bin/python lanceur_commun.py  # les deux, comme l'exécutable
 ```
 
 Sous Windows, `.venv\Scripts\python.exe`. Sans routeur, `PEPLINK_MODE=mock` lance un

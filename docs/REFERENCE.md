@@ -70,10 +70,15 @@ dégradation.
 
 ## L'exécutable unique — un fichier, un double-clic
 
-La forme la plus simple à emporter : le serveur, ses dépendances, l'interpréteur
-Python et l'interface compilée dans **un seul fichier**, qui ouvre le navigateur
-sur le tableau de bord et range la base à côté de lui. Rien à installer, aucun
-droit d'administrateur ; sur une clé USB, la base voyage avec la clé.
+La forme la plus simple à emporter : les deux outils — le superviseur et le
+[témoin de lien Ethernet](#témoin-de-lien-ethernet) —, leurs dépendances,
+l'interpréteur Python et l'interface compilée dans **un seul fichier** par
+système (`peplink-windows-x64.exe`, `peplink-macos-x64.tar.gz`,
+`peplink-macos-arm64.tar.gz` ; le binaire de l'archive Mac s'appelle `peplink`).
+Un double-clic démarre les deux serveurs dans le même processus, ouvre le
+navigateur sur le tableau de bord et range les bases à côté du fichier. Rien à
+installer, aucun droit d'administrateur ; sur une clé USB, les bases voyagent
+avec la clé. Python 3.12 : Windows 8.1 à 11, macOS Intel et Apple silicon.
 
 Construit **sur le système visé** (PyInstaller ne compile pas en croisé — un
 fichier pour Windows, un pour macOS) :
@@ -84,10 +89,14 @@ cd ../backend && .venv/bin/python -m pip install -r requirements-build.txt
 .venv/bin/python tools/construire_executable.py
 ```
 
-Produit `backend/dist/superviseur` (`superviseur.exe` sous Windows). Mesuré le
-19 septembre 2026 sur macOS : 38 s de construction, 19 Mo, prêt 1,5 s après le
-double-clic. `tools/verifier_executable.py dist/superviseur` le lance depuis un
-dossier vide et vérifie serveur, interface et base.
+Produit `backend/dist/peplink` (`peplink.exe` sous Windows), point d'entrée
+`backend/lanceur_commun.py`. Mesuré le 25 novembre 2026 sur un Mac Intel : 38 s de
+construction, 21 Mo, les deux serveurs prêts 1,4 s après le lancement.
+`tools/verifier_executable.py dist/peplink` le lance
+depuis un dossier vide (sur deux ports libres) et vérifie les deux serveurs
+(`/api/health`, `/api/sante`), leurs interfaces, LICENCES-TIERCES.txt sur chacun,
+les liens croisés, les deux bases créées dans `data/`, le second lancement, et
+hors Windows l'arrêt propre sur signal.
 
 **Sans PC à portée** : l'action GitHub « Exécutable »
 (`.github/workflows/executable.yml`) construit les fichiers Windows, macOS Apple
@@ -106,16 +115,34 @@ numéros du code concordent entre eux (`.github/scripts/garde_version.py
 l'interface : une faille connue dans une dépendance d'exécution fait échouer le run
 et bloque la Release. La couverture des tests (serveur et interface) est affichée,
 sans seuil, dans le journal et le résumé du run de la machine macOS Apple silicon.
-La Release porte `SHA256SUMS`, les empreintes SHA-256 des six fichiers. Dependabot
+La Release porte `SHA256SUMS`, les empreintes SHA-256 des quatre fichiers (trois
+exécutables et `LICENCES-TIERCES.txt`). Dependabot
 (`.github/dependabot.yml`) propose chaque mois les montées d'actions, de paquets
 Python et npm, regroupées par écosystème.
 
-À côté de l'exécutable : `data/samples.db` (créée au premier lancement, copie de
-sauvegarde datée à chaque lancement, deux gardées), et `routers.yaml` s'il y en a
-un — sinon les équipements s'appairent depuis l'écran de découverte. Le serveur
+À côté de l'exécutable : `data/samples.db` et `data/temoin.db` (créées au premier
+lancement, copie de sauvegarde datée de chacune à chaque lancement, deux gardées ;
+verrou et fichier `.port` du témoin distincts), et `routers.yaml` s'il y en a un —
+sinon les équipements s'appairent depuis l'écran de découverte. Le superviseur
 n'écoute que sur `127.0.0.1:8000` ; `HOST=0.0.0.0` l'ouvre au réseau local pour un
-téléphone (Windows demande alors une autorisation de pare-feu), `PORT=…` change le
-port, `OUVRIR_NAVIGATEUR=0` n'ouvre pas le navigateur.
+téléphone (Windows demande alors une autorisation de pare-feu). Le témoin reste sur
+`127.0.0.1:8010` (le suivant libre s'il est pris). `PORT_SUPERVISEUR=…` et
+`PORT_TEMOIN=…` changent les ports (du shell ou du `.env` posé à côté ; `PORT` n'est
+pas lu par l'exécutable : il garde son sens pour chaque outil lancé seul depuis les
+sources), `OUVRIR_NAVIGATEUR=0` n'ouvre pas le navigateur.
+
+- **Liens croisés** : l'en-tête du superviseur porte « Témoin Ethernet », celui du
+  témoin « Superviseur ». L'exécutable donne à chacun l'adresse de l'autre —
+  `/api/health` publie `temoin` (au poste local seulement, `null` sinon ou lancé seul),
+  `/api/sante` publie `superviseur` ; sans elle, pas de lien.
+- **Un seul** : `peplink --superviseur` ou `peplink --temoin` n'en lance qu'un, avec les
+  règles de son lanceur (port tiré de `PORT_SUPERVISEUR` ou `PORT_TEMOIN`).
+- **Second lancement** dans le même dossier (verrou du témoin pris) : rouvre le
+  superviseur qui tourne — ou l'écran du témoin si seul lui tourne — et s'arrête. Port
+  du superviseur pris par autre chose : il le dit, rouvre cette adresse et s'arrête sans
+  rien démarrer ni copier.
+- **Arrêt** : Ctrl+C, `kill` ou la fermeture de la console arrêtent les deux serveurs
+  (bases fermées, verrou relâché). Un second Ctrl+C force l'arrêt.
 
 Un fichier non signé déclenche un avertissement au premier lancement — Gatekeeper
 sur Mac (clic droit › Ouvrir), SmartScreen sur Windows (« Informations
@@ -565,7 +592,7 @@ refusée à tout client qui n'est pas la machine elle-même, et à une page d'un
 
 | Méthode | Route | Rôle |
 |---|---|---|
-| `GET` | `/api/health` | État, mode, nombre d'équipements, période de scrutation, sessions que la rétention n'a pas pu figer |
+| `GET` | `/api/health` | État, mode, nombre d'équipements, période de scrutation, sessions que la rétention n'a pas pu figer, adresse du témoin lancé à côté (`temoin`, poste local) |
 | `GET` | `/api/discover` | Équipements Peplink détectés sur le réseau (poste local) |
 | `GET` | `/api/devices` | État de chaque équipement supervisé (en attente, connecté, identifiants refusés, injoignable…) |
 | `POST` | `/api/devices/pair` | Met un équipement en supervision (poste local) |
@@ -594,13 +621,13 @@ n'existent que là : ce sont elles qui font geler une image en bonding.
 
 ## Témoin de lien Ethernet
 
-Un second exécutable (`temoin-ethernet-*`, `backend/temoin/`), pour une seule question :
-ce lien Ethernet est-il stable ? Depuis les sources : `cd backend && .venv/bin/python -m
-temoin`.
+Le second outil de l'[exécutable unique](#lexécutable-unique--un-fichier-un-double-clic)
+(`backend/temoin/`), pour une seule question : ce lien Ethernet est-il stable ? Depuis
+les sources : `cd backend && .venv/bin/python -m temoin`.
 
 - **Écoute** sur `127.0.0.1` seulement — même si `HOST` est posé pour le superviseur, le
-  témoin ne s'ouvre jamais au réseau. Port **8010** par défaut (`PORT` le change), le
-  superviseur gardant 8000 : les deux tournent ensemble. Port pris : le suivant libre (jusqu'à
+  témoin ne s'ouvre jamais au réseau. Port **8010** par défaut (`PORT` le change depuis les
+  sources, `PORT_TEMOIN` dans l'exécutable), le superviseur gardant 8000 : les deux tournent ensemble. Port pris : le suivant libre (jusqu'à
   vingt plus loin), et il le dit. `OUVRIR_NAVIGATEUR=0` n'ouvre pas le navigateur. L'en-tête Host
   n'accepte que `localhost` et les adresses IP littérales (DNS rebinding).
 - **Base** `data/temoin.db`, à côté de l'exécutable (sous `backend/data` depuis le dépôt),
@@ -621,7 +648,7 @@ bloquent l'administration du routeur cinq minutes).
 
 | Méthode | Route | Rôle |
 |---|---|---|
-| `GET` | `/api/sante` | `status`, `version`, nom du trousseau — ce que vérifie la CI après construction |
+| `GET` | `/api/sante` | `status`, `version`, nom du trousseau, `superviseur` (adresse du superviseur lancé dans le même processus, `null` sinon) — ce que vérifie la CI après construction |
 | `GET` | `/api/etat` | Phase de l'écran : `recherche` (équipements trouvés), `identifiants`, `choix_lien` (WAN Ethernet proposés), `mesure` |
 | `POST` | `/api/connexion` | Se connecte à un équipement (`hote`, identifiants facultatifs, `retenir`) : 401 refus, 502 injoignable, 422 identifiants incomplets — refusés avant le routeur (poste local) |
 | `POST` | `/api/lien` | Choisit le WAN Ethernet à suivre (`wan_id`) et reprend ou ouvre son observation (poste local) |

@@ -242,6 +242,10 @@ async def health(request: Request) -> dict:
         # Le trousseau du système qui retient les identifiants, ou null : sans
         # lui, ils sont à ressaisir à chaque lancement (`app/coffre.py`).
         "coffre": coffre.nom_du_trousseau(),
+        # L'adresse du témoin Ethernet lancé dans le même processus (exécutable
+        # unique), pour le lien de l'en-tête ; null lancé seul. Au poste local
+        # seulement : le témoin n'écoute que sur 127.0.0.1.
+        "temoin": getattr(state, "lien_temoin", None) if est_poste_local(request) else None,
         "routers": len(state.poller.fleet),
         # La CONSIGNE : la pause entre deux cycles, telle qu'elle est configurée.
         "poll_interval_seconds": state.settings.poll_interval_seconds,

@@ -153,6 +153,18 @@ async def test_la_sante_dit_la_version_et_le_coffre(api):
     assert r.status_code == 200
     assert r.json()["status"] == "ok" and r.json()["version"] == __version__
     assert "coffre" in r.json()
+    # Lancé seul : pas de superviseur à côté, pas de lien.
+    assert r.json()["superviseur"] is None
+
+
+async def test_la_sante_donne_l_adresse_du_superviseur_lance_avec_lui(depot, interface, reseau, temps):
+    # L'exécutable unique lance les deux serveurs et donne au témoin l'adresse
+    # de l'autre : l'écran en fait un lien.
+    app = fabriquer(depot, interface, reseau, temps, superviseur="http://127.0.0.1:8000")
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8765") as c:
+            assert (await c.get("/api/sante")).json()["superviseur"] == "http://127.0.0.1:8000"
 
 
 async def test_le_parcours_va_de_la_recherche_a_la_mesure(api, reseau, depot, temps):

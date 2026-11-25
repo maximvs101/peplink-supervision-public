@@ -673,7 +673,20 @@
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) clearTimeout(timer); else tour();
     });
+    lienSuperviseur();
     tour();
+  }
+
+  // Lancé avec le superviseur (exécutable unique), le témoin publie son
+  // adresse sur /api/sante : l'en-tête en fait un lien. Lancé seul, rien.
+  async function lienSuperviseur() {
+    try {
+      const sante = await api('/api/sante');
+      if (sante && typeof sante.superviseur === 'string' && sante.superviseur) {
+        $('lien-superviseur').href = sante.superviseur;
+        $('lien-superviseur').hidden = false;
+      }
+    } catch (e) { /* sans lien */ }
   }
 
   // ------------------------------------------------------------------ le rapport

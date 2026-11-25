@@ -688,6 +688,7 @@ export function DeviceShell() {
       tunnelCause={tunnelCause}
       neverConnected={router?.never_connected ?? []}
       verdict={verdict}
+      temoin={health?.temoin ?? null}
     />
   )
 
