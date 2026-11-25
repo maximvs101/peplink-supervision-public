@@ -97,6 +97,17 @@ def test_l_avertissement_en_clair_ne_vaut_que_pour_http():
     assert "schema[0] === 'http'" in js and "$('ident-clair').hidden" in js
 
 
+def test_le_lien_vers_le_superviseur_n_apparait_que_s_il_tourne_a_cote():
+    # L'exécutable unique donne au témoin l'adresse du superviseur, publiée par
+    # /api/sante : le lien de l'en-tête est caché par défaut, et le script ne
+    # le montre que pour une adresse publiée.
+    html, js = _texte("index.html"), _texte("temoin.js")
+    assert re.search(r'<header class="mast">.*<a id="lien-superviseur"[^>]*\bhidden\b[^>]*>Superviseur</a>'
+                     r".*</header>", html, re.S)
+    assert "api('/api/sante')" in js and "sante.superviseur" in js
+    assert "$('lien-superviseur').hidden = false" in js
+
+
 def test_les_types_de_l_ecran_ne_dependent_pas_du_registre(monkeypatch):
     import mimetypes
 

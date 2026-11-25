@@ -213,3 +213,32 @@ describe('sous le nom d’un équipement supervisé', () => {
     expect(lien.closest('td')!.textContent).toContain('MAX HD2')
   })
 })
+
+describe('le lien vers le témoin Ethernet', () => {
+  const montage = (health: unknown) =>
+    render(
+      <MemoryRouter initialEntries={['/decouverte']}>
+        <Routes>
+          <Route element={<Outlet context={{ health, routers: [] }} />}>
+            <Route path="/decouverte" element={<Discovery />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+
+  it('figure dans l’en-tête quand le serveur publie l’adresse du témoin', async () => {
+    vi.mocked(fetchDevices).mockResolvedValue([])
+    vi.mocked(fetchDiscovery).mockResolvedValue([])
+    montage({ temoin: 'http://127.0.0.1:8010' })
+    const lien = await screen.findByRole('link', { name: 'Témoin Ethernet' })
+    expect(lien).toHaveAttribute('href', 'http://127.0.0.1:8010')
+  })
+
+  it('n’existe pas quand le superviseur est lancé seul', async () => {
+    vi.mocked(fetchDevices).mockResolvedValue([])
+    vi.mocked(fetchDiscovery).mockResolvedValue([])
+    montage({ temoin: null })
+    await screen.findByRole('link', { name: /Retour à la supervision/ })
+    expect(screen.queryByRole('link', { name: 'Témoin Ethernet' })).toBeNull()
+  })
+})

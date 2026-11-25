@@ -1,3 +1,4 @@
+import { LienTemoin } from './LienTemoin'
 import { PrevenirToggle } from './PrevenirToggle'
 import { ThemeToggle } from './ThemeToggle'
 import { Link, useNavigate } from 'react-router-dom'
@@ -28,6 +29,8 @@ interface Props {
   neverConnected: string[]
   /** Le verdict brut, calculé une fois par `DeviceShell`. */
   verdict?: LinkVerdict
+  /** L'adresse du témoin Ethernet lancé à côté (`/api/health`), ou null. */
+  temoin?: string | null
 }
 
 /**
@@ -43,6 +46,7 @@ interface Props {
 export function Masthead({
   routerId, router, routers, samples, live, status, ageSeconds, error, periodSeconds,
   role, latencyThresholdMs, tunnelAttendu, tunnelCause = null, neverConnected, verdict,
+  temoin = null,
 }: Props) {
   const navigate = useNavigate()
   const info = router?.device ?? null
@@ -117,6 +121,7 @@ export function Masthead({
           </select>
         )}
         <Link className="tag" to="/decouverte">Équipements</Link>
+        <LienTemoin adresse={temoin} />
       </div>
     </header>
   )

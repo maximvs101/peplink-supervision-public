@@ -1,6 +1,9 @@
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext } from 'react-router-dom'
+
+import type { FrameContext } from '../App'
+import { LienTemoin } from '../components/LienTemoin'
 
 import {
   fetchDevices, fetchDiscovery, fetchKnownDevices, reconnectKnownDevice, unpairDevice,
@@ -74,6 +77,8 @@ export function Discovery() {
   const [searching, setSearching] = useState(false)
   const [pairing, setPairing] = useState<string | null>(null)
   const navigate = useNavigate()
+  // Le cadre publie `/api/health` ; un montage sans cadre (tests) n'en a pas.
+  const cadre = useOutletContext<FrameContext | undefined>()
 
   const refresh = useCallback(() => {
     fetchDevices()
@@ -158,6 +163,7 @@ export function Discovery() {
         <div className="mast-tools">
           <ThemeToggle />
           <Link className="tag" to="/">‹ Retour à la supervision</Link>
+          <LienTemoin adresse={cadre?.health?.temoin} />
         </div>
       </header>
 

@@ -648,6 +648,10 @@ export interface Health {
    *  restent brutes, et le regroupement s'arrête avant elles. Absent d'un
    *  serveur antérieur. */
   retention_sessions_en_echec?: number[]
+  /** L'adresse du témoin Ethernet lancé dans le même processus (exécutable
+   *  unique), publiée au poste local ; null lancé seul. Absent d'un serveur
+   *  antérieur. */
+  temoin?: string | null
 }
 
 /** Équipement repéré sur le réseau, avant tout appairage. Ces informations sont
