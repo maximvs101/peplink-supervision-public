@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import coffre
+from app.cause_reseau import cause_reseau
 from app.api.security import HoteDeConfianceMiddleware, hote_de_confiance
 from app.coffre import Identifiants
 from app.models import utcnow
@@ -277,7 +278,7 @@ class _Session:
         except Exception as exc:
             await _fermer_client(client)
             raise connexion.Injoignable(
-                f"Lecture des liens impossible ({type(exc).__name__})."
+                f"Lecture des liens impossible : {cause_reseau(exc)}."
             ) from None
         self.client, self.info, self.hote = client, info, hote
         self.liens_proposes = proposes

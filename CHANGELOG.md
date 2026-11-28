@@ -4,6 +4,12 @@ Le texte de chaque Release GitHub est la section de ce fichier qui porte son ét
 l'action l'extrait au moment de publier. Écrit à la main, au moment où l'on sait ce que la
 version change.
 
+## À venir
+
+- **Causes réseau en français** : « [Errno 54] Connection reset by peer » devient « connexion
+  interrompue par l'équipement » (Découverte, bandeau, connexion du témoin) ; un texte non
+  reconnu perd son numéro d'erreur.
+
 ## v0.3.0 — Un seul fichier pour les deux outils
 
 Le superviseur et le témoin Ethernet sont livrés dans un seul exécutable par système. Les

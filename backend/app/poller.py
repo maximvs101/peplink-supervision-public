@@ -22,8 +22,8 @@ from .fleet import RouterConfig
 from . import alerts as regles_alerte
 from .models import STATUT_DESACTIVE, Alert, RadioSample, utcnow
 from .regles_coupure import est_coupure, est_micro_coupure, sont_voisins
-import httpx
 
+from .cause_reseau import cause_reseau
 from .peplink.router_api import (
     _HORLOGE_SERIE_S,
     CredentialsRefusedError,
@@ -195,20 +195,11 @@ def _cause_injoignable(exc: BaseException) -> str:
     vu sur le serveur en service, routeur hors réseau. Les délais d'httpx
     n'ont pas de texte ; on leur en donne un, et pour le reste on remonte la
     chaîne des causes jusqu'au premier mot.
+
+    Le texte brut du système (« [Errno 54] Connection reset by peer ») est
+    traduit par `cause_reseau`, partagé avec le témoin.
     """
-    if isinstance(exc, httpx.ConnectTimeout):
-        return "délai de connexion dépassé"
-    if isinstance(exc, httpx.ReadTimeout | httpx.WriteTimeout | httpx.PoolTimeout):
-        return "délai de réponse dépassé"
-    courante: BaseException | None = exc
-    vues: set[int] = set()
-    while courante is not None and id(courante) not in vues:
-        texte = redact(str(courante)).strip()
-        if texte:
-            return texte
-        vues.add(id(courante))
-        courante = courante.__cause__ or courante.__context__
-    return type(exc).__name__
+    return cause_reseau(exc)
 
 
 # --- l'attente de la base n'est pas celle de l'équipement --------------------

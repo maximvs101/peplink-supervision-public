@@ -12,6 +12,7 @@ import asyncio
 import logging
 
 from app import coffre
+from app.cause_reseau import cause_reseau
 from app.coffre import Identifiants
 from app.discovery.probe import discover, probe
 from app.fleet import RouterConfig
@@ -126,9 +127,7 @@ async def connecter(
         except RouterApiError as exc:
             raise Injoignable("L'équipement a refusé la lecture.") from exc
         except Exception as exc:
-            raise Injoignable(
-                f"Équipement injoignable ({type(exc).__name__})."
-            ) from exc
+            raise Injoignable(f"Équipement injoignable : {cause_reseau(exc)}.") from exc
         if info is None or not info.serial:
             raise Injoignable("L'équipement n'a pas publié son identité.")
         await depot.memoriser_equipement(hote, info.serial, info.model)
